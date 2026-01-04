@@ -131,6 +131,25 @@ export const dbAPI = {
     await fetchJson(`${API_BASE_URL}/assets/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
   },
 
+  // Budget Checks
+  getBudgetChecks: async (): Promise<{
+    expenseChecksByCheck: Record<string, Record<string, boolean>>;
+    liabilityChecksByCheck: Record<string, Record<string, boolean>>;
+  }> => {
+    return await fetchJson(`${API_BASE_URL}/budget/checks`, { headers: getAuthHeaders() });
+  },
+  saveBudgetChecks: async (payload: {
+    checkDate: string;
+    expenseChecks?: Record<string, boolean>;
+    liabilityChecks?: Record<string, boolean>;
+  }) => {
+    await fetchJson(`${API_BASE_URL}/budget/checks`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+  },
+
   // SETTINGS
   getSettings: async (): Promise<UserSettings | null> => {
     return await fetchJson<UserSettings | null>(`${API_BASE_URL}/settings`, { headers: getAuthHeaders() });

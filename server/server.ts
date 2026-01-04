@@ -40,6 +40,26 @@ const ensureUserNameColumn = () => {
 };
 ensureUserNameColumn();
 
+const ensureBudgetChecksTable = () => {
+  db.run(
+    `CREATE TABLE IF NOT EXISTS budget_checks (
+      id TEXT PRIMARY KEY,
+      check_date TEXT,
+      expense_checks TEXT,
+      liability_checks TEXT,
+      household_id TEXT,
+      user_id INTEGER,
+      updated_at TEXT
+    )`,
+    (err) => {
+      if (err) {
+        console.error('Failed to ensure budget_checks table:', err.message);
+      }
+    }
+  );
+};
+ensureBudgetChecksTable();
+
 app.use(express.json());
 
 type AuthedUser = { id: number; email: string; householdId?: string | null };
@@ -341,6 +361,76 @@ app.delete('/api/assets/:id', authenticateToken, (req: AuthedRequest, res) => {
         }
         res.json({ id });
     });
+});
+
+// --- Budget Checks ---
+app.get('/api/budget/checks', authenticateToken, (req: AuthedRequest, res) => {
+    const user = req.user!;
+    const scopeId = user.householdId || user.id;
+    db.all(
+        'SELECT check_date, expense_checks, liability_checks FROM budget_checks WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
+        [scopeId, user.id],
+        (err, rows) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            const expenseChecksByCheck: Record<string, Record<string, boolean>> = {};
+            const liabilityChecksByCheck: Record<string, Record<string, boolean>> = {};
+            rows.forEach((row: any) => {
+                if (row.expense_checks) {
+                    try {
+                        expenseChecksByCheck[row.check_date] = JSON.parse(row.expense_checks);
+                    } catch {
+                        /* ignore bad rows */
+                    }
+                }
+                if (row.liability_checks) {
+                    try {
+                        liabilityChecksByCheck[row.check_date] = JSON.parse(row.liability_checks);
+                    } catch {
+                        /* ignore bad rows */
+                    }
+                }
+            });
+            res.json({ expenseChecksByCheck, liabilityChecksByCheck });
+        }
+    );
+});
+
+app.post('/api/budget/checks', authenticateToken, (req: AuthedRequest, res) => {
+    const user = req.user!;
+    const scopeId = user.householdId || user.id;
+    const { checkDate, expenseChecks = {}, liabilityChecks = {} } = req.body as {
+        checkDate?: string;
+        expenseChecks?: Record<string, boolean>;
+        liabilityChecks?: Record<string, boolean>;
+    };
+
+    if (!checkDate) {
+        return res.status(400).json({ error: 'checkDate is required' });
+    }
+
+    const id = `${scopeId}_${checkDate}`;
+    const updatedAt = new Date().toISOString();
+    db.run(
+        `INSERT OR REPLACE INTO budget_checks (id, check_date, expense_checks, liability_checks, household_id, user_id, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+            id,
+            checkDate,
+            JSON.stringify(expenseChecks || {}),
+            JSON.stringify(liabilityChecks || {}),
+            scopeId,
+            user.id,
+            updatedAt,
+        ],
+        (err) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            res.json({ success: true, checkDate });
+        }
+    );
 });
 
 // --- Incomes ---

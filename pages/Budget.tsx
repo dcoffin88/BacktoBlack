@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
     Expense,
     IncomeSource,
@@ -21,6 +21,7 @@ import {
     ChevronLeft,
     ChevronRight,
 } from "lucide-react";
+import { dbAPI } from "../server/db";
 
 interface BudgetProps {
     expenses: Expense[];
@@ -87,6 +88,26 @@ const Budget: React.FC<BudgetProps> = ({
         return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
     }, [userSettings?.startDate]);
 
+    const persistChecks = useCallback(
+        async (
+            checkDate: string,
+            expenseChecks: Record<string, boolean>,
+            liabilityChecks: Record<string, boolean>
+        ) => {
+            if (!checkDate) return;
+            try {
+                await dbAPI.saveBudgetChecks({
+                    checkDate,
+                    expenseChecks,
+                    liabilityChecks,
+                });
+            } catch {
+                /* if offline or unauthenticated, ignore */
+            }
+        },
+        []
+    );
+
     useEffect(() => {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (!raw) return;
@@ -98,6 +119,30 @@ const Budget: React.FC<BudgetProps> = ({
         } catch {
             /* ignore corrupt storage */
         }
+    }, []);
+
+    useEffect(() => {
+        let active = true;
+        const loadRemoteChecks = async () => {
+            try {
+                const remote = await dbAPI.getBudgetChecks();
+                if (!active || !remote) return;
+                setExpenseChecksByCheck((prev) => ({
+                    ...prev,
+                    ...(remote.expenseChecksByCheck || {}),
+                }));
+                setLiabilityChecksByCheck((prev) => ({
+                    ...prev,
+                    ...(remote.liabilityChecksByCheck || {}),
+                }));
+            } catch {
+                /* ignore fetch errors; stay on localStorage */
+            }
+        };
+        loadRemoteChecks();
+        return () => {
+            active = false;
+        };
     }, []);
 
     useEffect(() => {
@@ -408,7 +453,13 @@ const Budget: React.FC<BudgetProps> = ({
         setExpenseChecksByCheck((prev) => {
             const nextForCheck = { ...(prev[currentCheckKey] || {}) };
             nextForCheck[id] = !nextForCheck[id];
-            return { ...prev, [currentCheckKey]: nextForCheck };
+            const nextState = { ...prev, [currentCheckKey]: nextForCheck };
+            persistChecks(
+                currentCheckKey,
+                nextForCheck,
+                liabilityChecksByCheck[currentCheckKey] || {}
+            );
+            return nextState;
         });
     };
 
@@ -439,7 +490,13 @@ const Budget: React.FC<BudgetProps> = ({
             if (willCheck) {
                 applyLiabilityPayment(liability);
             }
-            return { ...prev, [currentCheckKey]: nextForCheck };
+            const nextState = { ...prev, [currentCheckKey]: nextForCheck };
+            persistChecks(
+                currentCheckKey,
+                expenseChecksByCheck[currentCheckKey] || {},
+                nextForCheck
+            );
+            return nextState;
         });
     };
 
