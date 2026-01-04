@@ -849,6 +849,9 @@ const Budget: React.FC<BudgetProps> = ({
                                                 {expense.name}
                                             </p>
                                             <p className="text-xs text-slate-400">
+                                                {expense.category
+                                                    ? `${expense.category} • `
+                                                    : ""}
                                                 Due {expense.dueDate} •{" "}
                                                 {expense.frequency === "MONTHLY"
                                                     ? "Monthly"
@@ -948,6 +951,9 @@ const Budget: React.FC<BudgetProps> = ({
                                                 {liability.name}
                                             </p>
                                             <p className="text-xs text-slate-400">
+                                                {liability.category
+                                                    ? `${liability.category} • `
+                                                    : ""}
                                                 Due {liability.dueDate} •{" "}
                                                 {liability.interestRate}% APR
                                             </p>
