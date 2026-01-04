@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
     Expense,
     UserSettings,
@@ -44,6 +44,9 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
         category: "",
         owner: "JOINT",
     });
+
+    const [sortBy, setSortBy] = useState<"name" | "amount" | "dueDate">("name");
+    const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
     const partnerFirstWord =
         userSettings?.partnerName?.trim()?.split(/\s+/)[0] || "Partner";
@@ -293,17 +296,68 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                         <table className="w-full text-left border-collapse">
                             <thead>
                                 <tr className="bg-white border-b border-slate-100">
-                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                                        Expense Name
+                                    <th
+                                        className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none"
+                                        onClick={() => {
+                                            setSortBy("name");
+                                            setSortDir((d) =>
+                                                sortBy === "name" && d === "asc"
+                                                    ? "desc"
+                                                    : "asc"
+                                            );
+                                        }}
+                                    >
+                                        <div className="flex items-center space-x-1">
+                                            <span>Expense Name</span>
+                                            {sortBy === "name" && (
+                                                <span className="text-[10px] text-slate-400">
+                                                    {sortDir === "asc" ? "▲" : "▼"}
+                                                </span>
+                                            )}
+                                        </div>
                                     </th>
-                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">
-                                        Payment
+                                    <th
+                                        className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right cursor-pointer select-none"
+                                        onClick={() => {
+                                            setSortBy("amount");
+                                            setSortDir((d) =>
+                                                sortBy === "amount" && d === "asc"
+                                                    ? "desc"
+                                                    : "asc"
+                                            );
+                                        }}
+                                    >
+                                        <div className="flex items-center justify-end space-x-1">
+                                            <span>Payment</span>
+                                            {sortBy === "amount" && (
+                                                <span className="text-[10px] text-slate-400">
+                                                    {sortDir === "asc" ? "▲" : "▼"}
+                                                </span>
+                                            )}
+                                        </div>
                                     </th>
                                     <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center">
                                         Frequency
                                     </th>
-                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">
-                                        Next Due
+                                    <th
+                                        className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right cursor-pointer select-none"
+                                        onClick={() => {
+                                            setSortBy("dueDate");
+                                            setSortDir((d) =>
+                                                sortBy === "dueDate" && d === "asc"
+                                                    ? "desc"
+                                                    : "asc"
+                                            );
+                                        }}
+                                    >
+                                        <div className="flex items-center justify-end space-x-1">
+                                            <span>Next Due</span>
+                                            {sortBy === "dueDate" && (
+                                                <span className="text-[10px] text-slate-400">
+                                                    {sortDir === "asc" ? "▲" : "▼"}
+                                                </span>
+                                            )}
+                                        </div>
                                     </th>
                                     <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center">
                                         Actions
@@ -321,8 +375,26 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                     </td>
                                     </tr>
                                 ) : (
-                                    [...expenses]
-                                        .sort((a, b) => a.dueDate - b.dueDate)
+                                    useMemo(() => {
+                                        const dir = sortDir === "asc" ? 1 : -1;
+                                        return [...expenses].sort((a, b) => {
+                                            if (sortBy === "name") {
+                                                return (
+                                                    a.name.localeCompare(b.name) *
+                                                    dir
+                                                );
+                                            }
+                                            if (sortBy === "amount") {
+                                                return (a.amount - b.amount) * dir;
+                                            }
+                                            if (sortBy === "dueDate") {
+                                                return (
+                                                    (a.dueDate - b.dueDate) * dir
+                                                );
+                                            }
+                                            return 0;
+                                        });
+                                    }, [expenses, sortBy, sortDir])
                                         .map((expense) => (
                                             <tr
                                                 key={expense.id}

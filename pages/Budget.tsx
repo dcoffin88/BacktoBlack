@@ -697,7 +697,7 @@ const Budget: React.FC<BudgetProps> = ({
 
     const expensePortions = expenses
         .slice()
-        .sort((a, b) => a.dueDate - b.dueDate)
+        .sort((a, b) => a.name.localeCompare(b.name))
         .map((expense) => ({
             expense,
             perCheck: getPerCheckExpense(expense),
@@ -706,7 +706,7 @@ const Budget: React.FC<BudgetProps> = ({
 
     const liabilityPortions = liabilityWithPlan
         .slice()
-        .sort((a, b) => a.dueDate - b.dueDate)
+        .sort((a, b) => a.name.localeCompare(b.name))
         .map((liability) => ({
             liability,
             perCheck: getPerCheckLiability(liability),
@@ -1005,11 +1005,14 @@ const Budget: React.FC<BudgetProps> = ({
                             }
                         >
                             <option value="">Select liability</option>
-                            {liabilities.map((l) => (
+                            {liabilities
+                                .slice()
+                                .sort((a, b) => a.name.localeCompare(b.name))
+                                .map((l) => (
                                 <option key={l.id} value={l.id}>
                                     {l.name}
                                 </option>
-                            ))}
+                                ))}
                         </select>
                     </div>
                     <div>

@@ -152,6 +152,11 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         owner: "JOINT",
     });
 
+    const [sortBy, setSortBy] = useState<"name" | "balance" | "interestRate">(
+        "name"
+    );
+    const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
     const partnerFirstWord =
         settings?.partnerName?.trim()?.split(/\s+/)[0] || "Partner";
 
@@ -492,14 +497,65 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                     <table className="w-full text-left border-collapse">
                         <thead>
                             <tr className="bg-slate-50 border-b border-slate-200">
-                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                                    Name
+                                <th
+                                    className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none"
+                                    onClick={() => {
+                                        setSortBy("name");
+                                        setSortDir((d) =>
+                                            sortBy === "name" && d === "asc"
+                                                ? "desc"
+                                                : "asc"
+                                        );
+                                    }}
+                                >
+                                    <div className="flex items-center space-x-1">
+                                        <span>Name</span>
+                                        {sortBy === "name" && (
+                                            <span className="text-[10px] text-slate-400">
+                                                {sortDir === "asc" ? "▲" : "▼"}
+                                            </span>
+                                        )}
+                                    </div>
                                 </th>
-                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">
-                                    Balance
+                                <th
+                                    className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right cursor-pointer select-none"
+                                    onClick={() => {
+                                        setSortBy("balance");
+                                        setSortDir((d) =>
+                                            sortBy === "balance" && d === "asc"
+                                                ? "desc"
+                                                : "asc"
+                                        );
+                                    }}
+                                >
+                                    <div className="flex items-center justify-end space-x-1">
+                                        <span>Balance</span>
+                                        {sortBy === "balance" && (
+                                            <span className="text-[10px] text-slate-400">
+                                                {sortDir === "asc" ? "▲" : "▼"}
+                                            </span>
+                                        )}
+                                    </div>
                                 </th>
-                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">
-                                    APR
+                                <th
+                                    className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right cursor-pointer select-none"
+                                    onClick={() => {
+                                        setSortBy("interestRate");
+                                        setSortDir((d) =>
+                                            sortBy === "interestRate" && d === "asc"
+                                                ? "desc"
+                                                : "asc"
+                                        );
+                                    }}
+                                >
+                                    <div className="flex items-center justify-end space-x-1">
+                                        <span>APR</span>
+                                        {sortBy === "interestRate" && (
+                                            <span className="text-[10px] text-slate-400">
+                                                {sortDir === "asc" ? "▲" : "▼"}
+                                            </span>
+                                        )}
+                                    </div>
                                 </th>
                                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">
                                     Current Min. (Mo.)
@@ -527,7 +583,27 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                     </td>
                                 </tr>
                             ) : (
-                                liabilities.map((liability) => {
+                                liabilities
+                                    .slice()
+                                    .sort((a, b) => {
+                                        const dir = sortDir === "asc" ? 1 : -1;
+                                        if (sortBy === "name") {
+                                            return (
+                                                a.name.localeCompare(b.name) * dir
+                                            );
+                                        }
+                                        if (sortBy === "balance") {
+                                            return (a.balance - b.balance) * dir;
+                                        }
+                                        if (sortBy === "interestRate") {
+                                            return (
+                                                (a.interestRate - b.interestRate) *
+                                                dir
+                                            );
+                                        }
+                                        return 0;
+                                    })
+                                    .map((liability) => {
                                     const percentPaid =
                                         liability.startingBalance > 0
                                             ? Math.max(

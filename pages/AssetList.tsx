@@ -12,6 +12,8 @@ interface AssetListProps {
 const AssetList: React.FC<AssetListProps> = ({ assets, onSave, onDelete, settings }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<"name" | "value" | "category">("name");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   const [formData, setFormData] = useState<Omit<Asset, 'id'>>({
     name: '',
@@ -118,9 +120,60 @@ const AssetList: React.FC<AssetListProps> = ({ assets, onSave, onDelete, setting
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Asset Name</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Category</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Value</th>
+                <th
+                  className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none"
+                  onClick={() => {
+                    setSortBy("name");
+                    setSortDir((d) =>
+                      sortBy === "name" && d === "asc" ? "desc" : "asc"
+                    );
+                  }}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span>Asset Name</span>
+                    {sortBy === "name" && (
+                      <span className="text-[10px] text-slate-400">
+                        {sortDir === "asc" ? "▲" : "▼"}
+                      </span>
+                    )}
+                  </div>
+                </th>
+                <th
+                  className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none"
+                  onClick={() => {
+                    setSortBy("category");
+                    setSortDir((d) =>
+                      sortBy === "category" && d === "asc" ? "desc" : "asc"
+                    );
+                  }}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span>Category</span>
+                    {sortBy === "category" && (
+                      <span className="text-[10px] text-slate-400">
+                        {sortDir === "asc" ? "▲" : "▼"}
+                      </span>
+                    )}
+                  </div>
+                </th>
+                <th
+                  className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right cursor-pointer select-none"
+                  onClick={() => {
+                    setSortBy("value");
+                    setSortDir((d) =>
+                      sortBy === "value" && d === "asc" ? "desc" : "asc"
+                    );
+                  }}
+                >
+                  <div className="flex items-center justify-end space-x-1">
+                    <span>Value</span>
+                    {sortBy === "value" && (
+                      <span className="text-[10px] text-slate-400">
+                        {sortDir === "asc" ? "▲" : "▼"}
+                      </span>
+                    )}
+                  </div>
+                </th>
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center">Actions</th>
               </tr>
             </thead>
@@ -132,7 +185,22 @@ const AssetList: React.FC<AssetListProps> = ({ assets, onSave, onDelete, setting
                   </td>
                 </tr>
               ) : (
-                assets.sort((a,b) => b.value - a.value).map(asset => (
+                assets
+                  .slice()
+                  .sort((a, b) => {
+                    const dir = sortDir === "asc" ? 1 : -1;
+                    if (sortBy === "name") {
+                      return a.name.localeCompare(b.name) * dir;
+                    }
+                    if (sortBy === "value") {
+                      return (a.value - b.value) * dir;
+                    }
+                    if (sortBy === "category") {
+                      return (a.category || "").localeCompare(b.category || "") * dir;
+                    }
+                    return 0;
+                  })
+                  .map(asset => (
                   <tr key={asset.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-4 font-medium text-slate-900">
                       {asset.name}
