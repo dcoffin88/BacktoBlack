@@ -872,6 +872,26 @@ const Budget: React.FC<BudgetProps> = ({
         }))
         .filter(({ perCheck }) => perCheck > 0);
 
+    const currentExpenseTotal = useMemo(
+        () =>
+            expensePortions.reduce((sum, { perCheck }) => sum + perCheck, 0),
+        [expensePortions]
+    );
+
+    const currentLiabilityTotal = useMemo(
+        () =>
+            liabilityPortions.reduce(
+                (sum, { perCheck }) => sum + perCheck,
+                0
+            ),
+        [liabilityPortions]
+    );
+
+    const currentLeftOver =
+        (currentPaycheck?.source.amount || 0) -
+        currentExpenseTotal -
+        currentLiabilityTotal;
+
     return (
         <div className="space-y-8">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -887,7 +907,7 @@ const Budget: React.FC<BudgetProps> = ({
             </div>
 
             {currentPaycheck && (
-                <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex items-center justify-between">
+                <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
                     <div>
                         <p className="text-xs font-semibold text-indigo-500 uppercase tracking-wide">
                             Current Check
@@ -900,12 +920,65 @@ const Budget: React.FC<BudgetProps> = ({
                             {currentPaycheck.date.getFullYear()}
                         </p>
                     </div>
-                    <div className="text-right">
-                        <p className="text-sm text-slate-500">Amount</p>
-                        <p className="text-2xl font-bold text-emerald-700">
-                            {currencySymbol}
-                            {currentPaycheck.source.amount.toLocaleString()}
-                        </p>
+                    <div className="flex flex-wrap items-center gap-4 lg:gap-6">
+                        <div className="text-center">
+                            <p className="text-sm text-slate-500">Amount</p>
+                            <p className="text-2xl font-bold text-emerald-700">
+                                {currencySymbol}
+                                {currentPaycheck.source.amount.toLocaleString()}
+                            </p>
+                        </div>
+                        <div className="text-center">
+                            <p className="text-lg font-bold text-slate-900">-</p>
+                        </div>
+                        <div className="text-center">
+                            <p className="text-sm text-slate-500">
+                                Expenses
+                            </p>
+                            <p className="text-2xl font-bold text-slate-900">
+                                {currencySymbol}
+                                {currentExpenseTotal.toLocaleString(
+                                    undefined,
+                                    { maximumFractionDigits: 2 }
+                                )}
+                            </p>
+                        </div>
+                        <div className="text-center">
+                            <p className="text-lg font-bold text-slate-900">-</p>
+                        </div>
+                        <div className="text-center">
+                            <p className="text-sm text-slate-500">
+                                Liabilities
+                            </p>
+                            <p className="text-2xl font-bold text-slate-900">
+                                {currencySymbol}
+                                {currentLiabilityTotal.toLocaleString(
+                                    undefined,
+                                    { maximumFractionDigits: 2 }
+                                )}
+                            </p>
+                        </div>
+                        <div className="text-center">
+                            <p className="text-lg font-bold text-slate-900">=</p>
+                        </div>
+                        <div className="text-center">
+                            <p className="text-sm text-slate-500">
+                                Remaining
+                            </p>
+                            <p
+                                className={`text-2xl font-bold ${
+                                    currentLeftOver >= 0
+                                        ? "text-emerald-700"
+                                        : "text-red-600"
+                                }`}
+                            >
+                                {currencySymbol}
+                                {currentLeftOver.toLocaleString(
+                                    undefined,
+                                    { maximumFractionDigits: 2 }
+                                )}
+                            </p>
+                        </div>
                     </div>
                     <div className="flex flex-col">
                         <div className="flex items-center mb-2 justify-center space-x-2">
