@@ -136,6 +136,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         startingBalance: 0,
         startDate: "",
         interestRate: 0,
+        category: "",
         minPaymentPercentage: 2,
         minPaymentPlusInterest: true,
         minPaymentPlusFees: false,
@@ -187,6 +188,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                 startingBalance: liability.startingBalance || liability.balance,
                 startDate: liability.startDate || todayStr,
                 interestRate: liability.interestRate,
+                category: liability.category || "",
                 minPaymentPercentage: liability.minPaymentPercentage,
                 minPaymentPlusInterest: liability.minPaymentPlusInterest,
                 minPaymentPlusFees: liability.minPaymentPlusFees || false,
@@ -627,6 +629,11 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 <div className="font-medium text-slate-900">
                                                     {liability.name}
                                                 </div>
+                                                {liability.category ? (
+                                                    <span className="block text-xs font-normal text-slate-400">
+                                                        {liability.category}
+                                                    </span>
+                                                ) : null}
                                                 <div className="flex items-center space-x-1 mt-1">
                                                     {getOwnerIcon(
                                                         liability.owner
@@ -799,10 +806,28 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
                                                 placeholder="e.g. Mastercard or Car Loan"
                                                 value={formData.name}
+                                                    onChange={(e) =>
+                                                        setFormData({
+                                                            ...formData,
+                                                            name: e.target.value,
+                                                        })
+                                                    }
+                                                />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">
+                                                Category (Opt)
+                                            </label>
+                                            <input
+                                                type="text"
+                                                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                                                placeholder="e.g. Auto Loan"
+                                                value={formData.category}
                                                 onChange={(e) =>
                                                     setFormData({
                                                         ...formData,
-                                                        name: e.target.value,
+                                                        category: e.target.value,
                                                     })
                                                 }
                                             />

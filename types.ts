@@ -3,6 +3,7 @@ export interface Liability {
     householdId?: string;
     name: string;
     balance: number;
+    category?: string;
     interestRate: number; // Annual percentage (e.g., 18.5 for 18.5%)
 
     // Historical / Meta Data
