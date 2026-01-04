@@ -87,6 +87,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         totalFees: number;
         months: number;
     } | null>(null);
+    const [historicalPayment, setHistoricalPayment] = useState<{
+        amount: number;
+        date: string;
+    }>({ amount: 0, date: "" });
     const [extraPayments, setExtraPayments] = useState<ExtraPayment[]>([]);
     const [savedSchedule, setSavedSchedule] = useState<BudgetSchedule | null>(
         null
@@ -347,6 +351,24 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         setViewingLiability(liability);
         setAmortizationData(data);
         setIsAmortizationOpen(true);
+    };
+
+    const addHistoricalPayment = async () => {
+        if (!viewingLiability || historicalPayment.amount <= 0) return;
+        const payload: ExtraPayment = {
+            id: Math.random().toString(36).substr(2, 9),
+            liabilityId: viewingLiability.id,
+            amount: historicalPayment.amount,
+            checkDate: historicalPayment.date || new Date().toISOString().split("T")[0],
+        };
+        setExtraPayments((prev) => [...prev, payload]);
+        try {
+            await dbAPI.saveExtraPayment(payload);
+            // Recompute with new extra
+            handleViewAmortization(viewingLiability);
+        } catch {
+            /* ignore save failures */
+        }
     };
 
     const renderMinPaymentLabel = (liability: Liability) => {
@@ -1884,6 +1906,65 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                 <X size={24} />
                             </button>
                         </div>
+
+                        {/* Historical Payments */}
+                        {viewingLiability && (
+                            <div className="px-6 py-4 border-b border-slate-200 bg-white flex flex-col gap-3">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                                            Historical Payments
+                                        </p>
+                                        <p className="text-sm text-slate-500">
+                                            Add past payments to reflect in the amortization.
+                                        </p>
+                                    </div>
+                                    <div className="flex items-end gap-3">
+                                        <div>
+                                            <label className="block text-xs font-medium text-slate-600 mb-1">
+                                                Date
+                                            </label>
+                                            <input
+                                                type="date"
+                                                className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
+                                                value={historicalPayment.date}
+                                                onChange={(e) =>
+                                                    setHistoricalPayment((prev) => ({
+                                                        ...prev,
+                                                        date: e.target.value,
+                                                    }))
+                                                }
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-slate-600 mb-1">
+                                                Amount
+                                            </label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="0.01"
+                                                className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
+                                                value={historicalPayment.amount}
+                                                onChange={(e) =>
+                                                    setHistoricalPayment((prev) => ({
+                                                        ...prev,
+                                                        amount: parseFloat(e.target.value) || 0,
+                                                    }))
+                                                }
+                                            />
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={addHistoricalPayment}
+                                            className="inline-flex items-center px-4 py-2 rounded-lg bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-700 transition-colors"
+                                        >
+                                            Add
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Warning for Infinite Liability */}
                         {amortizationData.isInfinite && (

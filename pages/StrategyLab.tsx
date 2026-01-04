@@ -27,12 +27,13 @@ const COLORS: Record<StrategyType, string> = {
 };
 
 const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget }) => {
-  const [activeTab, setActiveTab] = useState<'simulate' | 'compare' | 'schedule' | 'balanceTransfer'>('compare');
+  const [activeTab, setActiveTab] = useState<'simulate' | 'compare' | 'schedule' | 'balanceTransfer'>('schedule');
   const [selectedStrategy, setSelectedStrategy] = useState<StrategyType>(StrategyType.AVALANCHE);
   const [customOrderMap, setCustomOrderMap] = useState<Record<string, number>>({});
   const [chartsReady, setChartsReady] = useState(false);
   const [scheduleSavedAt, setScheduleSavedAt] = useState<string | null>(null);
   const [anchorDate, setAnchorDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [hasJustSentSchedule, setHasJustSentSchedule] = useState(false);
   const [showAnchorModal, setShowAnchorModal] = useState(false);
   
   // For Comparison Mode
@@ -79,6 +80,9 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
           const d = new Date(remote.schedule.savedAt);
           if (!Number.isNaN(d.getTime())) {
             setAnchorDate(d.toISOString().split('T')[0]);
+            if (remote.schedule.strategy && STRATEGY_LABELS[remote.schedule.strategy]) {
+              setSelectedStrategy(remote.schedule.strategy as StrategyType);
+            }
           }
         }
       } catch {
@@ -290,6 +294,7 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
           setAnchorDate(d.toISOString().split('T')[0]);
         }
       }
+      setHasJustSentSchedule(true);
     } catch {
       // keep local state untouched on failure
     }
@@ -339,15 +344,6 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
         {/* Tab Switcher */}
         <div className="bg-slate-100 p-1 rounded-lg flex space-x-1 overflow-x-auto max-w-full">
           <button
-            onClick={() => setActiveTab('compare')}
-            className={`flex items-center space-x-2 px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
-              activeTab === 'compare' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Layers size={16} />
-            <span>Compare</span>
-          </button>
-		  <button
             onClick={() => setActiveTab('schedule')}
             className={`flex items-center space-x-2 px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
               activeTab === 'schedule' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
@@ -355,6 +351,15 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
           >
             <Table size={16} />
             <span>Schedule</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('compare')}
+            className={`flex items-center space-x-2 px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
+              activeTab === 'compare' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Layers size={16} />
+            <span>Compare</span>
           </button>
           <button
             onClick={() => setActiveTab('balanceTransfer')}
@@ -831,7 +836,7 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
                 </div>
               </div>
             </div>
-            {scheduleSavedAt && (
+            {scheduleSavedAt && hasJustSentSchedule && (
               <div className="mb-6 px-4 py-3 bg-emerald-50 border border-emerald-100 rounded-lg text-sm text-emerald-800 flex items-center justify-between">
                 <span>
                   Schedule sent to Budget using <strong>{STRATEGY_LABELS[selectedStrategy]}</strong>. Month 1 is anchored to {new Date(scheduleSavedAt).toLocaleDateString()}.
