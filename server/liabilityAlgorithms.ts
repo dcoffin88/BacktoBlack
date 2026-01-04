@@ -83,7 +83,8 @@ export const getMinPayment = (liability: Liability, currentPrincipal: number, ac
 
 export const calculateIndividualAmortization = (
   liability: Liability,
-  extraPaymentsByPeriod?: Record<number, number>
+  extraPaymentsByPeriod?: Record<number, number>,
+  plannedPaymentsByPeriod?: Record<number, number>
 ) => {
   let balance = liability.balance;
   const rate = liability.interestRate;
@@ -171,9 +172,16 @@ export const calculateIndividualAmortization = (
     }
 
     const extraPayment = extraPaymentsByPeriod?.[periodsElapsed] || 0;
+    const plannedPayment = plannedPaymentsByPeriod?.[periodsElapsed];
 
-    let principal = requiredPayment - interest + extraPayment;
-    let payment = requiredPayment + extraPayment;
+    // If a planned payment exists, treat anything above the required amount as additional extra
+    const plannedExtra =
+      plannedPayment !== undefined
+        ? Math.max(0, plannedPayment - requiredPayment)
+        : 0;
+
+    let principal = requiredPayment - interest + extraPayment + plannedExtra;
+    let payment = requiredPayment + extraPayment + plannedExtra;
 
     // Final month adjustment
     if (balance < principal) {
@@ -193,7 +201,10 @@ export const calculateIndividualAmortization = (
       principal: principal,
       fees: currentMonthFee,
       remainingBalance: balance,
-      extraPayment: extraPayment || undefined,
+      extraPayment:
+        extraPayment + plannedExtra > 0
+          ? extraPayment + plannedExtra
+          : undefined,
     });
   }
   

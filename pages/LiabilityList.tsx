@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Liability, Ownership, UserSettings } from "../types";
+import { Liability, Ownership, PayoffMonth, UserSettings } from "../types";
 import {
     calculateIndividualAmortization,
     AmortizationRow,
@@ -24,6 +24,16 @@ import {
     CheckCircle,
 } from "lucide-react";
 import { dbAPI } from "../server/db";
+
+const SCHEDULE_STORAGE_KEY = "budget-liability-plan";
+
+type SavedSchedule = {
+    strategy: string;
+    strategyLabel: string;
+    savedAt: string;
+    monthlyBudget: number;
+    timeline: PayoffMonth[];
+};
 
 interface LiabilityListProps {
     liabilities: Liability[];
@@ -83,6 +93,9 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         months: number;
     } | null>(null);
     const [extraPayments, setExtraPayments] = useState<ExtraPayment[]>([]);
+    const [savedSchedule, setSavedSchedule] = useState<SavedSchedule | null>(
+        null
+    );
 
     useEffect(() => {
         let active = true;
@@ -96,6 +109,17 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             }
         };
         loadExtras();
+        try {
+            const raw = localStorage.getItem(SCHEDULE_STORAGE_KEY);
+            if (raw) {
+                const parsed = JSON.parse(raw) as SavedSchedule;
+                if (parsed?.timeline?.length) {
+                    setSavedSchedule(parsed);
+                }
+            }
+        } catch {
+            /* ignore parse errors */
+        }
         return () => {
             active = false;
         };
@@ -127,6 +151,16 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         const targetMonth = target.getFullYear() * 12 + target.getMonth();
         const monthDiff = targetMonth - baseMonth;
         return Math.max(0, monthDiff) + 1;
+    };
+
+    const getScheduleMonthIndex = (savedAt?: string) => {
+        if (!savedAt) return 1;
+        const savedDate = new Date(savedAt);
+        if (Number.isNaN(savedDate.getTime())) return 1;
+        const today = new Date();
+        const savedMonthCount = savedDate.getFullYear() * 12 + savedDate.getMonth();
+        const currentMonthCount = today.getFullYear() * 12 + today.getMonth();
+        return Math.max(1, currentMonthCount - savedMonthCount + 1);
     };
 
     // Form State
@@ -290,7 +324,46 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                 return acc;
             }, {});
 
-        const data = calculateIndividualAmortization(liability, extrasMap);
+        const schedule = (() => {
+            try {
+                const raw = localStorage.getItem(SCHEDULE_STORAGE_KEY);
+                if (raw) {
+                    const parsed = JSON.parse(raw) as SavedSchedule;
+                    if (parsed?.timeline?.length) {
+                        setSavedSchedule(parsed);
+                        return parsed;
+                    }
+                }
+            } catch {
+                /* ignore */
+            }
+            return savedSchedule;
+        })();
+
+        const planPaymentsMap = (() => {
+            if (!schedule?.timeline?.length) return {};
+            const scheduleMonthIndex = getScheduleMonthIndex(schedule.savedAt);
+            const offset = scheduleMonthIndex - 1;
+            const map: Record<number, number> = {};
+            schedule.timeline.forEach((row) => {
+                const period = row.month - offset;
+                if (period < 1) return;
+                const paymentEntry = row.breakdown?.find(
+                    (b) => b.liabilityId === liability.id
+                );
+                const pay = paymentEntry?.payment || 0;
+                if (pay > 0) {
+                    map[period] = pay;
+                }
+            });
+            return map;
+        })();
+
+        const data = calculateIndividualAmortization(
+            liability,
+            extrasMap,
+            planPaymentsMap
+        );
         setViewingLiability(liability);
         setAmortizationData(data);
         setIsAmortizationOpen(true);
