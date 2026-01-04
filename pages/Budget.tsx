@@ -687,11 +687,12 @@ const Budget: React.FC<BudgetProps> = ({
     ) => {
         const frequency =
             liability.scheduledFrequency || getLiabilityFrequency(liability);
+        const extraAmount = extraByLiability[liability.id] || 0;
         if (frequency === "BI_WEEKLY") {
-            return (liability.plannedPayment || 0) * biWeeklyRatio;
+            return (liability.plannedPayment || 0) * biWeeklyRatio + extraAmount;
         }
         if (currentPaycheck?.eligibleMonthly === false) return 0;
-        return (liability.plannedPayment || 0) * monthlyRatio;
+        return (liability.plannedPayment || 0) * monthlyRatio + extraAmount;
     };
 
     const expensePortions = expenses
