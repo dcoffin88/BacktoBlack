@@ -294,7 +294,7 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                         })}
                     </p>
                     <p className="mt-2 text-xs text-slate-400">
-                        Includes bi-weekly expenses converted to monthly totals.
+                        Includes all expense frequencies converted to monthly totals.
                     </p>
 
                     {/* Split Breakdown */}
