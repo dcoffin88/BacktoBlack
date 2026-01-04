@@ -3,7 +3,7 @@ import {
     Expense,
     IncomeSource,
     Liability,
-    PayoffMonth,
+    BudgetSchedule,
     UserSettings,
     ExpenseSplitMethod,
 } from "../types";
@@ -38,16 +38,6 @@ type ExtraPayment = {
     checkDate?: string | null;
 };
 
-type SavedSchedule = {
-    strategy: string;
-    strategyLabel: string;
-    savedAt: string;
-    monthlyBudget: number;
-    timeline: PayoffMonth[];
-};
-
-const SCHEDULE_STORAGE_KEY = "budget-liability-plan";
-
 const Budget: React.FC<BudgetProps> = ({
     expenses,
     liabilities,
@@ -75,9 +65,7 @@ const Budget: React.FC<BudgetProps> = ({
         amount: number;
     }>({ liabilityId: "", amount: 0 });
     const [currentPaycheckIndex, setCurrentPaycheckIndex] = useState(0);
-    const [budgetSchedule, setBudgetSchedule] = useState<SavedSchedule | null>(
-        null
-    );
+    const [budgetSchedule, setBudgetSchedule] = useState<BudgetSchedule | null>(null);
     const [scheduleMonthIndex, setScheduleMonthIndex] = useState<number | null>(
         null
     );
@@ -123,7 +111,7 @@ const Budget: React.FC<BudgetProps> = ({
                     ...(remote.liabilityChecksByCheck || {}),
                 }));
             } catch {
-                /* ignore fetch errors; stay on localStorage */
+                /* ignore fetch errors */
             }
         };
         const loadExtras = async () => {
@@ -143,37 +131,41 @@ const Budget: React.FC<BudgetProps> = ({
     }, []);
 
     useEffect(() => {
-        const rawSchedule = localStorage.getItem(SCHEDULE_STORAGE_KEY);
-        if (!rawSchedule) {
-            setBudgetSchedule(null);
-            setScheduleMonthIndex(null);
-            return;
-        }
-        try {
-            const parsed = JSON.parse(rawSchedule) as SavedSchedule;
-            if (!parsed?.timeline?.length) {
-                setBudgetSchedule(null);
-                setScheduleMonthIndex(null);
-                return;
+        let active = true;
+        const loadSchedule = async () => {
+            try {
+                const remote = await dbAPI.getBudgetSchedule();
+                if (!active) return;
+                const schedule = remote?.schedule || null;
+                setBudgetSchedule(schedule);
+                if (schedule?.savedAt) {
+                    const savedDate = new Date(schedule.savedAt);
+                    const today = new Date();
+                    if (Number.isNaN(savedDate.getTime())) {
+                        setScheduleMonthIndex(1);
+                        return;
+                    }
+                    const savedMonthCount =
+                        savedDate.getFullYear() * 12 + savedDate.getMonth();
+                    const currentMonthCount =
+                        today.getFullYear() * 12 + today.getMonth();
+                    setScheduleMonthIndex(
+                        Math.max(1, currentMonthCount - savedMonthCount + 1)
+                    );
+                } else {
+                    setScheduleMonthIndex(null);
+                }
+            } catch {
+                if (active) {
+                    setBudgetSchedule(null);
+                    setScheduleMonthIndex(null);
+                }
             }
-            setBudgetSchedule(parsed);
-            const savedDate = new Date(parsed.savedAt);
-            const today = new Date();
-            if (Number.isNaN(savedDate.getTime())) {
-                setScheduleMonthIndex(1);
-                return;
-            }
-            const savedMonthCount =
-                savedDate.getFullYear() * 12 + savedDate.getMonth();
-            const currentMonthCount =
-                today.getFullYear() * 12 + today.getMonth();
-            setScheduleMonthIndex(
-                Math.max(1, currentMonthCount - savedMonthCount + 1)
-            );
-        } catch {
-            setBudgetSchedule(null);
-            setScheduleMonthIndex(null);
-        }
+        };
+        loadSchedule();
+        return () => {
+            active = false;
+        };
     }, [liabilities]);
 
     const budgetedIncomes = useMemo(
@@ -499,8 +491,12 @@ const Budget: React.FC<BudgetProps> = ({
         });
     };
 
-    const clearBudgetSchedule = () => {
-        localStorage.removeItem(SCHEDULE_STORAGE_KEY);
+    const clearBudgetSchedule = async () => {
+        try {
+            await dbAPI.deleteBudgetSchedule();
+        } catch {
+            /* ignore delete errors */
+        }
         setBudgetSchedule(null);
         setScheduleMonthIndex(null);
     };

@@ -1,4 +1,4 @@
-import { Liability, Expense, Asset, UserSettings, IncomeSource, UserProfile } from '../types';
+import { Liability, Expense, Asset, UserSettings, IncomeSource, UserProfile, BudgetSchedule } from '../types';
 
 const API_BASE_URL = '/api';
 
@@ -169,6 +169,24 @@ export const dbAPI = {
   },
   deleteExtraPayment: async (id: string) => {
     await fetchJson(`${API_BASE_URL}/budget/extra-payments/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+  },
+
+  // Budget Schedule
+  getBudgetSchedule: async (): Promise<{ schedule: BudgetSchedule | null }> => {
+    return await fetchJson(`${API_BASE_URL}/budget/schedule`, { headers: getAuthHeaders() });
+  },
+  saveBudgetSchedule: async (schedule: BudgetSchedule) => {
+    return await fetchJson(`${API_BASE_URL}/budget/schedule`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(schedule),
+    });
+  },
+  deleteBudgetSchedule: async () => {
+    await fetchJson(`${API_BASE_URL}/budget/schedule`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });

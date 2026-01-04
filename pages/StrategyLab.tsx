@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Liability, StrategyType, STRATEGY_LABELS } from '../types';
+import { Liability, StrategyType, STRATEGY_LABELS, BudgetSchedule } from '../types';
 import { calculatePayoff, calculateIndividualAmortization, getMinPayment } from '../server/liabilityAlgorithms';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
@@ -8,13 +8,12 @@ import {
 } from 'recharts';
 import { ChevronDown, Check, ArrowRight, Info, Layers, BarChart2, Table, CreditCard, Percent, Calendar, AlertTriangle, TrendingUp, DollarSign, Landmark } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { dbAPI } from '../server/db';
 
 interface StrategyLabProps {
   liabilities: Liability[];
   monthlyBudget: number;
 }
-
-const SCHEDULE_STORAGE_KEY = 'budget-liability-plan';
 
 const COLORS: Record<StrategyType, string> = {
   [StrategyType.SNOWBALL]: '#3b82f6', // Blue
@@ -33,6 +32,8 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
   const [customOrderMap, setCustomOrderMap] = useState<Record<string, number>>({});
   const [chartsReady, setChartsReady] = useState(false);
   const [scheduleSavedAt, setScheduleSavedAt] = useState<string | null>(null);
+  const [anchorDate, setAnchorDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [showAnchorModal, setShowAnchorModal] = useState(false);
   
   // For Comparison Mode
   const [compareSelection, setCompareSelection] = useState<StrategyType[]>([
@@ -65,6 +66,31 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
   useEffect(() => {
     // Avoid ResponsiveContainer measuring at -1/-1 before mount
     setChartsReady(true);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const loadSchedule = async () => {
+      try {
+        const remote = await dbAPI.getBudgetSchedule();
+        if (!active) return;
+        setScheduleSavedAt(remote?.schedule?.savedAt || null);
+        if (remote?.schedule?.savedAt) {
+          const d = new Date(remote.schedule.savedAt);
+          if (!Number.isNaN(d.getTime())) {
+            setAnchorDate(d.toISOString().split('T')[0]);
+          }
+        }
+      } catch {
+        if (active) {
+          setScheduleSavedAt(null);
+        }
+      }
+    };
+    loadSchedule();
+    return () => {
+      active = false;
+    };
   }, []);
 
   const orderedLiabilities = useMemo(() => {
@@ -237,16 +263,36 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
     }
   };
 
-  const saveScheduleToBudget = () => {
-    const payload = {
+  const handleConfirmSchedule = async () => {
+    await saveScheduleToBudget();
+    setShowAnchorModal(false);
+  };
+
+  const saveScheduleToBudget = async () => {
+    const anchorIso =
+      anchorDate && !Number.isNaN(new Date(anchorDate).getTime())
+        ? `${anchorDate}T12:00:00.000Z` // use midday UTC to avoid timezone shifting the date back
+        : new Date().toISOString();
+    const payload: BudgetSchedule = {
       strategy: selectedStrategy,
       strategyLabel: STRATEGY_LABELS[selectedStrategy],
-      savedAt: new Date().toISOString(),
+      savedAt: anchorIso,
       monthlyBudget,
       timeline: singleResult.timeline
     };
-    localStorage.setItem(SCHEDULE_STORAGE_KEY, JSON.stringify(payload));
-    setScheduleSavedAt(payload.savedAt);
+    try {
+      const res = await dbAPI.saveBudgetSchedule(payload);
+      const stored = (res as any)?.schedule || payload;
+      setScheduleSavedAt(stored.savedAt || payload.savedAt);
+      if (stored.savedAt) {
+        const d = new Date(stored.savedAt);
+        if (!Number.isNaN(d.getTime())) {
+          setAnchorDate(d.toISOString().split('T')[0]);
+        }
+      }
+    } catch {
+      // keep local state untouched on failure
+    }
   };
 
   if (liabilities.length === 0) {
@@ -301,6 +347,15 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
             <Layers size={16} />
             <span>Compare</span>
           </button>
+		  <button
+            onClick={() => setActiveTab('schedule')}
+            className={`flex items-center space-x-2 px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
+              activeTab === 'schedule' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Table size={16} />
+            <span>Schedule</span>
+          </button>
           <button
             onClick={() => setActiveTab('balanceTransfer')}
             className={`flex items-center space-x-2 px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
@@ -309,15 +364,6 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
           >
             <CreditCard size={16} />
             <span>Transfers & Loans</span>
-          </button>
-           <button
-            onClick={() => setActiveTab('schedule')}
-            className={`flex items-center space-x-2 px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
-              activeTab === 'schedule' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Table size={16} />
-            <span>Schedule</span>
           </button>
         </div>
       </div>
@@ -764,33 +810,34 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
 
       {activeTab === 'schedule' && (
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 animate-fade-in">
-           <div className="flex flex-col md:flex-row justify-between mb-8 gap-6">
+            <div className="flex flex-col md:flex-row justify-between mb-8 gap-6">
               <StrategySelector />
-              <div className="w-full md:w-2/3 flex items-center justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={saveScheduleToBudget}
-                  className="inline-flex items-center px-4 py-2 rounded-lg bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-700 transition-colors"
-                >
-                  <ArrowRight size={16} className="mr-2" />
-                  Send schedule to Budget
-                </button>
-                <div className="text-right">
-                  <p className="text-slate-500 text-sm">Total Payoff Time</p>
-                  <p className="text-xl font-bold text-slate-900">
-                    {Math.floor(singleResult.monthsToFreedom / 12)}y {singleResult.monthsToFreedom % 12}m
-                  </p>
+              <div className="w-full md:w-2/3 flex flex-col md:flex-row items-end md:items-center justify-end gap-4 md:gap-6">
+                <div className="flex flex-col items-end gap-2 w-full md:w-auto">
+                  <div className="text-right">
+                    <p className="text-slate-500 text-sm">Total Payoff Time</p>
+                    <p className="text-xl font-bold text-slate-900">
+                      {Math.floor(singleResult.monthsToFreedom / 12)}y {singleResult.monthsToFreedom % 12}m
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAnchorModal(true)}
+                    className="inline-flex items-center px-4 py-2 rounded-lg bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-700 transition-colors"
+                  >
+                    <ArrowRight size={16} className="mr-2" />
+                    Send schedule to Budget
+                  </button>
                 </div>
               </div>
-           </div>
-
-           {scheduleSavedAt && (
-             <div className="mb-6 px-4 py-3 bg-emerald-50 border border-emerald-100 rounded-lg text-sm text-emerald-800 flex items-center justify-between">
-               <span>
-                 Schedule sent to Budget using <strong>{STRATEGY_LABELS[selectedStrategy]}</strong>. Month 1 is anchored to when you saved it ({new Date(scheduleSavedAt).toLocaleDateString()}).
-               </span>
-             </div>
-           )}
+            </div>
+            {scheduleSavedAt && (
+              <div className="mb-6 px-4 py-3 bg-emerald-50 border border-emerald-100 rounded-lg text-sm text-emerald-800 flex items-center justify-between">
+                <span>
+                  Schedule sent to Budget using <strong>{STRATEGY_LABELS[selectedStrategy]}</strong>. Month 1 is anchored to {new Date(scheduleSavedAt).toLocaleDateString()}.
+                </span>
+              </div>
+            )}
            
            <h3 className="font-bold text-slate-900 mb-4 flex items-center">
              <Table size={18} className="mr-2 text-indigo-600" />
@@ -848,6 +895,56 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
                </tbody>
              </table>
            </div>
+        </div>
+      )}
+
+      {showAnchorModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/50" onClick={() => setShowAnchorModal(false)} />
+          <div className="relative bg-white rounded-xl shadow-2xl border border-slate-100 w-full max-w-md p-6 space-y-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">Schedule</p>
+                <h3 className="text-lg font-bold text-slate-900 mt-1">Set Month 1 Anchor Date</h3>
+                <p className="text-sm text-slate-500 mt-1">Choose when your schedule starts before sending to Budget.</p>
+              </div>
+              <button
+                className="text-slate-400 hover:text-slate-600"
+                onClick={() => setShowAnchorModal(false)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="space-y-2">
+              <label className="font-semibold text-slate-800 text-xs uppercase tracking-wide">
+                Month 1 Anchor Date
+              </label>
+              <input
+                type="date"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
+                value={anchorDate}
+                onChange={(e) => setAnchorDate(e.target.value)}
+              />
+            </div>
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                className="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-slate-800"
+                onClick={() => setShowAnchorModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmSchedule}
+                className="inline-flex items-center px-4 py-2 rounded-lg bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-700 transition-colors"
+              >
+                <ArrowRight size={16} className="mr-2" />
+                Send schedule to Budget
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Liability, Expense, Asset, StrategyType, STRATEGY_LABELS, UserSettings, IncomeSource } from '../types';
+import { Liability, Expense, Asset, StrategyType, STRATEGY_LABELS, UserSettings, IncomeSource, BudgetSchedule } from '../types';
 import { calculatePayoff, getMinPayment, calculateMonthlyIncome } from '../server/liabilityAlgorithms';
 import { Link } from 'react-router-dom';
 import { ArrowRight, TrendingUp, Calendar, DollarSign, Receipt, Landmark, Calculator, AlertTriangle } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { dbAPI } from '../server/db';
 
 interface DashboardProps {
   liabilities: Liability[];
@@ -17,32 +18,23 @@ interface DashboardProps {
 const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, incomes = [], monthlyBudget, userSettings }) => {
   const [showAnnual, setShowAnnual] = useState(false);
   const [chartsReady, setChartsReady] = useState(false);
-  const [savedPlan, setSavedPlan] = useState<null | {
-    strategy: StrategyType | string;
-    strategyLabel: string;
-    savedAt: string;
-    monthlyBudget: number;
-    timeline: { month: number; totalBalance: number; totalInterestPaid: number }[];
-  }>(null);
-
-  const SCHEDULE_STORAGE_KEY = 'budget-liability-plan';
+  const [savedPlan, setSavedPlan] = useState<BudgetSchedule | null>(null);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(SCHEDULE_STORAGE_KEY);
-      if (!raw) {
-        setSavedPlan(null);
-        return;
+    let active = true;
+    const load = async () => {
+      try {
+        const remote = await dbAPI.getBudgetSchedule();
+        if (!active) return;
+        setSavedPlan(remote?.schedule || null);
+      } catch {
+        if (active) setSavedPlan(null);
       }
-      const parsed = JSON.parse(raw);
-      if (parsed?.timeline?.length) {
-        setSavedPlan(parsed);
-      } else {
-        setSavedPlan(null);
-      }
-    } catch {
-      setSavedPlan(null);
-    }
+    };
+    load();
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {

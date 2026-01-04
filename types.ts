@@ -87,6 +87,15 @@ export interface PayoffResult {
     timeline: PayoffMonth[];
 }
 
+// Saved payoff schedule that can be shared across Budget, Dashboard, and Liabilities
+export interface BudgetSchedule {
+    strategy: string;
+    strategyLabel: string;
+    savedAt: string;
+    monthlyBudget: number;
+    timeline: PayoffMonth[];
+}
+
 export enum ExpenseSplitMethod {
     EQUAL = "EQUAL",
     PERCENTAGE = "PERCENTAGE",

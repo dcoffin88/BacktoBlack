@@ -80,7 +80,31 @@ const ensureBudgetExtrasTable = () => {
 };
 ensureBudgetExtrasTable();
 
-app.use(express.json());
+const ensureBudgetScheduleTable = () => {
+  db.run(
+    `CREATE TABLE IF NOT EXISTS budget_schedule (
+      id TEXT PRIMARY KEY,
+      strategy TEXT,
+      strategy_label TEXT,
+      saved_at TEXT,
+      monthly_budget REAL,
+      timeline TEXT,
+      household_id TEXT,
+      user_id INTEGER,
+      updated_at TEXT
+    )`,
+    (err) => {
+      if (err) {
+        console.error('Failed to ensure budget_schedule table:', err.message);
+      }
+    }
+  );
+};
+ensureBudgetScheduleTable();
+
+// Allow larger JSON bodies for schedule payloads
+app.use(express.json({ limit: '5mb' }));
+app.use(express.urlencoded({ limit: '5mb', extended: true }));
 
 type AuthedUser = { id: number; email: string; householdId?: string | null };
 type AuthedRequest = express.Request & { user?: AuthedUser };
@@ -449,6 +473,100 @@ app.post('/api/budget/checks', authenticateToken, (req: AuthedRequest, res) => {
                 return res.status(500).json({ error: err.message });
             }
             res.json({ success: true, checkDate });
+        }
+    );
+});
+
+// --- Budget Schedule ---
+app.get('/api/budget/schedule', authenticateToken, (req: AuthedRequest, res) => {
+    const user = req.user!;
+    const scopeId = user.householdId || user.id;
+    db.get(
+        `SELECT strategy, strategy_label, saved_at, monthly_budget, timeline
+         FROM budget_schedule
+         WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+        [scopeId, user.id],
+        (err, row: any) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            if (!row) {
+                return res.json({ schedule: null });
+            }
+            let timeline: any[] = [];
+            try {
+                timeline = JSON.parse(row.timeline || '[]');
+            } catch {
+                timeline = [];
+            }
+            res.json({
+                schedule: {
+                    strategy: row.strategy as string,
+                    strategyLabel: row.strategy_label as string,
+                    savedAt: row.saved_at as string,
+                    monthlyBudget: row.monthly_budget as number,
+                    timeline,
+                },
+            });
+        }
+    );
+});
+
+app.post('/api/budget/schedule', authenticateToken, (req: AuthedRequest, res) => {
+    const user = req.user!;
+    const scopeId = user.householdId || user.id;
+    const { strategy, strategyLabel, savedAt, monthlyBudget, timeline } = req.body || {};
+
+    if (!strategy || !strategyLabel || !savedAt || !Array.isArray(timeline)) {
+        return res.status(400).json({ error: 'strategy, strategyLabel, savedAt, and timeline are required' });
+    }
+
+    const id = `${scopeId}_schedule`;
+    const updatedAt = new Date().toISOString();
+    db.run(
+        `INSERT OR REPLACE INTO budget_schedule (id, strategy, strategy_label, saved_at, monthly_budget, timeline, household_id, user_id, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+            id,
+            strategy,
+            strategyLabel,
+            savedAt,
+            monthlyBudget ?? 0,
+            JSON.stringify(timeline || []),
+            scopeId,
+            user.id,
+            updatedAt,
+        ],
+        (err) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            res.json({
+                schedule: {
+                    strategy: strategy as string,
+                    strategyLabel: strategyLabel as string,
+                    savedAt: savedAt as string,
+                    monthlyBudget: (monthlyBudget ?? 0) as number,
+                    timeline: timeline as any[],
+                },
+            });
+        }
+    );
+});
+
+app.delete('/api/budget/schedule', authenticateToken, (req: AuthedRequest, res) => {
+    const user = req.user!;
+    const scopeId = user.householdId || user.id;
+    db.run(
+        'DELETE FROM budget_schedule WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
+        [scopeId, user.id],
+        (err) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            res.json({ success: true });
         }
     );
 });

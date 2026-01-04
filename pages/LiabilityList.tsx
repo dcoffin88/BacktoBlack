@@ -1,5 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Liability, Ownership, PayoffMonth, UserSettings } from "../types";
+import {
+    Liability,
+    Ownership,
+    UserSettings,
+    BudgetSchedule,
+} from "../types";
 import {
     calculateIndividualAmortization,
     AmortizationRow,
@@ -24,16 +29,6 @@ import {
     CheckCircle,
 } from "lucide-react";
 import { dbAPI } from "../server/db";
-
-const SCHEDULE_STORAGE_KEY = "budget-liability-plan";
-
-type SavedSchedule = {
-    strategy: string;
-    strategyLabel: string;
-    savedAt: string;
-    monthlyBudget: number;
-    timeline: PayoffMonth[];
-};
 
 interface LiabilityListProps {
     liabilities: Liability[];
@@ -93,7 +88,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         months: number;
     } | null>(null);
     const [extraPayments, setExtraPayments] = useState<ExtraPayment[]>([]);
-    const [savedSchedule, setSavedSchedule] = useState<SavedSchedule | null>(
+    const [savedSchedule, setSavedSchedule] = useState<BudgetSchedule | null>(
         null
     );
 
@@ -109,17 +104,16 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             }
         };
         loadExtras();
-        try {
-            const raw = localStorage.getItem(SCHEDULE_STORAGE_KEY);
-            if (raw) {
-                const parsed = JSON.parse(raw) as SavedSchedule;
-                if (parsed?.timeline?.length) {
-                    setSavedSchedule(parsed);
-                }
+        const loadSchedule = async () => {
+            try {
+                const remote = await dbAPI.getBudgetSchedule();
+                if (!active) return;
+                setSavedSchedule(remote?.schedule || null);
+            } catch {
+                /* ignore schedule fetch errors */
             }
-        } catch {
-            /* ignore parse errors */
-        }
+        };
+        loadSchedule();
         return () => {
             active = false;
         };
@@ -324,28 +318,14 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                 return acc;
             }, {});
 
-        const schedule = (() => {
-            try {
-                const raw = localStorage.getItem(SCHEDULE_STORAGE_KEY);
-                if (raw) {
-                    const parsed = JSON.parse(raw) as SavedSchedule;
-                    if (parsed?.timeline?.length) {
-                        setSavedSchedule(parsed);
-                        return parsed;
-                    }
-                }
-            } catch {
-                /* ignore */
-            }
-            return savedSchedule;
-        })();
-
         const planPaymentsMap = (() => {
-            if (!schedule?.timeline?.length) return {};
-            const scheduleMonthIndex = getScheduleMonthIndex(schedule.savedAt);
+            if (!savedSchedule?.timeline?.length) return {};
+            const scheduleMonthIndex = getScheduleMonthIndex(
+                savedSchedule.savedAt
+            );
             const offset = scheduleMonthIndex - 1;
             const map: Record<number, number> = {};
-            schedule.timeline.forEach((row) => {
+            savedSchedule.timeline.forEach((row) => {
                 const period = row.month - offset;
                 if (period < 1) return;
                 const paymentEntry = row.breakdown?.find(
