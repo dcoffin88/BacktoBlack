@@ -22,11 +22,13 @@ import {
     Percent,
     Info,
     Calendar,
+    GripVertical,
     ChevronDown,
     ChevronUp,
     User,
     Users,
     CheckCircle,
+    Settings,
 } from "lucide-react";
 import { dbAPI } from "../server/db";
 
@@ -46,6 +48,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
     // Modal States
     const [isFormModalOpen, setIsFormModalOpen] = useState(false);
     const [isAmortizationOpen, setIsAmortizationOpen] = useState(false);
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
     // UI Toggles for Form
     const [enablePercent, setEnablePercent] = useState(true);
@@ -95,6 +98,8 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
     const [savedSchedule, setSavedSchedule] = useState<BudgetSchedule | null>(
         null
     );
+    const [priorityMap, setPriorityMap] = useState<Record<string, number>>({});
+    const [draggingId, setDraggingId] = useState<string | null>(null);
 
     useEffect(() => {
         let active = true;
@@ -122,6 +127,25 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             active = false;
         };
     }, []);
+
+    useEffect(() => {
+        setPriorityMap(() => {
+            const next: Record<string, number> = {};
+            liabilities.forEach((l, idx) => {
+                next[l.id] = l.customOrder || idx + 1;
+            });
+            return next;
+        });
+    }, [liabilities]);
+
+    const orderedPriorityIds = useMemo(() => {
+        const enriched = liabilities.map((l, idx) => ({
+            id: l.id,
+            order: priorityMap[l.id] ?? idx + 1,
+        }));
+        enriched.sort((a, b) => a.order - b.order);
+        return enriched.map((e) => e.id);
+    }, [liabilities, priorityMap]);
 
     const getPeriodIndexFromDate = (
         liability: Liability,
@@ -294,10 +318,16 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         }
 
         if (editingId) {
-            onSave({ ...finalData, id: editingId });
+            const existing = liabilities.find((l) => l.id === editingId);
+            onSave({
+                ...finalData,
+                id: editingId,
+                customOrder: existing?.customOrder, // preserve custom order; edited via settings modal
+            });
         } else {
             const newLiability: Liability = {
                 ...finalData,
+                customOrder: liabilities.length + 1,
                 id: Math.random().toString(36).substr(2, 9),
             };
             onSave(newLiability);
@@ -369,6 +399,55 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         } catch {
             /* ignore save failures */
         }
+    };
+
+    const handlePriorityChange = (id: string, value: number) => {
+        setPriorityMap((prev) => ({ ...prev, [id]: value }));
+    };
+
+    const savePriorityOrder = () => {
+        liabilities.forEach((l) => {
+            const nextOrder =
+                priorityMap[l.id] ??
+                orderedPriorityIds.indexOf(l.id) + 1;
+            if (nextOrder !== l.customOrder) {
+                onSave({ ...l, customOrder: nextOrder });
+            }
+        });
+        setIsSettingsOpen(false);
+    };
+
+    const reorderIds = (
+        ids: string[],
+        sourceId: string,
+        targetId: string
+    ) => {
+        const next = [...ids];
+        const from = next.indexOf(sourceId);
+        const to = next.indexOf(targetId);
+        if (from === -1 || to === -1) return ids;
+        next.splice(to, 0, next.splice(from, 1)[0]);
+        return next;
+    };
+
+    const handleDragStartPriority = (id: string) => {
+        setDraggingId(id);
+    };
+
+    const handleDragOverPriority = (id: string) => {
+        if (!draggingId || draggingId === id) return;
+        setPriorityMap((prev) => {
+            const reorderedIds = reorderIds(
+                orderedPriorityIds,
+                draggingId,
+                id
+            );
+            const next: Record<string, number> = {};
+            reorderedIds.forEach((lid, idx) => {
+                next[lid] = idx + 1;
+            });
+            return next;
+        });
     };
 
     const renderMinPaymentLabel = (liability: Liability) => {
@@ -560,13 +639,23 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                         Manage liabilities and loan details.
                     </p>
                 </div>
-                <button
-                    onClick={() => handleOpenFormModal()}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg font-medium shadow-sm flex items-center transition-colors"
-                >
-                    <Plus size={18} className="mr-2" />
-                    Add Liability
-                </button>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => handleOpenFormModal()}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg font-medium shadow-sm flex items-center transition-colors"
+                    >
+                        <Plus size={18} className="mr-2" />
+                        Add
+                    </button>
+                    <button
+                        onClick={() => setIsSettingsOpen(true)}
+                        className="bg-white border border-slate-200 text-slate-700 px-3 py-2.5 rounded-lg font-medium shadow-sm flex items-center transition-colors hover:bg-slate-50"
+                        aria-label="Liability settings"
+                    >
+                        <Settings size={18} className="mr-2" />
+                        Settings
+                    </button>
+                </div>
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -720,7 +809,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                     </span>
                                                 </div>
                                                 <div className="text-[11px] text-slate-400 mt-1">
-                                                    Custom Priority #
+                                                    Priority #
                                                     {liability.customOrder ||
                                                         "-"}
                                                 </div>
@@ -892,7 +981,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
 
                                         <div>
                                             <label className="block text-sm font-medium text-slate-700 mb-1">
-                                                Category (Opt)
+                                                Category (Optional)
                                             </label>
                                             <input
                                                 type="text"
@@ -1018,7 +1107,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                             </div>
                                         </div>
 
-                                        <div className="grid grid-cols-3 gap-3">
+                                        <div className="grid grid-cols-2 gap-3">
                                             <div>
                                                 <label className="block text-sm font-medium text-slate-700 mb-1">
                                                     Due Day
@@ -1050,32 +1139,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                             </div>
                                             <div>
                                                 <label className="block text-sm font-medium text-slate-700 mb-1">
-                                                    Custom Priority
-                                                </label>
-                                                <input
-                                                    type="number"
-                                                    min="1"
-                                                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
-                                                    value={formData.customOrder}
-                                                    onChange={(e) =>
-                                                        setFormData({
-                                                            ...formData,
-                                                            customOrder:
-                                                                parseInt(
-                                                                    e.target
-                                                                        .value
-                                                                ) || 1,
-                                                        })
-                                                    }
-                                                />
-                                                <p className="text-[11px] text-slate-500 mt-1">
-                                                    Used to order debts in the
-                                                    Custom Plan strategy.
-                                                </p>
-                                            </div>
-                                            <div>
-                                                <label className="block text-sm font-medium text-slate-700 mb-1">
-                                                    Credit Limit (Opt)
+                                                    Credit Limit (Optional)
                                                 </label>
                                                 <input
                                                     type="number"
@@ -1882,6 +1946,87 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             )}
 
             {/* Amortization Modal */}
+            {isSettingsOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+                        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+                            <div>
+                                <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">
+                                    Liability Settings
+                                </p>
+                                <h3 className="text-lg font-bold text-slate-900">
+                                    Priority Order
+                                </h3>
+                            </div>
+                            <button
+                                className="text-slate-400 hover:text-slate-600"
+                                onClick={() => setIsSettingsOpen(false)}
+                                aria-label="Close settings"
+                            >
+                                <X size={22} />
+                            </button>
+                        </div>
+                        <div className="p-6 space-y-4 overflow-y-auto">
+                            <p className="text-xs text-slate-500">
+                                Drag to reorder liabilities. The list order is saved as your priority.
+                            </p>
+                            <div className="space-y-2">
+                                {orderedPriorityIds.map((lid, idx) => {
+                                    const l = liabilities.find((x) => x.id === lid);
+                                    if (!l) return null;
+                                    return (
+                                        <div
+                                            key={l.id}
+                                            draggable
+                                            onDragStart={() => handleDragStartPriority(l.id)}
+                                            onDragOver={(e) => {
+                                                e.preventDefault();
+                                                handleDragOverPriority(l.id);
+                                            }}
+                                            className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 cursor-move"
+                                        >
+                                            <div className="flex items-center space-x-2">
+                                                <GripVertical size={16} className="text-slate-400" />
+                                                <span className="text-xs font-semibold text-slate-500 w-6">
+                                                    {idx + 1}
+                                                </span>
+                                                <div className="text-sm text-slate-700 truncate">
+                                                    <span className="font-semibold">{l.name}</span>
+                                                    {l.category && (
+                                                        <span className="ml-2 text-[11px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+                                                            {l.category}
+                                                        </span>
+                                                    )}
+                                                    <span className="text-slate-400 text-xs ml-2">
+                                                        ${l.balance.toLocaleString()}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                        <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
+                            <button
+                                type="button"
+                                className="px-4 py-2 text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 font-medium transition-colors"
+                                onClick={() => setIsSettingsOpen(false)}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={savePriorityOrder}
+                                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold shadow-sm transition-colors"
+                            >
+                                Save Order
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {isAmortizationOpen && viewingLiability && amortizationData && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col animate-fade-in-up">

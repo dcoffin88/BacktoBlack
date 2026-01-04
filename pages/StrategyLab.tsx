@@ -70,6 +70,12 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
   }, []);
 
   useEffect(() => {
+    setCompareSelection(prev => {
+      if (prev.includes(selectedStrategy)) return prev;
+      return [...prev, selectedStrategy];
+    });
+  }, [selectedStrategy]);
+  useEffect(() => {
     let active = true;
     const loadSchedule = async () => {
       try {
@@ -246,9 +252,14 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
 
   // --- Handlers ---
   const toggleComparisonStrategy = (s: StrategyType) => {
-    setCompareSelection(prev => 
-      prev.includes(s) ? prev.filter(i => i !== s) : [...prev, s]
-    );
+    setCompareSelection(prev => {
+      const next = prev.includes(s) ? prev.filter(i => i !== s) : [...prev, s];
+      // Keep the active selected strategy always included
+      if (!next.includes(selectedStrategy)) {
+        next.push(selectedStrategy);
+      }
+      return next;
+    });
   };
   
   const toggleBtLiability = (id: string) => {
@@ -317,7 +328,7 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
 
   const StrategySelector = () => (
     <div className="w-full md:w-1/3">
-      <label className="block text-sm font-medium text-slate-700 mb-2">Strategy to Simulate</label>
+      <label className="block text-sm font-medium text-slate-700 mb-2">Strategy</label>
       <div className="relative">
         <select 
           value={selectedStrategy}
@@ -461,32 +472,6 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
               </div>
             </div>
           </div>
-
-          {selectedStrategy === StrategyType.CUSTOM && (
-            <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-slate-800">Custom Priority Order</h3>
-                <p className="text-xs text-slate-500">Lower numbers pay first.</p>
-              </div>
-              <div className="grid md:grid-cols-2 gap-3">
-                {orderedLiabilities.map((l, idx) => (
-                  <div key={l.id} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-                    <div className="text-sm text-slate-700 truncate">
-                      <span className="font-semibold">{l.name}</span>
-                      <span className="text-slate-400 text-xs ml-2">${l.balance.toLocaleString()}</span>
-                    </div>
-                    <input
-                      type="number"
-                      min={1}
-                      className="w-20 px-2 py-1 border border-slate-300 rounded text-sm focus:ring-1 focus:ring-indigo-500 outline-none"
-                      value={customOrderMap[l.id] ?? idx + 1}
-                      onChange={(e) => handleCustomOrderChange(l.id, parseInt(e.target.value) || 0)}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* Comparison Table */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
