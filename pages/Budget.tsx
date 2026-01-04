@@ -663,6 +663,142 @@ const Budget: React.FC<BudgetProps> = ({
         monthlyNeed * monthlyRatio + biWeeklyNeed * biWeeklyRatio;
 
     const getPerCheckExpense = (expense: Expense) => {
+        const excluded = new Set(expense.excludedIncomeSourceIds || []);
+        if (currentPaycheck && excluded.has(currentPaycheck.source.id)) {
+            return 0;
+        }
+
+        // If explicitly excluded from splitting, allocate only to the owner's eligible paychecks
+        if (expense.excludeFromSplitting) {
+            const owner = expense.owner || "JOINT";
+            const useBiWeekly =
+                expense.frequency === "BI_WEEKLY" ||
+                expense.frequency === "WEEKLY";
+            const monthlyEquivalent =
+                expense.frequency === "BI_WEEKLY"
+                    ? expense.amount * 2
+                    : expense.frequency === "WEEKLY"
+                    ? expense.amount * (52 / 12)
+                    : expense.frequency === "QUARTERLY"
+                    ? expense.amount / 3
+                    : expense.amount;
+
+            const eligiblePool = monthPaychecks.filter((p) => {
+                const passesFrequency = useBiWeekly
+                    ? p.eligibleBiWeekly !== false
+                    : p.eligibleMonthly !== false;
+                if (!passesFrequency) return false;
+                if (excluded.has(p.source.id)) return false;
+                if (owner === "PARTNER") return p.source.isPartner;
+                if (owner === "USER") return !p.source.isPartner;
+                return true; // JOINT: any paycheck
+            });
+
+            const isEligibleCurrent =
+                currentPaycheck &&
+                eligiblePool.some((p) => p === currentPaycheck) &&
+                !excluded.has(currentPaycheck.source.id);
+
+            if (!isEligibleCurrent) return 0;
+
+            if (useBiWeekly) {
+                // Weekly/bi-weekly: full amount per eligible paycheck
+                return expense.amount;
+            }
+
+            // Monthly/quarterly: split evenly across eligible monthly pool
+            const count = eligiblePool.length || 1;
+            return monthlyEquivalent / count;
+        }
+
+        const eligibleMonthlyUser = monthPaychecks.filter(
+            (p) =>
+                p.eligibleMonthly !== false &&
+                !p.source.isPartner &&
+                !excluded.has(p.source.id)
+        );
+        const eligibleMonthlyPartner = monthPaychecks.filter(
+            (p) =>
+                p.eligibleMonthly !== false &&
+                p.source.isPartner &&
+                !excluded.has(p.source.id)
+        );
+        const eligibleBiWeeklyUser = monthPaychecks.filter(
+            (p) =>
+                p.eligibleBiWeekly !== false &&
+                !p.source.isPartner &&
+                !excluded.has(p.source.id)
+        );
+        const eligibleBiWeeklyPartner = monthPaychecks.filter(
+            (p) =>
+                p.eligibleBiWeekly !== false &&
+                p.source.isPartner &&
+                !excluded.has(p.source.id)
+        );
+
+        const monthlyPoolUserEff = eligibleMonthlyUser.reduce(
+            (sum, p) => sum + p.source.amount,
+            0
+        );
+        const monthlyPoolPartnerEff = eligibleMonthlyPartner.reduce(
+            (sum, p) => sum + p.source.amount,
+            0
+        );
+        const monthlyPoolEff = monthlyPoolUserEff + monthlyPoolPartnerEff;
+
+        const biWeeklyPoolUserEff = eligibleBiWeeklyUser.reduce(
+            (sum, p) => sum + p.source.amount,
+            0
+        );
+        const biWeeklyPoolPartnerEff = eligibleBiWeeklyPartner.reduce(
+            (sum, p) => sum + p.source.amount,
+            0
+        );
+        const biWeeklyPoolEff = biWeeklyPoolUserEff + biWeeklyPoolPartnerEff;
+
+        const monthlyRatioEff =
+            currentPaycheck &&
+            currentPaycheck.eligibleMonthly !== false &&
+            !excluded.has(currentPaycheck.source.id) &&
+            monthlyPoolEff > 0
+                ? (currentPaycheck?.source.amount || 0) / monthlyPoolEff
+                : 0;
+        const biWeeklyRatioEff =
+            currentPaycheck &&
+            currentPaycheck.eligibleBiWeekly !== false &&
+            !excluded.has(currentPaycheck.source.id) &&
+            biWeeklyPoolEff > 0
+                ? (currentPaycheck?.source.amount || 0) / biWeeklyPoolEff
+                : 0;
+
+        const monthlyRatioOwnerEff =
+            currentPaycheck?.eligibleMonthly === false ||
+            !currentPaycheck ||
+            excluded.has(currentPaycheck.source.id)
+                ? 0
+                : currentPaycheck.source.isPartner
+                ? monthlyPoolPartnerEff > 0
+                    ? (currentPaycheck.source.amount || 0) /
+                      monthlyPoolPartnerEff
+                    : monthlyRatioEff
+                : monthlyPoolUserEff > 0
+                ? (currentPaycheck.source.amount || 0) / monthlyPoolUserEff
+                : monthlyRatioEff;
+
+        const biWeeklyRatioOwnerEff =
+            currentPaycheck?.eligibleBiWeekly === false ||
+            !currentPaycheck ||
+            excluded.has(currentPaycheck.source.id)
+                ? 0
+                : currentPaycheck.source.isPartner
+                ? biWeeklyPoolPartnerEff > 0
+                    ? (currentPaycheck.source.amount || 0) /
+                      biWeeklyPoolPartnerEff
+                    : biWeeklyRatioEff
+                : biWeeklyPoolUserEff > 0
+                ? (currentPaycheck.source.amount || 0) / biWeeklyPoolUserEff
+                : biWeeklyRatioEff;
+
         const owner = expense.owner || "JOINT";
         const monthlyEquivalent =
             expense.frequency === "BI_WEEKLY"
@@ -676,15 +812,15 @@ const Budget: React.FC<BudgetProps> = ({
         if (owner === "PARTNER") {
             if (!currentPaycheck?.source.isPartner) return 0;
             return expense.frequency === "BI_WEEKLY" || expense.frequency === "WEEKLY"
-                ? monthlyEquivalent * biWeeklyRatioOwner
-                : monthlyEquivalent * monthlyRatioOwner;
+                ? monthlyEquivalent * biWeeklyRatioOwnerEff
+                : monthlyEquivalent * monthlyRatioOwnerEff;
         }
 
         if (owner === "USER") {
             if (currentPaycheck?.source.isPartner) return 0;
             return expense.frequency === "BI_WEEKLY" || expense.frequency === "WEEKLY"
-                ? monthlyEquivalent * biWeeklyRatioOwner
-                : monthlyEquivalent * monthlyRatioOwner;
+                ? monthlyEquivalent * biWeeklyRatioOwnerEff
+                : monthlyEquivalent * monthlyRatioOwnerEff;
         }
 
         // Joint: split by configured ratio and allocate only to the corresponding partner's paychecks
@@ -693,13 +829,13 @@ const Budget: React.FC<BudgetProps> = ({
 
         if (currentPaycheck?.source.isPartner) {
             return expense.frequency === "BI_WEEKLY" || expense.frequency === "WEEKLY"
-                ? partnerPortion * biWeeklyRatioOwner
-                : partnerPortion * monthlyRatioOwner;
+                ? partnerPortion * biWeeklyRatioOwnerEff
+                : partnerPortion * monthlyRatioOwnerEff;
         }
 
         return expense.frequency === "BI_WEEKLY" || expense.frequency === "WEEKLY"
-            ? userPortion * biWeeklyRatioOwner
-            : userPortion * monthlyRatioOwner;
+            ? userPortion * biWeeklyRatioOwnerEff
+            : userPortion * monthlyRatioOwnerEff;
     };
 
     const getPerCheckLiability = (

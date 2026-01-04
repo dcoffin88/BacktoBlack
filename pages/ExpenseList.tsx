@@ -46,6 +46,8 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
         quarterlyAnchor: "",
         category: "",
         owner: "JOINT",
+        excludedIncomeSourceIds: [],
+        excludeFromSplitting: false,
     });
 
     const [sortBy, setSortBy] = useState<"name" | "amount" | "dueDate">("name");
@@ -55,6 +57,11 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
         userSettings?.partnerName?.trim()?.split(/\s+/)[0] || "Partner";
 
     const partnerPossessive = `${partnerFirstWord}'s`;
+    const [showAdvanced, setShowAdvanced] = useState(false);
+    const eligibleIncomes = useMemo(
+        () => incomes.filter((i) => i.includeInPlanner !== false),
+        [incomes]
+    );
 
     const handleOpenModal = (expense?: Expense) => {
         if (expense) {
@@ -67,6 +74,8 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                 quarterlyAnchor: expense.quarterlyAnchor || "",
                 category: expense.category,
                 owner: expense.owner || "JOINT",
+                excludedIncomeSourceIds: expense.excludedIncomeSourceIds || [],
+                excludeFromSplitting: expense.excludeFromSplitting || false,
             });
         } else {
             setEditingId(null);
@@ -78,6 +87,8 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                 quarterlyAnchor: "",
                 category: "",
                 owner: "JOINT",
+                excludedIncomeSourceIds: [],
+                excludeFromSplitting: false,
             });
         }
         setIsModalOpen(true);
@@ -718,6 +729,99 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                 </div>
                             )}
 
+                            <div className="mt-4 border-t border-slate-200 pt-4">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAdvanced((v) => !v)}
+                                    className="text-sm font-semibold text-indigo-600 hover:text-indigo-800 flex items-center"
+                                >
+                                    {showAdvanced ? "Hide" : "Show"} Advanced
+                                </button>
+                                {showAdvanced && (
+                                    <div className="mt-3 space-y-2">
+                                        <p className="text-xs text-slate-500">
+                                            Exclude this expense from specific income sources when splitting per-check on the Budget page.
+                                        </p>
+                                        <label className="flex items-center space-x-2 text-sm text-slate-700">
+                                            <input
+                                                type="checkbox"
+                                                className="w-4 h-4 text-indigo-600 rounded border-slate-300"
+                                                checked={formData.excludeFromSplitting || false}
+                                                onChange={(e) =>
+                                                    setFormData({
+                                                        ...formData,
+                                                        excludeFromSplitting: e.target.checked,
+                                                    })
+                                                }
+                                            />
+                                            <span className="font-medium">
+                                                Exclude from Expense Splitting Strategy
+                                            </span>
+                                        </label>
+                                        <p className="text-[11px] text-slate-500 ml-6">
+                                            When checked, this expense won’t be split; it stays with its owner.
+                                        </p>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                            {eligibleIncomes.map((inc) => {
+                                                const checked =
+                                                    formData.excludedIncomeSourceIds?.includes(
+                                                        inc.id
+                                                    ) || false;
+                                                return (
+                                                    <label
+                                                        key={inc.id}
+                                                        className={`flex items-center justify-between px-3 py-2 rounded-lg border ${
+                                                            checked
+                                                                ? "border-indigo-200 bg-indigo-50"
+                                                                : "border-slate-200 bg-white"
+                                                        }`}
+                                                    >
+                                                        <div>
+                                                            <p className="text-sm font-medium text-slate-800">
+                                                                {inc.name}
+                                                            </p>
+                                                            <p className="text-[11px] text-slate-500">
+                                                                {inc.isPartner
+                                                                    ? partnerFirstWord
+                                                                    : "You"}{" "}
+                                                                • {inc.amount.toLocaleString()} per pay
+                                                            </p>
+                                                        </div>
+                                                        <input
+                                                            type="checkbox"
+                                                            className="w-4 h-4 text-indigo-600 rounded border-slate-300"
+                                                            checked={checked}
+                                                            onChange={(e) => {
+                                                                const next =
+                                                                    new Set(
+                                                                        formData.excludedIncomeSourceIds ||
+                                                                            []
+                                                                    );
+                                                                if (e.target.checked) {
+                                                                    next.add(inc.id);
+                                                                } else {
+                                                                    next.delete(inc.id);
+                                                                }
+                                                                setFormData({
+                                                                    ...formData,
+                                                                    excludedIncomeSourceIds: Array.from(
+                                                                        next
+                                                                    ),
+                                                                });
+                                                            }}
+                                                        />
+                                                    </label>
+                                                );
+                                            })}
+                                            {eligibleIncomes.length === 0 && (
+                                                <p className="text-xs text-slate-400">
+                                                    No eligible income sources (others are excluded from Budget).
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                             {/* Ownership Selector - Always visible now */}
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-2">

@@ -42,6 +42,8 @@ export interface Expense {
     category: string;
     isPaid: boolean;
     owner?: Ownership;
+    excludedIncomeSourceIds?: string[]; // income sources to skip for budget check allocation
+    excludeFromSplitting?: boolean; // bypass split ratios; assign to payer only
 }
 
 export interface Asset {
