@@ -98,7 +98,14 @@ export const buildEnvelopeInputs = (
     liabilities: Liability[]
 ): EnvelopeInput[] => {
     const expenseInputs: EnvelopeInput[] = expenses.map((e) => {
-        const multiplier = e.frequency === "BI_WEEKLY" ? 2 : 1;
+        const multiplier =
+            e.frequency === "BI_WEEKLY"
+                ? 2
+                : e.frequency === "WEEKLY"
+                ? 52 / 12
+                : e.frequency === "QUARTERLY"
+                ? 1 / 3
+                : 1;
         return {
             id: `expense-${e.id}`,
             name: e.name,

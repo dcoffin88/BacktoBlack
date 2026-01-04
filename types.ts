@@ -36,8 +36,9 @@ export interface Expense {
     householdId?: string;
     name: string;
     amount: number;
-    dueDate: number; // Day of month 1-31
-    frequency: "MONTHLY" | "BI_WEEKLY";
+    dueDate?: number; // Day of month 1-31 (optional)
+    frequency: "MONTHLY" | "BI_WEEKLY" | "WEEKLY" | "QUARTERLY";
+    quarterlyAnchor?: string; // YYYY-MM-DD to anchor quarter start (optional)
     category: string;
     isPaid: boolean;
     owner?: Ownership;

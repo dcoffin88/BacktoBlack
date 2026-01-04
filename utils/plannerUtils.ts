@@ -21,7 +21,7 @@ export interface ExpenseEvent {
     category: "Expense" | "Liability";
     isPaid: boolean;
     owner: Ownership;
-    frequency: "MONTHLY" | "BI_WEEKLY" | "WEEKLY";
+    frequency: "MONTHLY" | "BI_WEEKLY" | "WEEKLY" | "QUARTERLY";
     splitLabel?: string;
 }
 
@@ -182,23 +182,39 @@ export const generatePaychequePlan = (
 
     // Expenses
     expenses.forEach((expense) => {
+        const intervalDays =
+            expense.frequency === "WEEKLY"
+                ? 7
+                : expense.frequency === "BI_WEEKLY"
+                ? 14
+                : null;
+        const monthInterval = expense.frequency === "QUARTERLY" ? 3 : 1;
+
+        const dueDay = expense.dueDate ?? 1;
+        const anchorDate =
+            expense.frequency === "QUARTERLY" && expense.quarterlyAnchor
+                ? new Date(expense.quarterlyAnchor)
+                : null;
+
         // Start loop from roughly 1 month before historyStart to ensure we catch boundary expenses
-        let currentDue = new Date(
-            historyStart.getFullYear(),
-            historyStart.getMonth() - 1,
-            expense.dueDate
-        );
+        let currentDue = anchorDate && !Number.isNaN(anchorDate.getTime())
+            ? new Date(anchorDate)
+            : new Date(
+                historyStart.getFullYear(),
+                historyStart.getMonth() - 1,
+                dueDay
+            );
 
         // Advance to at least historyStart
         while (currentDue < historyStart) {
-            if (expense.frequency === "BI_WEEKLY")
-                currentDue = addDays(currentDue, 14);
-            else {
-                const nextM = currentDue.getMonth() + 1;
+            if (intervalDays) {
+                currentDue = addDays(currentDue, intervalDays);
+            } else {
+                const nextM = currentDue.getMonth() + monthInterval;
                 currentDue = new Date(
                     currentDue.getFullYear(),
                     nextM,
-                    expense.dueDate
+                    currentDue.getDate()
                 );
                 if (currentDue.getMonth() !== nextM % 12) {
                     currentDue = new Date(
@@ -233,20 +249,24 @@ export const generatePaychequePlan = (
                     frequency:
                         expense.frequency === "BI_WEEKLY"
                             ? "BI_WEEKLY"
+                            : expense.frequency === "WEEKLY"
+                            ? "WEEKLY"
+                            : expense.frequency === "QUARTERLY"
+                            ? "QUARTERLY"
                             : "MONTHLY",
                 });
             }
 
             // Advance
-            if (expense.frequency === "BI_WEEKLY") {
-                currentDue = addDays(currentDue, 14);
+            if (intervalDays) {
+                currentDue = addDays(currentDue, intervalDays);
             } else {
                 // Monthly
-                const expectedMonth = currentDue.getMonth() + 1;
+                const expectedMonth = currentDue.getMonth() + monthInterval;
                 currentDue = new Date(
                     currentDue.getFullYear(),
                     expectedMonth,
-                    expense.dueDate
+                    dueDay
                 );
                 if (currentDue.getMonth() !== expectedMonth % 12) {
                     currentDue = new Date(
@@ -435,10 +455,14 @@ export const generatePaychequePlan = (
             );
 
             // BUDGET SYSTEM LOGIC:
-            // If expense is MONTHLY, limit to the first 2 paycheques of the month.
+            // If expense is MONTHLY or QUARTERLY, limit to the first 2 paycheques of the month.
             // This ensures "Extra" (3rd) paycheques in a month are treated as surplus/savings.
-            // If expense is BI_WEEKLY (or others), we use all available paycheques.
-            const cap = expense.frequency === "MONTHLY" ? 2 : candidates.length;
+            // If expense is BI_WEEKLY/WEEKLY, we use all available paycheques.
+            const cap =
+                expense.frequency === "MONTHLY" ||
+                expense.frequency === "QUARTERLY"
+                    ? 2
+                    : candidates.length;
             const scopedCandidates = candidates.slice(0, cap);
 
             if (scopedCandidates.length > 0) {
@@ -499,7 +523,11 @@ export const generatePaychequePlan = (
             );
 
             // BUDGET SYSTEM LOGIC (Partner):
-            const cap = expense.frequency === "MONTHLY" ? 2 : candidates.length;
+            const cap =
+                expense.frequency === "MONTHLY" ||
+                expense.frequency === "QUARTERLY"
+                    ? 2
+                    : candidates.length;
             const scopedCandidates = candidates.slice(0, cap);
 
             if (scopedCandidates.length > 0) {

@@ -157,7 +157,17 @@ const App: React.FC = () => {
 
   // Calculated Budget for Dashboard (Total Income - Expenses - Liability Mins = Snowball)
   const totalMonthlyIncome = calculateMonthlyIncome(incomes);
-  const totalMonthlyExpenses = expenses.reduce((sum, b) => sum + (b.frequency === 'BI_WEEKLY' ? b.amount * 2 : b.amount), 0);
+  const totalMonthlyExpenses = expenses.reduce((sum, b) => {
+    const multiplier =
+      b.frequency === 'BI_WEEKLY'
+        ? 2
+        : b.frequency === 'WEEKLY'
+        ? 52 / 12
+        : b.frequency === 'QUARTERLY'
+        ? 1 / 3
+        : 1;
+    return sum + b.amount * multiplier;
+  }, 0);
   const totalLiabilityMins = liabilities.reduce((sum, d) => {
       const int = d.balance * (d.interestRate / 100 / 12);
       const fee = d.isFeeMonthly ? (d.annualFee / 12) : 0;

@@ -106,6 +106,9 @@ export const calculateIndividualAmortization = (
   const firstFee = liability.isFeeMonthly 
     ? (liability.annualFee / periodsPerYear) 
     : ((liability.feeMonth || 1) === startMonthIndex + 1 ? liability.annualFee : 0);
+  const hasExternalPayments =
+    Object.values(extraPaymentsByPeriod || {}).some(v => v > 0) ||
+    Object.values(plannedPaymentsByPeriod || {}).some(v => v > 0);
 
   const firstMin = (() => {
     const percentAmount = balance * (liability.minPaymentPercentage / 100);
@@ -119,7 +122,13 @@ export const calculateIndividualAmortization = (
   
   // Only warn if balance is stable/growing AND it's not a temporary fee spike issue
   // We relax this check slightly to allow for fee months, but if standard interest > min, warn.
-  if (liability.minPaymentPercentage === 0 && !liability.minPaymentPlusInterest && firstMin <= firstInterest && balance > 0) {
+  if (
+    liability.minPaymentPercentage === 0 &&
+    !liability.minPaymentPlusInterest &&
+    firstMin <= firstInterest &&
+    balance > 0 &&
+    !hasExternalPayments // allow loading if schedule/extras will cover it
+  ) {
       // Allow it if user has fees included in payment, as that might cover it
       if (!liability.minPaymentPlusFees) {
           return {

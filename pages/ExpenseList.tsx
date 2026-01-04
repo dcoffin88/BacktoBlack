@@ -36,11 +36,14 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
     const [editingId, setEditingId] = useState<string | null>(null);
 
     // Form State
-    const [formData, setFormData] = useState<Omit<Expense, "id" | "isPaid">>({
+    const [formData, setFormData] = useState<
+        Omit<Expense, "id" | "isPaid"> & { dueDate?: number }
+    >({
         name: "",
         amount: 0,
-        dueDate: 1,
+        dueDate: undefined,
         frequency: "MONTHLY",
+        quarterlyAnchor: "",
         category: "",
         owner: "JOINT",
     });
@@ -61,6 +64,7 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                 amount: expense.amount,
                 dueDate: expense.dueDate,
                 frequency: expense.frequency,
+                quarterlyAnchor: expense.quarterlyAnchor || "",
                 category: expense.category,
                 owner: expense.owner || "JOINT",
             });
@@ -69,8 +73,9 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
             setFormData({
                 name: "",
                 amount: 0,
-                dueDate: 1,
+                dueDate: undefined,
                 frequency: "MONTHLY",
+                quarterlyAnchor: "",
                 category: "",
                 owner: "JOINT",
             });
@@ -101,34 +106,66 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
     };
 
     // Helper to calculate next actual due date based on the day of month
-    const getNextDueDate = (day: number) => {
+    const getNextDueDate = (expense: Expense) => {
         const today = new Date();
-        // Logic to find next due date
-        let target = new Date(today.getFullYear(), today.getMonth(), day);
+        today.setHours(0, 0, 0, 0);
+        const formatDate = (d: Date) =>
+            d.toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+                weekday: "short",
+            });
 
-        // If we are past the day in current month, it's next month
-        // Note: We check if date is strictly less than today.
-        // If it's today, we still show today.
-        const todayStart = new Date(
-            today.getFullYear(),
-            today.getMonth(),
-            today.getDate()
-        );
+        // Quarterly uses anchor date if provided
+        if (expense.frequency === "QUARTERLY") {
+            const anchor = expense.quarterlyAnchor
+                ? new Date(expense.quarterlyAnchor)
+                : null;
+            let next =
+                anchor && !Number.isNaN(anchor.getTime())
+                    ? new Date(anchor)
+                    : expense.dueDate
+                    ? new Date(
+                          today.getFullYear(),
+                          today.getMonth(),
+                          expense.dueDate
+                      )
+                    : null;
 
-        if (target < todayStart) {
-            target = new Date(today.getFullYear(), today.getMonth() + 1, day);
+            if (!next || Number.isNaN(next.getTime())) {
+                return "No anchor set";
+            }
+
+            while (next < today) {
+                next.setMonth(next.getMonth() + 3);
+            }
+            return formatDate(next);
         }
 
-        return target.toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-            weekday: "short",
-        });
+        // Monthly (and fallback for others with a due day)
+        if (Number.isFinite(expense.dueDate)) {
+            const day = expense.dueDate as number;
+            let target = new Date(today.getFullYear(), today.getMonth(), day);
+            if (target < today) {
+                target = new Date(today.getFullYear(), today.getMonth() + 1, day);
+            }
+            return formatDate(target);
+        }
+
+        return "No due date";
     };
 
     // --- Expense Stats ---
     const totalMonthlyExpenses = expenses.reduce((sum, b) => {
-        return sum + (b.frequency === "BI_WEEKLY" ? b.amount * 2 : b.amount);
+        const freqMultiplier =
+            b.frequency === "BI_WEEKLY"
+                ? 2
+                : b.frequency === "WEEKLY"
+                ? 52 / 12
+                : b.frequency === "QUARTERLY"
+                ? 1 / 3
+                : 1;
+        return sum + b.amount * freqMultiplier;
     }, 0);
 
     // --- Split Logic ---
@@ -165,7 +202,15 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
 
         // Calculate shares by iterating expenses
         expenses.forEach((b) => {
-            const amt = b.frequency === "BI_WEEKLY" ? b.amount * 2 : b.amount;
+            const freqMultiplier =
+                b.frequency === "BI_WEEKLY"
+                    ? 2
+                    : b.frequency === "WEEKLY"
+                    ? 52 / 12
+                    : b.frequency === "QUARTERLY"
+                    ? 1 / 3
+                    : 1;
+            const amt = b.amount * freqMultiplier;
             const owner = b.owner || "JOINT";
 
             if (owner === "USER") {
@@ -388,9 +433,9 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                                 return (a.amount - b.amount) * dir;
                                             }
                                             if (sortBy === "dueDate") {
-                                                return (
-                                                    (a.dueDate - b.dueDate) * dir
-                                                );
+                                                const da = a.dueDate ?? Number.MAX_SAFE_INTEGER;
+                                                const db = b.dueDate ?? Number.MAX_SAFE_INTEGER;
+                                                return (da - db) * dir;
                                             }
                                             return 0;
                                         });
@@ -429,16 +474,20 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                                                 : "bg-purple-100 text-purple-800"
                                                         }`}
                                                     >
-                                                        {expense.frequency ===
-                                                        "MONTHLY"
-                                                            ? "Monthly"
-                                                            : "Bi-Weekly"}
+                                                    {expense.frequency ===
+                                                    "MONTHLY"
+                                                        ? "Monthly"
+                                                        : expense.frequency ===
+                                                          "QUARTERLY"
+                                                        ? "Quarterly"
+                                                        : expense.frequency ===
+                                                          "WEEKLY"
+                                                        ? "Weekly"
+                                                        : "Bi-Weekly"}
                                                     </span>
                                                 </td>
                                                 <td className="px-6 py-4 text-right text-slate-600 font-medium">
-                                                    {getNextDueDate(
-                                                        expense.dueDate
-                                                    )}
+                                                {getNextDueDate(expense)}
                                                 </td>
                                                 <td className="px-6 py-4 text-center">
                                                     <div className="flex items-center justify-center space-x-2">
@@ -532,22 +581,24 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 mb-1">
-                                        Due Day
+                                        Due Day (optional)
                                     </label>
                                     <div className="relative">
                                         <input
-                                            required
                                             type="number"
                                             min="1"
                                             max="31"
                                             className="w-full px-4 py-2 pl-9 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                                            value={formData.dueDate}
+                                            value={formData.dueDate ?? ""}
                                             onChange={(e) =>
                                                 setFormData({
                                                     ...formData,
-                                                    dueDate: parseInt(
-                                                        e.target.value
-                                                    ),
+                                                    dueDate:
+                                                        e.target.value === ""
+                                                            ? undefined
+                                                            : parseInt(
+                                                                  e.target.value
+                                                              ),
                                                 })
                                             }
                                         />
@@ -575,6 +626,8 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                         }
                                     >
                                         <option value="MONTHLY">Monthly</option>
+                                        <option value="QUARTERLY">Quarterly</option>
+                                        <option value="WEEKLY">Weekly</option>
                                         <option value="BI_WEEKLY">
                                             Bi-Weekly
                                         </option>
@@ -598,6 +651,30 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                     />
                                 </div>
                             </div>
+                            {formData.frequency === "QUARTERLY" && (
+                                <div className="grid grid-cols-2 gap-4 mt-2">
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-700 mb-1">
+                                            Quarter Anchor Date
+                                        </label>
+                                        <input
+                                            type="date"
+                                            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                                            value={formData.quarterlyAnchor}
+                                            onChange={(e) =>
+                                                setFormData({
+                                                    ...formData,
+                                                    quarterlyAnchor:
+                                                        e.target.value,
+                                                })
+                                            }
+                                        />
+                                        <p className="text-xs text-slate-500 mt-1">
+                                            Sets when the quarter cycle starts; defaults to day 1 if empty.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Ownership Selector - Always visible now */}
                             <div>

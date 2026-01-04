@@ -200,7 +200,14 @@ const Budget: React.FC<BudgetProps> = ({
     };
 
     const totalExpenses = expenses.reduce((sum, b) => {
-        const monthlyEquivalent = b.frequency === "BI_WEEKLY" ? b.amount * 2 : b.amount;
+        const monthlyEquivalent =
+            b.frequency === "BI_WEEKLY"
+                ? b.amount * 2
+                : b.frequency === "WEEKLY"
+                ? b.amount * (52 / 12)
+                : b.frequency === "QUARTERLY"
+                ? b.amount / 3
+                : b.amount;
         return sum + monthlyEquivalent * getExpenseShare(b);
     }, 0);
 
@@ -250,10 +257,10 @@ const Budget: React.FC<BudgetProps> = ({
     const currencySymbol = userSettings?.currencySymbol || "$";
 
     const hasBiWeeklyExpense = expenses.some(
-        (e) => e.frequency === "BI_WEEKLY"
+        (e) => e.frequency === "BI_WEEKLY" || e.frequency === "WEEKLY"
     );
     const hasBiWeeklyLiability = liabilityWithPlan.some(
-        (l) => l.scheduledFrequency === "BI_WEEKLY"
+        (l) => l.scheduledFrequency === "BI_WEEKLY" || l.scheduledFrequency === "WEEKLY"
     );
 
     // Generate paychecks over a wide window (history + future), respecting optional start date
@@ -547,25 +554,28 @@ const Budget: React.FC<BudgetProps> = ({
             weekday: "short",
         });
 
-    // Income-weighted allocation: monthly items use monthly-eligible income; bi-weekly items use all income
-    const monthlyExpensesTotal = expenses
-        .filter((e) => e.frequency !== "BI_WEEKLY")
-        .reduce(
-            (sum, e) => sum + e.amount * getExpenseShare(e),
-            0
-        );
+    // Income-weighted allocation: monthly/quarterly items use monthly-eligible income; weekly/bi-weekly items use all income
+    const monthlyExpensesTotal = expenses.reduce((sum, e) => {
+        const multiplier =
+            e.frequency === "QUARTERLY"
+                ? 1 / 3
+                : e.frequency === "MONTHLY"
+                ? 1
+                : 0;
+        return sum + e.amount * multiplier * getExpenseShare(e);
+    }, 0);
     const biWeeklyExpensesTotal = expenses
-        .filter((e) => e.frequency === "BI_WEEKLY")
-        .reduce(
-            (sum, e) => sum + e.amount * 2 * getExpenseShare(e),
-            0
-        );
+        .filter((e) => e.frequency === "BI_WEEKLY" || e.frequency === "WEEKLY")
+        .reduce((sum, e) => {
+            const multiplier = e.frequency === "WEEKLY" ? 52 / 12 : 2;
+            return sum + e.amount * multiplier * getExpenseShare(e);
+        }, 0);
 
     const monthlyLiabilityTotal = liabilityWithPlan
-        .filter((l) => l.scheduledFrequency !== "BI_WEEKLY")
+        .filter((l) => l.scheduledFrequency !== "BI_WEEKLY" && l.scheduledFrequency !== "WEEKLY")
         .reduce((sum, l) => sum + l.plannedPayment, 0);
     const biWeeklyLiabilityTotal = liabilityWithPlan
-        .filter((l) => l.scheduledFrequency === "BI_WEEKLY")
+        .filter((l) => l.scheduledFrequency === "BI_WEEKLY" || l.scheduledFrequency === "WEEKLY")
         .reduce((sum, l) => sum + l.plannedPayment, 0);
 
     const monthlyNeed = monthlyExpensesTotal + monthlyLiabilityTotal;
@@ -657,18 +667,22 @@ const Budget: React.FC<BudgetProps> = ({
         const monthlyEquivalent =
             expense.frequency === "BI_WEEKLY"
                 ? expense.amount * 2
+                : expense.frequency === "WEEKLY"
+                ? expense.amount * (52 / 12)
+                : expense.frequency === "QUARTERLY"
+                ? expense.amount / 3
                 : expense.amount;
 
         if (owner === "PARTNER") {
             if (!currentPaycheck?.source.isPartner) return 0;
-            return expense.frequency === "BI_WEEKLY"
+            return expense.frequency === "BI_WEEKLY" || expense.frequency === "WEEKLY"
                 ? monthlyEquivalent * biWeeklyRatioOwner
                 : monthlyEquivalent * monthlyRatioOwner;
         }
 
         if (owner === "USER") {
             if (currentPaycheck?.source.isPartner) return 0;
-            return expense.frequency === "BI_WEEKLY"
+            return expense.frequency === "BI_WEEKLY" || expense.frequency === "WEEKLY"
                 ? monthlyEquivalent * biWeeklyRatioOwner
                 : monthlyEquivalent * monthlyRatioOwner;
         }
@@ -678,12 +692,12 @@ const Budget: React.FC<BudgetProps> = ({
         const partnerPortion = monthlyEquivalent - userPortion;
 
         if (currentPaycheck?.source.isPartner) {
-            return expense.frequency === "BI_WEEKLY"
+            return expense.frequency === "BI_WEEKLY" || expense.frequency === "WEEKLY"
                 ? partnerPortion * biWeeklyRatioOwner
                 : partnerPortion * monthlyRatioOwner;
         }
 
-        return expense.frequency === "BI_WEEKLY"
+        return expense.frequency === "BI_WEEKLY" || expense.frequency === "WEEKLY"
             ? userPortion * biWeeklyRatioOwner
             : userPortion * monthlyRatioOwner;
     };
@@ -848,9 +862,18 @@ const Budget: React.FC<BudgetProps> = ({
                                                 {expense.category
                                                     ? `${expense.category} • `
                                                     : ""}
-                                                Due {expense.dueDate} •{" "}
+                                                {expense.dueDate
+                                                    ? `Due ${expense.dueDate} • `
+                                                    : expense.frequency === "QUARTERLY" &&
+                                                      expense.quarterlyAnchor
+                                                    ? `Starts ${expense.quarterlyAnchor} • `
+                                                    : ""}
                                                 {expense.frequency === "MONTHLY"
                                                     ? "Monthly"
+                                                    : expense.frequency === "WEEKLY"
+                                                    ? "Weekly"
+                                                    : expense.frequency === "QUARTERLY"
+                                                    ? "Quarterly"
                                                     : "Bi-Weekly"}
                                             </p>
                                         </div>

@@ -59,7 +59,15 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
 
   // Expense Calculations
   const totalMonthlyExpenses = expenses.reduce((sum, b) => {
-    return sum + (b.frequency === 'BI_WEEKLY' ? b.amount * 2 : b.amount);
+    const multiplier =
+      b.frequency === 'BI_WEEKLY'
+        ? 2
+        : b.frequency === 'WEEKLY'
+        ? 52 / 12
+        : b.frequency === 'QUARTERLY'
+        ? 1 / 3
+        : 1;
+    return sum + b.amount * multiplier;
   }, 0);
   
   // Asset Calculations
