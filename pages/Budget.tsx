@@ -370,6 +370,39 @@ const Budget: React.FC<BudgetProps> = ({
     const expenseChecks = expenseChecksByCheck[currentCheckKey] || {};
     const liabilityChecks = liabilityChecksByCheck[currentCheckKey] || {};
 
+    const toInputDate = (d: Date) => d.toISOString().split("T")[0];
+    const paycheckDateRange = useMemo(() => {
+        if (currentMonthPaychecks.length === 0) {
+            return {
+                min: budgetStartDate ? toInputDate(budgetStartDate) : "",
+                max: "",
+            };
+        }
+        const first = currentMonthPaychecks[0].date;
+        const last =
+            currentMonthPaychecks[currentMonthPaychecks.length - 1].date;
+        return {
+            min: budgetStartDate ? toInputDate(budgetStartDate) : toInputDate(first),
+            max: toInputDate(last),
+        };
+    }, [budgetStartDate, currentMonthPaychecks]);
+
+    const jumpToDate = (value: string) => {
+        if (!value || currentMonthPaychecks.length === 0) return;
+        const [y, m, d] = value.split("-").map(Number);
+        const target = new Date(y, (m || 1) - 1, d || 1);
+        let bestIdx = 0;
+        let bestDiff = Infinity;
+        currentMonthPaychecks.forEach((p, idx) => {
+            const diff = Math.abs(p.date.getTime() - target.getTime());
+            if (diff < bestDiff) {
+                bestDiff = diff;
+                bestIdx = idx;
+            }
+        });
+        setCurrentPaycheckIndex(bestIdx);
+    };
+
     const currentOwnerIsPartner = currentPaycheck?.source.isPartner;
     const toggleExpense = (id: string) => {
         setExpenseChecksByCheck((prev) => {
@@ -653,48 +686,62 @@ const Budget: React.FC<BudgetProps> = ({
                             {currentPaycheck.source.amount.toLocaleString()}
                         </p>
                     </div>
-                    <div className="flex items-center space-x-2">
-                        <button
-                            type="button"
-                            onClick={() =>
-                                setCurrentPaycheckIndex((idx) =>
-                                    Math.max(0, idx - 1)
-                                )
-                            }
-                            disabled={currentPaycheckIndex === 0}
-                            className={`p-2 rounded-md border ${
-                                currentPaycheckIndex === 0
-                                    ? "text-slate-300 border-slate-200 cursor-not-allowed"
-                                    : "text-indigo-600 border-indigo-200 hover:bg-indigo-50"
-                            }`}
-                            aria-label="Previous paycheck"
-                        >
-                            <ChevronLeft size={16} />
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() =>
-                                setCurrentPaycheckIndex((idx) =>
-                                    Math.min(
-                                        currentMonthPaychecks.length - 1,
-                                        idx + 1
+                    <div className="flex flex-col">
+                        <div className="flex items-center mb-2 justify-center space-x-2">
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    setCurrentPaycheckIndex((idx) =>
+                                        Math.max(0, idx - 1)
                                     )
-                                )
-                            }
-                            disabled={
-                                currentPaycheckIndex ===
-                                currentMonthPaychecks.length - 1
-                            }
-                            className={`p-2 rounded-md border ${
-                                currentPaycheckIndex ===
-                                currentMonthPaychecks.length - 1
-                                    ? "text-slate-300 border-slate-200 cursor-not-allowed"
-                                    : "text-indigo-600 border-indigo-200 hover:bg-indigo-50"
-                            }`}
-                            aria-label="Next paycheck"
-                        >
-                            <ChevronRight size={16} />
-                        </button>
+                                }
+                                disabled={currentPaycheckIndex === 0}
+                                className={`p-2 rounded-md border ${
+                                    currentPaycheckIndex === 0
+                                        ? "text-slate-300 border-slate-200 cursor-not-allowed"
+                                        : "text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                                }`}
+                                aria-label="Previous paycheck"
+                            >
+                                <ChevronLeft size={16} />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    setCurrentPaycheckIndex((idx) =>
+                                        Math.min(
+                                            currentMonthPaychecks.length - 1,
+                                            idx + 1
+                                        )
+                                    )
+                                }
+                                disabled={
+                                    currentPaycheckIndex ===
+                                    currentMonthPaychecks.length - 1
+                                }
+                                className={`p-2 rounded-md border ${
+                                    currentPaycheckIndex ===
+                                    currentMonthPaychecks.length - 1
+                                        ? "text-slate-300 border-slate-200 cursor-not-allowed"
+                                        : "text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                                }`}
+                                aria-label="Next paycheck"
+                            >
+                                <ChevronRight size={16} />
+                            </button>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <label className="hidden sm:flex items-center space-x-2 test-xs text-slate-500">
+                                <span>Jump to</span>
+                                <input
+                                    type="date"
+                                    className="px-2 py-1 border border-slate-300 rounded-md text-xs focus:ring-2 focus:ring-indigo-500"
+                                    min={paycheckDateRange.min || undefined}
+                                    max={paycheckDateRange.max || undefined}
+                                    onChange={(e) => jumpToDate(e.target.value)}
+                                />
+                            </label>
+                        </div>
                     </div>
                 </div>
             )}
