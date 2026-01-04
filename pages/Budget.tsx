@@ -233,11 +233,12 @@ const Budget: React.FC<BudgetProps> = ({
         (l) => l.scheduledFrequency === "BI_WEEKLY"
     );
 
-    // Generate paychecks over a window (history + near future) to allow navigation
+    // Generate paychecks over a wide window (history + future), respecting optional start date
     const currentMonthPaychecks = useMemo(() => {
         const today = new Date();
-        const start = new Date(today.getFullYear(), today.getMonth() - 5, 1); // 6-month window
-        const end = new Date(today.getFullYear(), today.getMonth() + 12, 0); // include next month
+        const windowYears = 20;
+        const start = new Date(today.getFullYear() - windowYears, 0, 1);
+        const end = new Date(today.getFullYear() + windowYears, 11, 31);
         const startBoundary =
             budgetStartDate && budgetStartDate.getTime() > start.getTime()
                 ? budgetStartDate
@@ -252,9 +253,9 @@ const Budget: React.FC<BudgetProps> = ({
             const [y, m, d] = source.nextPayDate.split("-").map(Number);
             let current = new Date(y, m - 1, d);
 
-            // Backtrack to ensure we have the current month's occurrence
+            // Backtrack to ensure we have coverage to the start boundary
             let iterations = 0;
-            while (current > startDate && iterations < 500) {
+            while (current > startDate && iterations < 5000) {
                 const prev = new Date(current);
                 switch (source.frequency) {
                     case "WEEKLY":
@@ -281,11 +282,11 @@ const Budget: React.FC<BudgetProps> = ({
             }
 
             iterations = 0;
-            while (current <= endDate && iterations < 1000) {
-                iterations++;
+            while (current <= endDate && iterations < 5000) {
                 if (current >= startDate) {
                     dates.push(new Date(current));
                 }
+                iterations++;
 
                 switch (source.frequency) {
                     case "WEEKLY":
