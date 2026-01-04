@@ -168,6 +168,23 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
         return sum + b.amount * freqMultiplier;
     }, 0);
 
+    const monthlyCategoryTotals = useMemo(() => {
+        const bucket: Record<string, number> = {};
+        expenses.forEach((e) => {
+            const multiplier =
+                e.frequency === "BI_WEEKLY"
+                    ? 2
+                    : e.frequency === "WEEKLY"
+                    ? 52 / 12
+                    : e.frequency === "QUARTERLY"
+                    ? 1 / 3
+                    : 1;
+            const key = e.category?.trim() || "Uncategorized";
+            bucket[key] = (bucket[key] || 0) + e.amount * multiplier;
+        });
+        return Object.entries(bucket).sort((a, b) => b[1] - a[1]);
+    }, [expenses]);
+
     // --- Split Logic ---
     let userShare = 0;
     let partnerShare = 0;
@@ -322,6 +339,31 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                             </div>
                         )}
                 </div>
+
+                {monthlyCategoryTotals.length > 0 && (
+                    <div className="space-y-3">
+                        <h4 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">
+                            Monthly by Category
+                        </h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                            {monthlyCategoryTotals.map(([cat, total]) => (
+                                <div
+                                    key={cat}
+                                    className="flex items-center justify-between px-3 py-2 rounded-lg border border-slate-100 bg-slate-50"
+                                >
+                                    <span className="text-sm font-medium text-slate-700">
+                                        {cat}
+                                    </span>
+                                    <span className="text-sm font-semibold text-slate-900">
+                                        ${total.toLocaleString(undefined, {
+                                            maximumFractionDigits: 0,
+                                        })}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
             </div>
 
