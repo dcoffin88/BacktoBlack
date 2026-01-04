@@ -35,6 +35,7 @@ type ExtraPayment = {
     id: string;
     liabilityId: string;
     amount: number;
+    checkDate?: string | null;
 };
 
 type SavedSchedule = {
@@ -45,7 +46,6 @@ type SavedSchedule = {
     timeline: PayoffMonth[];
 };
 
-const STORAGE_KEY = "budget-checklist";
 const SCHEDULE_STORAGE_KEY = "budget-liability-plan";
 
 const Budget: React.FC<BudgetProps> = ({
@@ -109,19 +109,6 @@ const Budget: React.FC<BudgetProps> = ({
     );
 
     useEffect(() => {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return;
-        try {
-            const parsed = JSON.parse(raw);
-            setExpenseChecksByCheck(parsed.expenseChecksByCheck || {});
-            setLiabilityChecksByCheck(parsed.liabilityChecksByCheck || {});
-            setExtraPayments(parsed.extraPayments || []);
-        } catch {
-            /* ignore corrupt storage */
-        }
-    }, []);
-
-    useEffect(() => {
         let active = true;
         const loadRemoteChecks = async () => {
             try {
@@ -139,22 +126,21 @@ const Budget: React.FC<BudgetProps> = ({
                 /* ignore fetch errors; stay on localStorage */
             }
         };
+        const loadExtras = async () => {
+            try {
+                const remote = await dbAPI.getExtraPayments();
+                if (!active || !remote?.extras) return;
+                setExtraPayments(remote.extras || []);
+            } catch {
+                /* ignore fetch errors */
+            }
+        };
         loadRemoteChecks();
+        loadExtras();
         return () => {
             active = false;
         };
     }, []);
-
-    useEffect(() => {
-        localStorage.setItem(
-            STORAGE_KEY,
-            JSON.stringify({
-                expenseChecksByCheck,
-                liabilityChecksByCheck,
-                extraPayments,
-            })
-        );
-    }, [expenseChecksByCheck, liabilityChecksByCheck, extraPayments]);
 
     useEffect(() => {
         const rawSchedule = localStorage.getItem(SCHEDULE_STORAGE_KEY);
@@ -509,15 +495,17 @@ const Budget: React.FC<BudgetProps> = ({
     const addExtraPayment = (e: React.FormEvent) => {
         e.preventDefault();
         if (!extraForm.liabilityId || extraForm.amount <= 0) return;
-        setExtraPayments((prev) => [
-            ...prev,
-            {
-                id: Math.random().toString(36).slice(2, 9),
-                liabilityId: extraForm.liabilityId,
-                amount: extraForm.amount,
-            },
-        ]);
+        const newPayment: ExtraPayment = {
+            id: Math.random().toString(36).slice(2, 9),
+            liabilityId: extraForm.liabilityId,
+            amount: extraForm.amount,
+            checkDate: currentCheckKey,
+        };
+        setExtraPayments((prev) => [...prev, newPayment]);
         setExtraForm({ liabilityId: "", amount: 0 });
+        dbAPI.saveExtraPayment(newPayment).catch(() => {
+            /* ignore failures; no local fallback */
+        });
     };
 
     const extraByLiability = extraPayments.reduce<Record<string, number>>(

@@ -89,6 +89,18 @@ db.serialize(() => {
     )
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS budget_extra_payments (
+      id TEXT PRIMARY KEY,
+      liability_id TEXT,
+      amount REAL,
+      check_date TEXT,
+      household_id TEXT,
+      user_id INTEGER,
+      updated_at TEXT
+    )
+  `);
+
   console.log('Database tables created successfully.');
 });
 

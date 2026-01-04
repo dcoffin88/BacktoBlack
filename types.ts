@@ -131,6 +131,7 @@ export interface UserSettings {
     partnerBudget?: number;
     partnerEmail?: string;
     partnerLinked?: boolean;
+    startDate?: string; // YYYY-MM-DD
 
     // Expense Splitting
     expenseSplitMethod?: ExpenseSplitMethod;

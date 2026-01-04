@@ -60,6 +60,26 @@ const ensureBudgetChecksTable = () => {
 };
 ensureBudgetChecksTable();
 
+const ensureBudgetExtrasTable = () => {
+  db.run(
+    `CREATE TABLE IF NOT EXISTS budget_extra_payments (
+      id TEXT PRIMARY KEY,
+      liability_id TEXT,
+      amount REAL,
+      check_date TEXT,
+      household_id TEXT,
+      user_id INTEGER,
+      updated_at TEXT
+    )`,
+    (err) => {
+      if (err) {
+        console.error('Failed to ensure budget_extra_payments table:', err.message);
+      }
+    }
+  );
+};
+ensureBudgetExtrasTable();
+
 app.use(express.json());
 
 type AuthedUser = { id: number; email: string; householdId?: string | null };
@@ -429,6 +449,55 @@ app.post('/api/budget/checks', authenticateToken, (req: AuthedRequest, res) => {
                 return res.status(500).json({ error: err.message });
             }
             res.json({ success: true, checkDate });
+        }
+    );
+});
+
+app.get('/api/budget/extra-payments', authenticateToken, (req: AuthedRequest, res) => {
+    const user = req.user!;
+    const scopeId = user.householdId || user.id;
+    db.all(
+        'SELECT id, liability_id, amount, check_date FROM budget_extra_payments WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
+        [scopeId, user.id],
+        (err, rows) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            const extras = rows.map((row: any) => ({
+                id: row.id,
+                liabilityId: row.liability_id,
+                amount: row.amount,
+                checkDate: row.check_date || null,
+            }));
+            res.json({ extras });
+        }
+    );
+});
+
+app.post('/api/budget/extra-payments', authenticateToken, (req: AuthedRequest, res) => {
+    const user = req.user!;
+    const scopeId = user.householdId || user.id;
+    const { id, liabilityId, amount, checkDate } = req.body as {
+        id: string;
+        liabilityId: string;
+        amount: number;
+        checkDate?: string | null;
+    };
+
+    if (!id || !liabilityId || !Number.isFinite(amount)) {
+        return res.status(400).json({ error: 'id, liabilityId, and amount are required' });
+    }
+
+    const updatedAt = new Date().toISOString();
+    db.run(
+        `INSERT OR REPLACE INTO budget_extra_payments (id, liability_id, amount, check_date, household_id, user_id, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [id, liabilityId, amount, checkDate || null, scopeId, user.id, updatedAt],
+        (err) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            res.json({ success: true, id });
         }
     );
 });

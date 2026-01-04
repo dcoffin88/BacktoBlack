@@ -150,6 +150,24 @@ export const dbAPI = {
     });
   },
 
+  getExtraPayments: async (): Promise<{
+    extras: Array<{ id: string; liabilityId: string; amount: number; checkDate?: string | null }>;
+  }> => {
+    return await fetchJson(`${API_BASE_URL}/budget/extra-payments`, { headers: getAuthHeaders() });
+  },
+  saveExtraPayment: async (payload: {
+    id: string;
+    liabilityId: string;
+    amount: number;
+    checkDate?: string | null;
+  }) => {
+    await fetchJson(`${API_BASE_URL}/budget/extra-payments`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+  },
+
   // SETTINGS
   getSettings: async (): Promise<UserSettings | null> => {
     return await fetchJson<UserSettings | null>(`${API_BASE_URL}/settings`, { headers: getAuthHeaders() });
