@@ -16,6 +16,7 @@ interface SettingsProps {
 }
 
 const Settings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, expenses, assets, incomes, onHouseholdLinked }) => {
+  const todayIso = new Date().toISOString().split('T')[0];
   const [tempSettings, setTempSettings] = useState(settings);
   const [saved, setSaved] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
@@ -37,8 +38,12 @@ const Settings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, expe
 
   // Sync temp settings if props change externally
   useEffect(() => {
-    setTempSettings(settings);
-  }, [settings]);
+    const nextSettings = { ...settings };
+    if (!nextSettings.startDate) {
+      nextSettings.startDate = todayIso;
+    }
+    setTempSettings(nextSettings);
+  }, [settings, todayIso]);
 
   useEffect(() => {
     const loadInvites = async () => {
@@ -390,6 +395,23 @@ const Settings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, expe
                           {tempSettings.currencySymbol || '$'} 12,345.67
                         </div>
                       </div>
+                    </div>
+
+                    <div className="pt-4 border-t border-slate-100">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <div className="p-2 bg-indigo-100 text-indigo-600 rounded-lg">
+                          <Calendar size={18} />
+                        </div>
+                        <h3 className="text-md font-bold text-slate-900">Budget Timeline</h3>
+                      </div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Start Date</label>
+                      <input
+                        type="date"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white text-sm"
+                        value={tempSettings.startDate || todayIso}
+                        onChange={e => setTempSettings({ ...tempSettings, startDate: e.target.value })}
+                      />
+                      <p className="text-xs text-slate-500 mt-1">Budget navigation cannot move to paycheques before this date.</p>
                     </div>
                   </div>
                 </div>

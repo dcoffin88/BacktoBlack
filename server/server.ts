@@ -10,6 +10,7 @@ const app = express();
 const port = 3001;
 const DB_FILE = 'backtoblack.db';
 const JWT_SECRET = 'your_jwt_secret'; // Replace with a strong secret in a real application
+const todayIso = new Date().toISOString().split('T')[0];
 
 const db = new sqlite3.Database(DB_FILE, (err) => {
   if (err) {
@@ -430,11 +431,13 @@ app.get('/api/settings', authenticateToken, (req: AuthedRequest, res) => {
                 email: user.email, 
                 incomeSources: [],
                 useSimpleTerms: false,
-                currencySymbol: '$'
+                currencySymbol: '$',
+                startDate: todayIso,
             };
 
           if (settings.useSimpleTerms === undefined) settings.useSimpleTerms = false;
           if (!settings.currencySymbol) settings.currencySymbol = '$';
+          if (!settings.startDate) settings.startDate = todayIso;
           
           // Force enable partner mode if household is present
           if (user.householdId) {
@@ -476,6 +479,7 @@ app.post('/api/settings', authenticateToken, (req: AuthedRequest, res) => {
       const normalizedSettings: UserSettings = {
         useSimpleTerms: false,
         currencySymbol: '$',
+        startDate: settings.startDate || todayIso,
         ...settings,
       };
 

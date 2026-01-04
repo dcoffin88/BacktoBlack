@@ -80,6 +80,12 @@ const Budget: React.FC<BudgetProps> = ({
     const [scheduleMonthIndex, setScheduleMonthIndex] = useState<number | null>(
         null
     );
+    const budgetStartDate = useMemo(() => {
+        if (!userSettings?.startDate) return null;
+        const parsed = new Date(userSettings.startDate);
+        if (Number.isNaN(parsed.getTime())) return null;
+        return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+    }, [userSettings?.startDate]);
 
     useEffect(() => {
         const raw = localStorage.getItem(STORAGE_KEY);
@@ -232,6 +238,10 @@ const Budget: React.FC<BudgetProps> = ({
         const today = new Date();
         const start = new Date(today.getFullYear(), today.getMonth(), 1);
         const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        const startBoundary =
+            budgetStartDate && budgetStartDate.getTime() > start.getTime()
+                ? budgetStartDate
+                : start;
 
         const getPayDates = (
             source: IncomeSource,
@@ -309,7 +319,7 @@ const Budget: React.FC<BudgetProps> = ({
             eligibleBiWeekly: boolean;
         }[] = [];
         budgetedIncomes.forEach((src) => {
-            const dates = getPayDates(src, start, end).sort(
+            const dates = getPayDates(src, startBoundary, end).sort(
                 (a, b) => a.getTime() - b.getTime()
             );
             dates.forEach((date, idx) =>
@@ -325,7 +335,7 @@ const Budget: React.FC<BudgetProps> = ({
         });
 
         return occurrences.sort((a, b) => a.date.getTime() - b.date.getTime());
-    }, [budgetedIncomes, hasBiWeeklyExpense, hasBiWeeklyLiability]);
+    }, [budgetedIncomes, hasBiWeeklyExpense, hasBiWeeklyLiability, budgetStartDate]);
 
     const paycheckCount = currentMonthPaychecks.length || 1;
     useEffect(() => {
