@@ -401,6 +401,19 @@ const Budget: React.FC<BudgetProps> = ({
     const expenseChecks = expenseChecksByCheck[currentCheckKey] || {};
     const liabilityChecks = liabilityChecksByCheck[currentCheckKey] || {};
 
+    // Keep the schedule month indicator aligned to the currently viewed paycheck
+    useEffect(() => {
+        if (!budgetSchedule || !currentPaycheck) return;
+        const savedDate = new Date(budgetSchedule.savedAt);
+        if (Number.isNaN(savedDate.getTime())) return;
+        const savedMonthCount = savedDate.getFullYear() * 12 + savedDate.getMonth();
+        const selectedMonthCount =
+            currentPaycheck.date.getFullYear() * 12 + currentPaycheck.date.getMonth();
+        const monthIndex = Math.max(1, selectedMonthCount - savedMonthCount + 1);
+        const clamped = Math.min(budgetSchedule.timeline.length, monthIndex);
+        setScheduleMonthIndex(clamped);
+    }, [budgetSchedule, currentPaycheck]);
+
     const toInputDate = (d: Date) => d.toISOString().split("T")[0];
     const paycheckDateRange = useMemo(() => {
         if (currentMonthPaychecks.length === 0) {
