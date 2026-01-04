@@ -233,11 +233,11 @@ const Budget: React.FC<BudgetProps> = ({
         (l) => l.scheduledFrequency === "BI_WEEKLY"
     );
 
-    // Generate paychecks occurring in the current month
+    // Generate paychecks over a window (history + near future) to allow navigation
     const currentMonthPaychecks = useMemo(() => {
         const today = new Date();
-        const start = new Date(today.getFullYear(), today.getMonth(), 1);
-        const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        const start = new Date(today.getFullYear(), today.getMonth() - 5, 1); // 6-month window
+        const end = new Date(today.getFullYear(), today.getMonth() + 12, 0); // include next month
         const startBoundary =
             budgetStartDate && budgetStartDate.getTime() > start.getTime()
                 ? budgetStartDate
@@ -311,6 +311,7 @@ const Budget: React.FC<BudgetProps> = ({
             return dates;
         };
 
+        const monthCountsBySource: Record<string, Record<string, number>> = {};
         const occurrences: {
             date: Date;
             source: IncomeSource;
@@ -322,16 +323,25 @@ const Budget: React.FC<BudgetProps> = ({
             const dates = getPayDates(src, startBoundary, end).sort(
                 (a, b) => a.getTime() - b.getTime()
             );
-            dates.forEach((date, idx) =>
+            monthCountsBySource[src.id] = monthCountsBySource[src.id] || {};
+            dates.forEach((date) => {
+                const monthKey = `${date.getFullYear()}-${date.getMonth()}`;
+                const currentCount = monthCountsBySource[src.id][monthKey] || 0;
+                monthCountsBySource[src.id][monthKey] = currentCount + 1;
+
+                const eligibleMonthly =
+                    src.includeFirstTwoChecks === true
+                        ? currentCount < 2 // allow the first two occurrences per calendar month
+                        : true;
+
                 occurrences.push({
                     date,
                     source: src,
-                    eligibleMonthly:
-						src.includeFirstTwoChecks === true ? idx < 2 : true,
+                    eligibleMonthly,
                     eligibleBiWeekly: true,
                     eligible: true,
-                })
-            );
+                });
+            });
         });
 
         return occurrences.sort((a, b) => a.date.getTime() - b.date.getTime());
@@ -458,13 +468,27 @@ const Budget: React.FC<BudgetProps> = ({
     const monthlyNeed = monthlyExpensesTotal + monthlyLiabilityTotal;
     const biWeeklyNeed = biWeeklyExpensesTotal + biWeeklyLiabilityTotal;
 
-    const totalMonthlyIncomeIncluded = currentMonthPaychecks
+    const displayedPaychecks = useMemo(() => {
+        if (!currentPaycheck) return currentMonthPaychecks;
+        const y = currentPaycheck.date.getFullYear();
+        const m = currentPaycheck.date.getMonth();
+        return currentMonthPaychecks.filter(
+            (p) =>
+                p.date.getFullYear() === y &&
+                p.date.getMonth() === m
+        );
+    }, [currentPaycheck, currentMonthPaychecks]);
+
+    const monthPaychecks =
+        displayedPaychecks.length > 0 ? displayedPaychecks : currentMonthPaychecks;
+
+    const totalMonthlyIncomeIncluded = monthPaychecks
         .filter((p) => p.eligibleMonthly !== false)
         .reduce((sum, p) => sum + p.source.amount, 0);
-    const totalBiWeeklyIncomeIncluded = currentMonthPaychecks
+    const totalBiWeeklyIncomeIncluded = monthPaychecks
         .filter((p) => p.eligibleBiWeekly !== false)
         .reduce((sum, p) => sum + p.source.amount, 0);
-    const totalAnyIncomeIncluded = currentMonthPaychecks.reduce(
+    const totalAnyIncomeIncluded = monthPaychecks.reduce(
         (sum, p) => sum + p.source.amount,
         0
     );
@@ -478,16 +502,16 @@ const Budget: React.FC<BudgetProps> = ({
             ? totalBiWeeklyIncomeIncluded
             : totalAnyIncomeIncluded;
 
-    const monthlyPoolUser = currentMonthPaychecks
+    const monthlyPoolUser = monthPaychecks
         .filter((p) => p.eligibleMonthly !== false && !p.source.isPartner)
         .reduce((sum, p) => sum + p.source.amount, 0);
-    const monthlyPoolPartner = currentMonthPaychecks
+    const monthlyPoolPartner = monthPaychecks
         .filter((p) => p.eligibleMonthly !== false && p.source.isPartner)
         .reduce((sum, p) => sum + p.source.amount, 0);
-    const biWeeklyPoolUser = currentMonthPaychecks
+    const biWeeklyPoolUser = monthPaychecks
         .filter((p) => p.eligibleBiWeekly !== false && !p.source.isPartner)
         .reduce((sum, p) => sum + p.source.amount, 0);
-    const biWeeklyPoolPartner = currentMonthPaychecks
+    const biWeeklyPoolPartner = monthPaychecks
         .filter((p) => p.eligibleBiWeekly !== false && p.source.isPartner)
         .reduce((sum, p) => sum + p.source.amount, 0);
 
