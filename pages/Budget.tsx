@@ -750,7 +750,8 @@ const Budget: React.FC<BudgetProps> = ({
                             {currentPaycheck.source.name}
                         </p>
                         <p className="text-xs text-slate-500">
-                            {formatDate(currentPaycheck.date)}
+                            {formatDate(currentPaycheck.date)}{" "}
+                            {currentPaycheck.date.getFullYear()}
                         </p>
                     </div>
                     <div className="text-right">
