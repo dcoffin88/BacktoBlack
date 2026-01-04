@@ -1,0 +1,20 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: backtoblack:prod
+    container_name: backtoblack
+    hostname: backtoblack
+    networks:
+      - net
+    restart: unless-stopped
+    ports:
+      - "7175:80"
+    volumes:
+      - ./backtoblack.db:/app/backtoblack.db
+
+networks:
+  net:
+    driver: bridge

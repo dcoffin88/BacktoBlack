@@ -1,0 +1,10 @@
+node_modules
+dist
+.env.local
+.gitignore
+Dockerfile
+Dockerfile.dev
+compose.yml
+README.md
+!nginx.conf
+.sync-exclude.lst

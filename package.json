@@ -1,0 +1,48 @@
+{
+  "name": "backtoblack",
+  "description": "Full-stack tracker for a progressive push-up challenge with multi-user PIN access and break-day management.",
+  "version": "0.1.0",
+  "private": false,
+  "license": "MIT",
+  "author": "Doug Coffin",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dcoffin88/backtoblack"
+  },
+  "scripts": {
+    "dev": "concurrently \"npm run start:server\" \"vite\"",
+    "start:server": "ts-node --project server/tsconfig.json server/server.ts",
+    "build": "vite build",
+    "preview": "vite preview",
+    "db:init": "ts-node --project server/tsconfig.json server/init-db.ts"
+  },
+  "dependencies": {
+    "@tailwindcss/postcss": "^4.1.17",
+    "@tailwindcss/vite": "^4.1.17",
+    "bcrypt": "^5.1.1",
+    "dotenv": "^16.4.5",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "lucide-react": "^0.554.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.9.6",
+    "recharts": "^3.5.0",
+    "sqlite3": "^5.1.7"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^5.0.2",
+    "@types/express": "^5.0.5",
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/node": "^22.14.0",
+    "@types/sqlite3": "^3.1.11",
+    "@vitejs/plugin-react": "^5.0.0",
+    "autoprefixer": "^10.4.22",
+    "concurrently": "^8.2.2",
+    "postcss": "^8.5.6",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.4.1"
+  }
+}
