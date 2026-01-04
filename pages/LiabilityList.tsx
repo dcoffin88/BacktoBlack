@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Liability, Ownership, UserSettings } from "../types";
 import {
     calculateIndividualAmortization,
@@ -23,6 +23,7 @@ import {
     Users,
     CheckCircle,
 } from "lucide-react";
+import { dbAPI } from "../server/db";
 
 interface LiabilityListProps {
     liabilities: Liability[];
@@ -81,6 +82,52 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         totalFees: number;
         months: number;
     } | null>(null);
+    const [extraPayments, setExtraPayments] = useState<ExtraPayment[]>([]);
+
+    useEffect(() => {
+        let active = true;
+        const loadExtras = async () => {
+            try {
+                const remote = await dbAPI.getExtraPayments();
+                if (!active || !remote?.extras) return;
+                setExtraPayments(remote.extras || []);
+            } catch {
+                /* ignore fetch errors */
+            }
+        };
+        loadExtras();
+        return () => {
+            active = false;
+        };
+    }, []);
+
+    const getPeriodIndexFromDate = (
+        liability: Liability,
+        checkDate?: string | null
+    ) => {
+        if (!checkDate) return null;
+        const target = new Date(checkDate);
+        if (Number.isNaN(target.getTime())) return null;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const freq = liability.paymentFrequency || "MONTHLY";
+
+        if (freq === "WEEKLY" || freq === "BI_WEEKLY") {
+            const intervalDays = freq === "WEEKLY" ? 7 : 14;
+            const diffDays =
+                (target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
+            const periodsFromNow = Math.max(
+                0,
+                Math.round(diffDays / intervalDays)
+            );
+            return periodsFromNow + 1;
+        }
+
+        const baseMonth = today.getFullYear() * 12 + today.getMonth();
+        const targetMonth = target.getFullYear() * 12 + target.getMonth();
+        const monthDiff = targetMonth - baseMonth;
+        return Math.max(0, monthDiff) + 1;
+    };
 
     // Form State
     const [formData, setFormData] = useState<Omit<Liability, "id">>({
@@ -227,7 +274,16 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
 
     // --- Amortization Handlers ---
     const handleViewAmortization = (liability: Liability) => {
-        const data = calculateIndividualAmortization(liability);
+        const extrasMap = extraPayments
+            .filter((p) => p.liabilityId === liability.id)
+            .reduce<Record<number, number>>((acc, p) => {
+                const period = getPeriodIndexFromDate(liability, p.checkDate);
+                if (!period) return acc;
+                acc[period] = (acc[period] || 0) + p.amount;
+                return acc;
+            }, {});
+
+        const data = calculateIndividualAmortization(liability, extrasMap);
         setViewingLiability(liability);
         setAmortizationData(data);
         setIsAmortizationOpen(true);
@@ -1820,6 +1876,11 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 </td>
                                                 <td className="px-6 py-3 text-sm text-slate-900 text-right">
                                                     ${row.payment.toFixed(2)}
+                                                    {row.extraPayment ? (
+                                                        <div className="text-[11px] text-emerald-600 font-semibold">
+                                                            +${row.extraPayment.toFixed(2)} extra
+                                                        </div>
+                                                    ) : null}
                                                 </td>
                                                 <td className="px-6 py-3 text-sm text-green-600 text-right font-medium">
                                                     ${row.principal.toFixed(2)}

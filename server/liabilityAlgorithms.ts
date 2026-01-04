@@ -10,6 +10,7 @@ export interface AmortizationRow {
   principal: number;
   fees: number;
   remainingBalance: number;
+  extraPayment?: number;
 }
 
 // Helper to calculate monthly equivalent of income sources
@@ -80,7 +81,10 @@ export const getMinPayment = (liability: Liability, currentPrincipal: number, ac
   return Math.min(calculated, totalBalance);
 };
 
-export const calculateIndividualAmortization = (liability: Liability) => {
+export const calculateIndividualAmortization = (
+  liability: Liability,
+  extraPaymentsByPeriod?: Record<number, number>
+) => {
   let balance = liability.balance;
   const rate = liability.interestRate;
   
@@ -166,8 +170,10 @@ export const calculateIndividualAmortization = (liability: Liability) => {
         requiredPayment = currentTotalDue;
     }
 
-    let principal = requiredPayment - interest;
-    let payment = requiredPayment;
+    const extraPayment = extraPaymentsByPeriod?.[periodsElapsed] || 0;
+
+    let principal = requiredPayment - interest + extraPayment;
+    let payment = requiredPayment + extraPayment;
 
     // Final month adjustment
     if (balance < principal) {
@@ -186,7 +192,8 @@ export const calculateIndividualAmortization = (liability: Liability) => {
       interest: interest,
       principal: principal,
       fees: currentMonthFee,
-      remainingBalance: balance
+      remainingBalance: balance,
+      extraPayment: extraPayment || undefined,
     });
   }
   
