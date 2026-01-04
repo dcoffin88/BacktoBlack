@@ -167,6 +167,12 @@ export const dbAPI = {
       body: JSON.stringify(payload),
     });
   },
+  deleteExtraPayment: async (id: string) => {
+    await fetchJson(`${API_BASE_URL}/budget/extra-payments/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+  },
 
   // SETTINGS
   getSettings: async (): Promise<UserSettings | null> => {

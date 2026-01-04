@@ -502,6 +502,24 @@ app.post('/api/budget/extra-payments', authenticateToken, (req: AuthedRequest, r
     );
 });
 
+app.delete('/api/budget/extra-payments/:id', authenticateToken, (req: AuthedRequest, res) => {
+    const user = req.user!;
+    const scopeId = user.householdId || user.id;
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'id is required' });
+
+    db.run(
+        'DELETE FROM budget_extra_payments WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+        [id, scopeId, user.id],
+        (err) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            res.json({ success: true, id });
+        }
+    );
+});
+
 // --- Incomes ---
 app.get('/api/incomes', authenticateToken, (req: AuthedRequest, res) => {
     const user = req.user!;

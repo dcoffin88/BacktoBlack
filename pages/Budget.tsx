@@ -508,7 +508,22 @@ const Budget: React.FC<BudgetProps> = ({
         });
     };
 
-    const extraByLiability = extraPayments.reduce<Record<string, number>>(
+    const deleteExtraPayment = (id: string) => {
+        setExtraPayments((prev) => prev.filter((p) => p.id !== id));
+        dbAPI.deleteExtraPayment(id).catch(() => {
+            /* ignore failures; no local fallback */
+        });
+    };
+
+    const extrasForCurrentCheck = useMemo(
+        () =>
+            extraPayments.filter(
+                (p) => p.checkDate && p.checkDate === currentCheckKey
+            ),
+        [extraPayments, currentCheckKey]
+    );
+
+    const extraByLiability = extrasForCurrentCheck.reduce<Record<string, number>>(
         (acc, p) => {
             acc[p.liabilityId] = (acc[p.liabilityId] || 0) + p.amount;
             return acc;
@@ -1024,9 +1039,9 @@ const Budget: React.FC<BudgetProps> = ({
                         </button>
                     </div>
                 </form>
-                {extraPayments.length > 0 && (
+                {extrasForCurrentCheck.length > 0 && (
                     <div className="px-6 pb-6 space-y-3">
-                        {extraPayments.map((p) => {
+                        {extrasForCurrentCheck.map((p) => {
                             const liability =
                                 liabilities.find((l) => l.id === p.liabilityId) ||
                                 null;
@@ -1043,10 +1058,19 @@ const Budget: React.FC<BudgetProps> = ({
                                             Extra payment
                                         </p>
                                     </div>
-                                    <p className="font-semibold text-emerald-700">
-                                        {currencySymbol}
-                                        {p.amount.toFixed(2)}
-                                    </p>
+                                    <div className="flex items-center space-x-3">
+                                        <p className="font-semibold text-emerald-700">
+                                            {currencySymbol}
+                                            {p.amount.toFixed(2)}
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={() => deleteExtraPayment(p.id)}
+                                            className="text-xs text-red-500 hover:text-red-700 font-semibold"
+                                        >
+                                            Delete
+                                        </button>
+                                    </div>
                                 </div>
                             );
                         })}
