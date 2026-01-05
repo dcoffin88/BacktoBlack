@@ -527,6 +527,9 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                                             expense.frequency ===
                                                             "MONTHLY"
                                                                 ? "bg-blue-100 text-blue-800"
+                                                                : expense.frequency ===
+                                                                  "ANNUAL"
+                                                                ? "bg-orange-100 text-orange-800"
                                                                 : "bg-purple-100 text-purple-800"
                                                         }`}
                                                     >
@@ -539,7 +542,10 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                                         : expense.frequency ===
                                                           "WEEKLY"
                                                         ? "Weekly"
-                                                        : "Bi-Weekly"}
+                                                        : expense.frequency ===
+                                                          "BI_WEEKLY"
+                                                        ? "Bi-Weekly"
+                                                        : "Annual"}
                                                     </span>
                                                 </td>
                                                 <td className="px-6 py-4 text-right text-slate-600 font-medium">
@@ -683,6 +689,7 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                     >
                                         <option value="MONTHLY">Monthly</option>
                                         <option value="QUARTERLY">Quarterly</option>
+                                        <option value="ANNUAL">Annual</option>
                                         <option value="WEEKLY">Weekly</option>
                                         <option value="BI_WEEKLY">
                                             Bi-Weekly

@@ -208,6 +208,8 @@ const Budget: React.FC<BudgetProps> = ({
                 ? b.amount * (52 / 12)
                 : b.frequency === "QUARTERLY"
                 ? b.amount / 3
+                : b.frequency === "ANNUAL"
+                ? b.amount / 12
                 : b.amount;
         return sum + monthlyEquivalent * getExpenseShare(b);
     }, 0);
@@ -682,6 +684,8 @@ const Budget: React.FC<BudgetProps> = ({
                     ? expense.amount * (52 / 12)
                     : expense.frequency === "QUARTERLY"
                     ? expense.amount / 3
+                    : expense.frequency === "ANNUAL"
+                    ? expense.amount / 12
                     : expense.amount;
 
             const eligiblePool = monthPaychecks.filter((p) => {
@@ -808,6 +812,8 @@ const Budget: React.FC<BudgetProps> = ({
                 ? expense.amount * (52 / 12)
                 : expense.frequency === "QUARTERLY"
                 ? expense.amount / 3
+                : expense.frequency === "ANNUAL"
+                ? expense.amount / 12
                 : expense.amount;
 
         if (owner === "PARTNER") {
@@ -1083,6 +1089,8 @@ const Budget: React.FC<BudgetProps> = ({
                                                     ? "Weekly"
                                                     : expense.frequency === "QUARTERLY"
                                                     ? "Quarterly"
+                                                    : expense.frequency === "ANNUAL"
+                                                    ? "Annual"
                                                     : "Bi-Weekly"}
                                             </p>
                                         </div>

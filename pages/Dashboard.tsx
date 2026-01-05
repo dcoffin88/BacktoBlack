@@ -66,6 +66,8 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
         ? 52 / 12
         : b.frequency === 'QUARTERLY'
         ? 1 / 3
+        : b.frequency === 'ANNUAL'
+        ? 1 / 12
         : 1;
     return sum + b.amount * multiplier;
   }, 0);
