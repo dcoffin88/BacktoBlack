@@ -162,7 +162,7 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
 
   return (
     <div className="space-y-8">
-      <div class="flex items-center space-x-3">
+      <div className="flex items-center space-x-3">
         <div className="p-2 bg-indigo-500 text-white rounded-lg">
           <LayoutDashboard size={20} />
         </div>
