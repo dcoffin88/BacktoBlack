@@ -861,7 +861,7 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
                      
                      return (
                        <tr key={row.month} className="hover:bg-slate-50 transition-colors">
-                         <td className="px-4 py-3 text-sm font-bold text-slate-700 sticky left-0 bg-white z-10 shadow-[1px_0_0_0_#e2e8f0] group-hover:bg-slate-50">
+                         <td className="px-4 py-3 text-sm font-bold text-slate-700 sticky left-0 bg-white shadow-[1px_0_0_0_#e2e8f0] group-hover:bg-slate-50">
                            {row.month}
                          </td>
                          <td className="px-4 py-3 text-sm font-bold text-indigo-700 text-right">
