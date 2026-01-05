@@ -285,7 +285,7 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                 <div className="flex items-center gap-2 ml-auto">
                     <button
                         onClick={() => handleOpenModal()}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg font-medium shadow-sm flex items-center transition-colors"
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1.5 rounded-lg font-medium shadow-sm flex items-center transition-colors"
                     >
                         <Plus size={18} className="mr-2" />
                         Add

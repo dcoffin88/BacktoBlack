@@ -642,14 +642,14 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                 <div className="flex items-center gap-2 ml-auto">
                     <button
                         onClick={() => handleOpenFormModal()}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg font-medium shadow-sm flex items-center transition-colors"
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1.5 rounded-lg font-medium shadow-sm flex items-center transition-colors"
                     >
                         <Plus size={18} className="mr-2" />
                         Add
                     </button>
                     <button
                         onClick={() => setIsSettingsOpen(true)}
-                        className="bg-white border border-slate-200 text-slate-700 px-3 py-2 rounded-lg font-medium shadow-sm flex items-center transition-colors hover:bg-slate-50"
+                        className="bg-white border border-slate-200 text-slate-700 px-2 py-1.5 rounded-lg font-medium shadow-sm flex items-center transition-colors hover:bg-slate-50"
                         aria-label="Liability settings"
                     >
                         <Settings size={18} className="mr-2" />

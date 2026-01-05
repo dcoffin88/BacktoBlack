@@ -359,10 +359,10 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
           </div>
 
           {/* Tab Switcher */}
-          <div className="bg-slate-100 p-2 rounded-lg flex space-x-1 overflow-x-auto max-w-full md:ml-auto">
+          <div className="bg-slate-100 p-1.5 rounded-lg flex space-x-1 overflow-x-auto max-w-full md:ml-auto">
             <button
               onClick={() => setActiveTab('schedule')}
-              className={`flex items-center space-x-2 px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
+              className={`flex items-center space-x-2 px-4 py-1.5 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
                 activeTab === 'schedule' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
@@ -371,7 +371,7 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
             </button>
             <button
               onClick={() => setActiveTab('compare')}
-              className={`flex items-center space-x-2 px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
+              className={`flex items-center space-x-2 px-4 py-1.5 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
                 activeTab === 'compare' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
@@ -380,7 +380,7 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
             </button>
             <button
               onClick={() => setActiveTab('balanceTransfer')}
-              className={`flex items-center space-x-2 px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
+              className={`flex items-center space-x-2 px-4 py-1.5 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
                 activeTab === 'balanceTransfer' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
