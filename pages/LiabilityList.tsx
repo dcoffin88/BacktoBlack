@@ -629,27 +629,27 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
     ];
 
     return (
-        <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="space-y-8">
+            <div className="flex items-center space-x-3">
+                <div className="p-2 bg-indigo-500 text-white rounded-lg">
+                    <DollarSign size={20} />
+                </div>
                 <div>
                     <h1 className="text-3xl font-bold text-slate-900">
                         Liabilities
                     </h1>
-                    <p className="text-slate-500 mt-1">
-                        Manage liabilities and loan details.
-                    </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 ml-auto">
                     <button
                         onClick={() => handleOpenFormModal()}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg font-medium shadow-sm flex items-center transition-colors"
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg font-medium shadow-sm flex items-center transition-colors"
                     >
                         <Plus size={18} className="mr-2" />
                         Add
                     </button>
                     <button
                         onClick={() => setIsSettingsOpen(true)}
-                        className="bg-white border border-slate-200 text-slate-700 px-3 py-2.5 rounded-lg font-medium shadow-sm flex items-center transition-colors hover:bg-slate-50"
+                        className="bg-white border border-slate-200 text-slate-700 px-3 py-2 rounded-lg font-medium shadow-sm flex items-center transition-colors hover:bg-slate-50"
                         aria-label="Liability settings"
                     >
                         <Settings size={18} className="mr-2" />

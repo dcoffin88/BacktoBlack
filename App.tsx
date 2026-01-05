@@ -7,7 +7,7 @@ import LiabilityList from './pages/LiabilityList';
 import ExpenseList from './pages/ExpenseList';
 import AssetList from './pages/AssetList';
 import StrategyLab from './pages/StrategyLab';
-import Settings from './pages/Settings';
+import AppSettings from './pages/Settings';
 import Income from './pages/Income';
 import Profile from './pages/Profile';
 import Budget from './pages/Budget';
@@ -243,7 +243,7 @@ const App: React.FC = () => {
           <Route path="/budget" element={<Budget expenses={expenses} liabilities={liabilities} incomes={incomes} userSettings={settings} onUpdateLiability={saveLiability} />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/settings" element={
-            <Settings 
+            <AppSettings 
               settings={settings} 
               onSave={saveSettings} 
               liabilities={liabilities}

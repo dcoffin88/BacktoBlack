@@ -13,6 +13,7 @@ import {
     Edit2,
     X,
     Save,
+    Receipt,
     Calendar,
     Users,
     User,
@@ -272,22 +273,24 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
 
     return (
         <div className="space-y-8">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div className="flex items-center space-x-3">
+                <div className="p-2 bg-indigo-500 text-white rounded-lg">
+                    <Receipt size={20} />
+                </div>
                 <div>
                     <h1 className="text-3xl font-bold text-slate-900">
-                        Monthly Expenses
+                        Expenses
                     </h1>
-                    <p className="text-slate-500 mt-1">
-                        Track expenses and keep monthly payments on schedule.
-                    </p>
                 </div>
-                <button
-                    onClick={() => handleOpenModal()}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg font-medium shadow-sm flex items-center transition-colors"
-                >
-                    <Plus size={18} className="mr-2" />
-                    Add Expense
-                </button>
+                <div className="flex items-center gap-2 ml-auto">
+                    <button
+                        onClick={() => handleOpenModal()}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg font-medium shadow-sm flex items-center transition-colors"
+                    >
+                        <Plus size={18} className="mr-2" />
+                        Add
+                    </button>
+                </div>
             </div>
 
             {/* Summary Card */}

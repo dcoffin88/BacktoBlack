@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Liability, Expense, Asset, StrategyType, STRATEGY_LABELS, UserSettings, IncomeSource, BudgetSchedule } from '../types';
 import { calculatePayoff, getMinPayment, calculateMonthlyIncome } from '../server/liabilityAlgorithms';
 import { Link } from 'react-router-dom';
-import { ArrowRight, TrendingUp, Calendar, DollarSign, Receipt, Landmark, Calculator, AlertTriangle } from 'lucide-react';
+import { ArrowRight, TrendingUp, Calendar, Wallet, LayoutDashboard, DollarSign, Receipt, Landmark, Calculator, AlertTriangle } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { dbAPI } from '../server/db';
 
@@ -160,22 +160,24 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold text-slate-900">Dashboard</h1>
-        <div className="flex items-center space-x-4 mt-1 text-slate-500">
-          <p>Your financial overview and freedom timeline.</p>
-          <div className="flex items-center space-x-2 text-sm">
-            <span className={`font-medium ${!showAnnual ? 'text-indigo-600' : ''}`}>Monthly</span>
-            <button
-              type="button"
-              onClick={() => setShowAnnual(!showAnnual)}
-              className={`w-12 h-6 rounded-full border transition-colors flex items-center ${showAnnual ? 'bg-indigo-600 border-indigo-600 justify-end' : 'bg-slate-200 border-slate-300 justify-start'}`}
-              aria-label="Toggle annualized view"
-            >
-              <span className="w-5 h-5 bg-white rounded-full shadow-sm"></span>
-            </button>
-            <span className={`font-medium ${showAnnual ? 'text-indigo-600' : ''}`}>Annual</span>
-          </div>
+      <div class="flex items-center space-x-3">
+        <div className="p-2 bg-indigo-500 text-white rounded-lg">
+          <LayoutDashboard size={20} />
+        </div>
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900">Dashboard</h1>
+        </div>
+        <div className="flex items-center space-x-2 ml-auto text-sm">
+          <span className={`font-medium ${!showAnnual ? 'text-indigo-600' : ''}`}>Monthly</span>
+          <button
+            type="button"
+            onClick={() => setShowAnnual(!showAnnual)}
+            className={`w-12 h-6 rounded-full border transition-colors flex items-center ${showAnnual ? 'bg-indigo-600 border-indigo-600 justify-end' : 'bg-slate-200 border-slate-300 justify-start'}`}
+            aria-label="Toggle annualized view"
+          >
+            <span className="w-5 h-5 bg-white rounded-full shadow-sm"></span>
+          </button>
+          <span className={`font-medium ${showAnnual ? 'text-indigo-600' : ''}`}>Annual</span>
         </div>
       </div>
 
@@ -203,7 +205,7 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
           title={`${periodLabel} Income`} 
           value={formatCurrency(totalIncome)} 
           subValue={`You: ${formatCurrency(totalMyIncome)} • Partner: ${formatCurrency(totalPartnerIncome)}`} 
-          icon={DollarSign} 
+          icon={Wallet} 
           color="bg-emerald-500" 
         />
         <StatCard 
@@ -219,7 +221,7 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
         <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-100">
           <div className="flex justify-between items-center mb-6">
             <div>
-              <h3 className="text-lg font-bold text-slate-900">Payoff Projection ({planLabel})</h3>
+              <h3 className="text-lg font-bold text-slate-900">Payoff Projection</h3>
               {savedPlan && (
                 <p className="text-xs text-slate-500">
                   Using saved schedule{planSavedAt ? ` from ${planSavedAt.toLocaleDateString()}` : ''}.
@@ -283,7 +285,9 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
             </div>
             <div className="space-y-3">
               <div className="flex justify-between items-center text-sm">
-                <span className="text-slate-500">Total Monthly Income</span>
+                <span className="text-slate-500 flex items-center">
+                  Total Monthly Income <Link to="/income" className="ml-1 text-xs text-indigo-400 hover:text-indigo-600"><ArrowRight size={10}/></Link>
+                </span>
                 <span className="font-bold text-emerald-600">+{formatCurrency(totalIncome, { maximumFractionDigits: 0 })}</span>
               </div>
               <div className="flex justify-between items-center text-sm">
@@ -311,7 +315,7 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
                 <div className="mt-3 bg-red-50 p-3 rounded-lg flex items-start space-x-2 border border-red-100">
                   <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
                   <p className="text-xs text-red-700 leading-tight">
-                    Income is lower than expenses and minimums. Reduce spending or increase income to fund a payoff plan.
+                    Income is lower than expenses and minimums. Reduce spending or increase income.
                   </p>
                 </div>
               )}

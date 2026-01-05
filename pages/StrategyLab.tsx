@@ -6,7 +6,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   BarChart, Bar, Legend, LineChart, Line 
 } from 'recharts';
-import { ChevronDown, Check, ArrowRight, Info, Layers, BarChart2, Table, CreditCard, Percent, Calendar, AlertTriangle, TrendingUp, DollarSign, Landmark } from 'lucide-react';
+import { ChevronDown, Check, ArrowRight, Info, Layers, PieChart, BarChart2, Table, CreditCard, Percent, Calendar, AlertTriangle, TrendingUp, DollarSign, Landmark } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { dbAPI } from '../server/db';
 
@@ -345,44 +345,50 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
   );
 
   return (
-    <div className="space-y-6">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
-            <div>
-              <h1 className="text-3xl font-bold text-slate-900">Strategy Lab</h1>
-              <p className="text-slate-500 mt-1">Analyze and compare different liability payoff methods.</p>
+    <div className="space-y-8">
+        <div className="flex flex-col md:flex-row md:items-center md:space-x-3 space-y-3 md:space-y-0">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 bg-indigo-500 text-white rounded-lg">
+              <PieChart size={20} />
             </div>
+            <div>
+              <h1 className="text-3xl font-bold text-slate-900">
+                Strategy Lab
+              </h1>
+            </div>
+          </div>
 
-        {/* Tab Switcher */}
-        <div className="bg-slate-100 p-1 rounded-lg flex space-x-1 overflow-x-auto max-w-full">
-          <button
-            onClick={() => setActiveTab('schedule')}
-            className={`flex items-center space-x-2 px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
-              activeTab === 'schedule' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Table size={16} />
-            <span>Schedule</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('compare')}
-            className={`flex items-center space-x-2 px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
-              activeTab === 'compare' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Layers size={16} />
-            <span>Compare</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('balanceTransfer')}
-            className={`flex items-center space-x-2 px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
-              activeTab === 'balanceTransfer' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <CreditCard size={16} />
-            <span>Transfers & Loans</span>
-          </button>
+          {/* Tab Switcher */}
+          <div className="bg-slate-100 p-2 rounded-lg flex space-x-1 overflow-x-auto max-w-full md:ml-auto">
+            <button
+              onClick={() => setActiveTab('schedule')}
+              className={`flex items-center space-x-2 px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
+                activeTab === 'schedule' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Table size={16} />
+              <span>Schedule</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('compare')}
+              className={`flex items-center space-x-2 px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
+                activeTab === 'compare' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Layers size={16} />
+              <span>Compare</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('balanceTransfer')}
+              className={`flex items-center space-x-2 px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
+                activeTab === 'balanceTransfer' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <CreditCard size={16} />
+              <span>Transfers</span>
+            </button>
+          </div>
         </div>
-      </div>
 
       {activeTab === 'compare' && (
         <div className="space-y-6 animate-fade-in">

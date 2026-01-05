@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserSettings, ExpenseSplitMethod, Liability, Expense, Asset, IncomeSource, PayFrequency } from '../types';
 import { getMinPayment, calculateMonthlyIncome } from '../server/liabilityAlgorithms';
-import { Save, Mail, DollarSign, Send, Users, PieChart, AlertTriangle, ArrowRight, CheckCircle, Plus, Trash2, Edit2, X, Calendar, Lock } from 'lucide-react';
+import { Save, Mail, DollarSign, Send, Users, PieChart, Settings, AlertTriangle, ArrowRight, CheckCircle, Plus, Trash2, Edit2, X, Calendar, Lock } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { dbAPI } from '../server/db';
 
@@ -15,7 +15,7 @@ interface SettingsProps {
   onHouseholdLinked?: () => Promise<void>;
 }
 
-const Settings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, expenses, assets, incomes, onHouseholdLinked }) => {
+const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, expenses, assets, incomes, onHouseholdLinked }) => {
   const todayIso = new Date().toISOString().split('T')[0];
   const [tempSettings, setTempSettings] = useState(settings);
   const [saved, setSaved] = useState(false);
@@ -347,10 +347,16 @@ const Settings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, expe
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold text-slate-900">Settings</h1>
-        <p className="text-slate-500 mt-1">Configure your income, budget, and preferences.</p>
+    <div className="space-y-8">
+      <div className="flex items-center space-x-3">
+        <div className="p-2 bg-indigo-500 text-white rounded-lg">
+          <Settings size={20} />
+        </div>
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900">
+            Settings
+          </h1>
+        </div>
       </div>
 
       <form onSubmit={handleSave} className="space-y-6">
@@ -797,4 +803,4 @@ const Settings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, expe
   );
 };
 
-export default Settings;
+export default AppSettings;

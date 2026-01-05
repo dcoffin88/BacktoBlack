@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { IncomeSource, PayFrequency, UserSettings } from '../types';
 import { calculateMonthlyIncome } from '../server/liabilityAlgorithms';
-import { Plus, Trash2, Edit2, X, DollarSign, Users } from 'lucide-react';
+import { Plus, Trash2, Edit2, X, Wallet, DollarSign, Users } from 'lucide-react';
 
 interface IncomeProps {
   incomes: IncomeSource[];
@@ -138,14 +138,15 @@ const Income: React.FC<IncomeProps> = ({ incomes, onSaveIncome, onDeleteIncome, 
   const plannerTotal = plannerTotalMy + plannerTotalPartner;
 
   return (
-    <div className="max-w-3xl mx-auto space-y-8">
+    <div className="space-y-8">
       <div className="flex items-center space-x-3">
-        <div className="p-2 bg-emerald-100 text-emerald-600 rounded-lg">
-          <DollarSign size={20} />
+        <div className="p-2 bg-indigo-500 text-white rounded-lg">
+          <Wallet size={20} />
         </div>
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Income</h1>
-		  <p className="text-slate-500 mt-1">Manage incoming pay for you{(settings.enablePartner || isHouseholdMember) ? ` and ${partnerFirstWord}` : ''}.</p>
+          <h1 className="text-3xl font-bold text-slate-900">
+            Income
+          </h1>
         </div>
       </div>
 

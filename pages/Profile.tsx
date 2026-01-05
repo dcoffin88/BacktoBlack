@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile } from '../types';
 import { dbAPI } from '../server/db';
-import { Save, User, Lock, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Save, User, UserCog, Lock, AlertTriangle, CheckCircle } from 'lucide-react';
 
 const Profile: React.FC = () => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -78,10 +78,14 @@ const Profile: React.FC = () => {
   if (loading) return <div className="p-8 text-center text-slate-500">Loading profile...</div>;
 
   return (
-    <div className="max-w-2xl mx-auto space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold text-slate-900">Profile</h1>
-        <p className="text-slate-500 mt-1">Manage your account details and security.</p>
+    <div className="space-y-8">
+      <div className="flex items-center space-x-3">
+        <div className="p-2 bg-indigo-500 text-white rounded-lg">
+          <UserCog size={20} />
+        </div>
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900">Profile</h1>
+        </div>
       </div>
 
       {/* Personal Info */}

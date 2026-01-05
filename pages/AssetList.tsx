@@ -91,27 +91,28 @@ const AssetList: React.FC<AssetListProps> = ({ assets, onSave, onDelete, setting
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900">My Assets</h1>
-          <p className="text-slate-500 mt-1">Track your investments, property, and cash.</p>
+      <div className="flex items-center space-x-3">
+        <div className="p-2 bg-indigo-500 text-white rounded-lg">
+          <Landmark size={20} />
         </div>
-        <button 
-          onClick={() => handleOpenModal()}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg font-medium shadow-sm flex items-center transition-colors"
-        >
-          <Plus size={18} className="mr-2" />
-          Add Asset
-        </button>
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900">Assets</h1>
+        </div>
+        <div className="flex items-center gap-2 ml-auto">
+          <button
+            onClick={() => handleOpenModal()}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg font-medium shadow-sm flex items-center transition-colors"
+          >
+            <Plus size={18} className="mr-2" />
+            Add
+          </button>
+        </div>
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Total Assets</h3>
           <p className="text-3xl font-extrabold text-slate-900 mt-1">${totalAssets.toLocaleString()}</p>
-        </div>
-        <div className="p-4 bg-green-50 rounded-full">
-            <Landmark size={32} className="text-green-600" />
         </div>
       </div>
 

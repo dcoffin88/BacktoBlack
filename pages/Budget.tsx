@@ -14,6 +14,7 @@ import {
 import {
     CheckSquare,
     Square,
+    Calculator,
     DollarSign,
     Calendar,
     TrendingUp,
@@ -894,21 +895,20 @@ const Budget: React.FC<BudgetProps> = ({
 
     return (
         <div className="space-y-8">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div className="flex items-center space-x-3">
+                <div className="p-2 bg-indigo-500 text-white rounded-lg">
+                    <Calculator size={20} />
+                </div>
                 <div>
                     <h1 className="text-3xl font-bold text-slate-900">
                         Budget
                     </h1>
-                    <p className="text-slate-500 mt-1">
-                        Plan each paycheck to cover expenses and minimum
-                        payments, and track what’s done.
-                    </p>
                 </div>
             </div>
 
             {currentPaycheck && (
                 <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
-                    <div>
+                    <div className="order-1">
                         <p className="text-xs font-semibold text-indigo-500 uppercase tracking-wide">
                             Current Check
                         </p>
@@ -920,22 +920,24 @@ const Budget: React.FC<BudgetProps> = ({
                             {currentPaycheck.date.getFullYear()}
                         </p>
                     </div>
-                    <div className="flex flex-wrap items-center gap-4 lg:gap-6">
+                    <div className="order-3 md:order-2 w-full md:w-auto md:flex-1 flex flex-wrap items-center gap-2 lg:gap-6 justify-center md:justify-center">
                         <div className="text-center">
-                            <p className="text-sm text-slate-500">Amount</p>
-                            <p className="text-2xl font-bold text-emerald-700">
+                            <p className="text-sm text-slate-500">
+                                Amount
+                            </p>
+                            <p className="text-l sm:text-2xl font-bold text-emerald-700">
                                 {currencySymbol}
                                 {currentPaycheck.source.amount.toLocaleString()}
                             </p>
                         </div>
                         <div className="text-center">
-                            <p className="text-lg font-bold text-slate-900">-</p>
+                            <p className="text-base sm:text-lg font-bold text-slate-900">-</p>
                         </div>
                         <div className="text-center">
                             <p className="text-sm text-slate-500">
                                 Expenses
                             </p>
-                            <p className="text-2xl font-bold text-slate-900">
+                            <p className="text-l sm:text-2xl font-bold text-slate-900">
                                 {currencySymbol}
                                 {currentExpenseTotal.toLocaleString(
                                     undefined,
@@ -944,13 +946,13 @@ const Budget: React.FC<BudgetProps> = ({
                             </p>
                         </div>
                         <div className="text-center">
-                            <p className="text-lg font-bold text-slate-900">-</p>
+                            <p className="text-base sm:text-lg font-bold text-slate-900">-</p>
                         </div>
                         <div className="text-center">
                             <p className="text-sm text-slate-500">
                                 Liabilities
                             </p>
-                            <p className="text-2xl font-bold text-slate-900">
+                            <p className="text-l sm:text-2xl font-bold text-slate-900">
                                 {currencySymbol}
                                 {currentLiabilityTotal.toLocaleString(
                                     undefined,
@@ -959,14 +961,14 @@ const Budget: React.FC<BudgetProps> = ({
                             </p>
                         </div>
                         <div className="text-center">
-                            <p className="text-lg font-bold text-slate-900">=</p>
+                            <p className="text-base sm:text-lg font-bold text-slate-900">=</p>
                         </div>
                         <div className="text-center">
                             <p className="text-sm text-slate-500">
                                 Remaining
                             </p>
                             <p
-                                className={`text-2xl font-bold ${
+                                className={`text-l sm:text-2xl font-bold ${
                                     currentLeftOver >= 0
                                         ? "text-emerald-700"
                                         : "text-red-600"
@@ -980,8 +982,8 @@ const Budget: React.FC<BudgetProps> = ({
                             </p>
                         </div>
                     </div>
-                    <div className="flex flex-col">
-                        <div className="flex items-center mb-2 justify-center space-x-2">
+                    <div className="order-2 md:order-3 flex flex-col items-center md:items-end space-y-2 ml-auto md:ml-0">
+                        <div className="flex items-center justify-center space-x-2">
                             <button
                                 type="button"
                                 onClick={() =>
@@ -1024,18 +1026,16 @@ const Budget: React.FC<BudgetProps> = ({
                                 <ChevronRight size={16} />
                             </button>
                         </div>
-                        <div className="flex items-center space-x-2">
-                            <label className="hidden sm:flex items-center space-x-2 test-xs text-slate-500">
-                                <span>Jump to</span>
-                                <input
-                                    type="date"
-                                    className="px-2 py-1 border border-slate-300 rounded-md text-xs focus:ring-2 focus:ring-indigo-500"
-                                    min={paycheckDateRange.min || undefined}
-                                    max={paycheckDateRange.max || undefined}
-                                    onChange={(e) => jumpToDate(e.target.value)}
-                                />
-                            </label>
-                        </div>
+                        <label className="hidden sm:flex items-center space-x-2 text-xs text-slate-500">
+                            <span>Jump to</span>
+                            <input
+                                type="date"
+                                className="px-2 py-1 border border-slate-300 rounded-md text-xs focus:ring-2 focus:ring-indigo-500"
+                                min={paycheckDateRange.min || undefined}
+                                max={paycheckDateRange.max || undefined}
+                                onChange={(e) => jumpToDate(e.target.value)}
+                            />
+                        </label>
                     </div>
                 </div>
             )}
@@ -1122,8 +1122,8 @@ const Budget: React.FC<BudgetProps> = ({
                             Liability Minimums
                         </h3>
                         {budgetSchedule && (
-                            <span className="ml-3 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
-                                {budgetSchedule.strategyLabel} • Month{" "}
+                            <span className="ml-auto inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                Month{" "}
                                 {scheduleMonthIndex ?? 1}
                             </span>
                         )}
@@ -1227,11 +1227,8 @@ const Budget: React.FC<BudgetProps> = ({
                     <div className="flex items-center space-x-2">
                         <Calendar size={18} className="text-slate-500" />
                         <h3 className="font-bold text-slate-800">
-                            Extra Debt Payments
+                            Extra Payments
                         </h3>
-                    </div>
-                    <div className="text-sm text-slate-500">
-                        Track additional payments without altering balances.
                     </div>
                 </div>
                 <form
