@@ -2,6 +2,10 @@ export interface Liability {
     id: string;
     householdId?: string;
     name: string;
+    subtitle?: string;
+    transferAccount?: string;
+    excludedIncomeSourceIds?: string[]; // income sources to skip for budget check allocation
+    excludeFromSplitting?: boolean; // bypass split ratios; assign to payer only
     balance: number;
     category?: string;
     interestRate: number; // Annual percentage (e.g., 18.5 for 18.5%)
@@ -35,6 +39,8 @@ export interface Expense {
     id: string;
     householdId?: string;
     name: string;
+    subtitle?: string;
+    transferAccount?: string;
     amount: number;
     dueDate?: number; // Day of month 1-31 (optional)
     frequency: "MONTHLY" | "BI_WEEKLY" | "WEEKLY" | "QUARTERLY" | "ANNUAL";
@@ -112,6 +118,8 @@ export type PayFrequency =
     | "MONTHLY"
     | "ANNUAL";
 
+export type MonthlyIncomeMode = "ANNUALIZED" | "MODE" | "MEDIAN" | "MEAN";
+
 export type Ownership = "USER" | "PARTNER" | "JOINT";
 
 export interface IncomeSource {
@@ -134,6 +142,7 @@ export interface UserSettings {
     // Display / terminology preferences
     useSimpleTerms?: boolean; // Loan/Bills naming
     currencySymbol?: string;
+    monthlyIncomeMode?: MonthlyIncomeMode;
 
     // Income Configuration
     incomeSources: IncomeSource[];

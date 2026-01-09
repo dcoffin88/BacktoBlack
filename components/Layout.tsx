@@ -16,6 +16,7 @@ import {
   Calculator,
   Menu,
   X,
+  FileText,
 } from 'lucide-react';
 import { UserSettings } from '../types';
 
@@ -50,6 +51,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userEmail, userName, onLogout
     { to: '/expenses', icon: Receipt, label: expenseLabel },
     { to: '/assets', icon: Landmark, label: 'Assets' },
     { to: '/strategy', icon: PieChart, label: 'Strategy Lab' },
+    { to: '/reports', icon: FileText, label: 'Reports' },
     { to: '/settings', icon: Settings, label: 'Settings' },
   ];
 

@@ -728,11 +728,13 @@ app.get('/api/settings', authenticateToken, (req: AuthedRequest, res) => {
                 useSimpleTerms: false,
                 currencySymbol: '$',
                 startDate: todayIso,
+                monthlyIncomeMode: 'ANNUALIZED',
             };
 
           if (settings.useSimpleTerms === undefined) settings.useSimpleTerms = false;
           if (!settings.currencySymbol) settings.currencySymbol = '$';
           if (!settings.startDate) settings.startDate = todayIso;
+          if (!settings.monthlyIncomeMode) settings.monthlyIncomeMode = 'ANNUALIZED';
           
           // Force enable partner mode if household is present
           if (user.householdId) {
@@ -775,6 +777,7 @@ app.post('/api/settings', authenticateToken, (req: AuthedRequest, res) => {
         useSimpleTerms: false,
         currencySymbol: '$',
         startDate: settings.startDate || todayIso,
+        monthlyIncomeMode: settings.monthlyIncomeMode || 'ANNUALIZED',
         ...settings,
       };
 

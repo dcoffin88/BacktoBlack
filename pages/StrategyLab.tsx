@@ -1,9 +1,9 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Liability, StrategyType, STRATEGY_LABELS, BudgetSchedule } from '../types';
 import { calculatePayoff, calculateIndividualAmortization, getMinPayment } from '../server/liabilityAlgorithms';
 import { 
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, 
   BarChart, Bar, Legend, LineChart, Line 
 } from 'recharts';
 import { ChevronDown, Check, ArrowRight, Info, Layers, PieChart, BarChart2, Table, CreditCard, Percent, Calendar, AlertTriangle, TrendingUp, DollarSign, Landmark } from 'lucide-react';
@@ -26,6 +26,37 @@ const COLORS: Record<StrategyType, string> = {
   [StrategyType.CUSTOM]: '#6366f1', // Indigo
 };
 
+const useChartDimensions = () => {
+  const [node, setNode] = useState<HTMLDivElement | null>(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  const ref = useCallback((el: HTMLDivElement | null) => setNode(el), []);
+
+  useEffect(() => {
+    if (!node) return;
+
+    const update = () => {
+      const rect = node.getBoundingClientRect();
+      setSize({
+        width: rect.width > 0 ? rect.width : 0,
+        height: rect.height > 0 ? rect.height : 0,
+      });
+    };
+
+    update();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', update);
+      return () => window.removeEventListener('resize', update);
+    }
+
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [node]);
+
+  return { ref, size };
+};
+
 const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget }) => {
   const [activeTab, setActiveTab] = useState<'simulate' | 'compare' | 'schedule' | 'balanceTransfer'>('schedule');
   const [selectedStrategy, setSelectedStrategy] = useState<StrategyType>(StrategyType.AVALANCHE);
@@ -35,6 +66,7 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
   const [anchorDate, setAnchorDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [hasJustSentSchedule, setHasJustSentSchedule] = useState(false);
   const [showAnchorModal, setShowAnchorModal] = useState(false);
+  const { ref: compareChartRef, size: compareChartSize } = useChartDimensions();
   
   // For Comparison Mode
   const [compareSelection, setCompareSelection] = useState<StrategyType[]>([
@@ -435,45 +467,47 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
             {/* Comparison Chart */}
             <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col">
               <h3 className="font-bold text-slate-900 mb-6">Balance Over Time Comparison</h3>
-              <div className="flex-1 min-h-[350px] min-w-[260px]">
-                {chartsReady && (
-                  <ResponsiveContainer width="100%" height="100%" minWidth={200} minHeight={240}>
-                    <LineChart data={comparisonChartData}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis 
-                        dataKey="month" 
-                        tickLine={false} 
-                        axisLine={false} 
-                        tick={{ fill: '#94a3b8', fontSize: 12 }}
-                        tickFormatter={(val) => `M${val}`}
-                      />
-                      <YAxis 
-                        tickLine={false} 
-                        axisLine={false} 
-                        tick={{ fill: '#94a3b8', fontSize: 12 }}
-                        tickFormatter={(val) => `$${val/1000}k`}
-                      />
-                      <Tooltip 
-                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                        formatter={(value: number) => [`$${value.toFixed(0)}`]}
-                      />
-                      <Legend wrapperStyle={{ paddingTop: '20px' }} />
-                      {comparisonResults
-                        .filter(r => compareSelection.includes(r.strategy))
-                        .map(r => (
-                          <Line 
-                            key={r.strategy}
-                            type="monotone" 
-                            dataKey={r.label} 
-                            stroke={r.color} 
-                            strokeWidth={2}
-                            dot={false}
-                            activeDot={{ r: 6 }}
-                          />
-                        ))
-                      }
-                    </LineChart>
-                  </ResponsiveContainer>
+              <div className="flex-1 min-h-[350px] min-w-[260px]" ref={compareChartRef}>
+                {chartsReady && compareChartSize.width > 0 && compareChartSize.height > 0 && (
+                  <LineChart
+                    width={Math.max(200, compareChartSize.width)}
+                    height={Math.max(240, compareChartSize.height)}
+                    data={comparisonChartData}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis 
+                      dataKey="month" 
+                      tickLine={false} 
+                      axisLine={false} 
+                      tick={{ fill: '#94a3b8', fontSize: 12 }}
+                      tickFormatter={(val) => `M${val}`}
+                    />
+                    <YAxis 
+                      tickLine={false} 
+                      axisLine={false} 
+                      tick={{ fill: '#94a3b8', fontSize: 12 }}
+                      tickFormatter={(val) => `$${val/1000}k`}
+                    />
+                    <Tooltip 
+                      contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                      formatter={(value: number) => [`$${value.toFixed(0)}`]}
+                    />
+                    <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                    {comparisonResults
+                      .filter(r => compareSelection.includes(r.strategy))
+                      .map(r => (
+                        <Line 
+                          key={r.strategy}
+                          type="monotone" 
+                          dataKey={r.label} 
+                          stroke={r.color} 
+                          strokeWidth={2}
+                          dot={false}
+                          activeDot={{ r: 6 }}
+                        />
+                      ))
+                    }
+                  </LineChart>
                 )}
               </div>
             </div>

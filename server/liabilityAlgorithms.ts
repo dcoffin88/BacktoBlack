@@ -1,4 +1,4 @@
-import { Liability, PayoffMonth, PayoffResult, StrategyType, IncomeSource } from '../types';
+import { Liability, PayoffMonth, PayoffResult, StrategyType, IncomeSource, MonthlyIncomeMode } from '../types';
 
 // Helper to deep copy liabilities to avoid mutating state during simulation
 const copyLiabilities = (liabilities: Liability[]): Liability[] => JSON.parse(JSON.stringify(liabilities));
@@ -11,6 +11,8 @@ export interface AmortizationRow {
   fees: number;
   remainingBalance: number;
   extraPayment?: number;
+  actualDate?: string;
+  isHistorical?: boolean;
 }
 
 // Helper to calculate monthly equivalent of income sources
@@ -38,6 +40,153 @@ export const calculateMonthlyIncome = (sources: IncomeSource[]): number => {
     }
     return total + monthlyAmount;
   }, 0);
+};
+
+const parseIsoDate = (value?: string): Date | null => {
+  if (!value) return null;
+  const [y, m, d] = value.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const date = new Date(y, m - 1, d);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const addPayPeriod = (date: Date, frequency: IncomeSource["frequency"]) => {
+  const next = new Date(date);
+  switch (frequency) {
+    case "WEEKLY":
+      next.setDate(next.getDate() + 7);
+      break;
+    case "BI_WEEKLY":
+      next.setDate(next.getDate() + 14);
+      break;
+    case "SEMI_MONTHLY":
+      next.setDate(next.getDate() + 15);
+      break;
+    case "MONTHLY":
+      next.setMonth(next.getMonth() + 1);
+      break;
+    case "ANNUAL":
+      next.setFullYear(next.getFullYear() + 1);
+      break;
+    default:
+      next.setMonth(next.getMonth() + 1);
+  }
+  return next;
+};
+
+const subtractPayPeriod = (date: Date, frequency: IncomeSource["frequency"]) => {
+  const prev = new Date(date);
+  switch (frequency) {
+    case "WEEKLY":
+      prev.setDate(prev.getDate() - 7);
+      break;
+    case "BI_WEEKLY":
+      prev.setDate(prev.getDate() - 14);
+      break;
+    case "SEMI_MONTHLY":
+      prev.setDate(prev.getDate() - 15);
+      break;
+    case "MONTHLY":
+      prev.setMonth(prev.getMonth() - 1);
+      break;
+    case "ANNUAL":
+      prev.setFullYear(prev.getFullYear() - 1);
+      break;
+    default:
+      prev.setMonth(prev.getMonth() - 1);
+  }
+  return prev;
+};
+
+const getMonthlyTotals = (
+  sources: IncomeSource[],
+  months: number = 12,
+  anchorDate: Date = new Date()
+) => {
+  const start = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1);
+  const end = new Date(start);
+  end.setMonth(end.getMonth() + months);
+  const totals = new Array(months).fill(0);
+
+  sources.forEach((source) => {
+    if (!Number.isFinite(source.amount)) return;
+    const anchor = parseIsoDate(source.nextPayDate);
+    if (!anchor) {
+      const monthlyEquivalent = calculateMonthlyIncome([source]);
+      for (let i = 0; i < months; i += 1) {
+        totals[i] += monthlyEquivalent;
+      }
+      return;
+    }
+    let current = new Date(anchor);
+    let guard = 0;
+    while (current > start && guard < 2000) {
+      current = subtractPayPeriod(current, source.frequency);
+      guard += 1;
+    }
+    while (current < start && guard < 2000) {
+      current = addPayPeriod(current, source.frequency);
+      guard += 1;
+    }
+    while (current < end && guard < 4000) {
+      const idx =
+        (current.getFullYear() - start.getFullYear()) * 12 +
+        (current.getMonth() - start.getMonth());
+      if (idx >= 0 && idx < months) {
+        totals[idx] += source.amount;
+      }
+      current = addPayPeriod(current, source.frequency);
+      guard += 1;
+    }
+  });
+
+  return totals;
+};
+
+export const calculateMonthlyIncomeByMode = (
+  sources: IncomeSource[],
+  mode: MonthlyIncomeMode = "ANNUALIZED",
+  includeExcluded: boolean = false
+): number => {
+  const eligibleSources = includeExcluded
+    ? sources
+    : sources.filter((source) => source.includeInPlanner !== false);
+  if (mode === "ANNUALIZED") return calculateMonthlyIncome(eligibleSources);
+  const totals = getMonthlyTotals(eligibleSources);
+  if (totals.length === 0) return 0;
+
+  if (mode === "MEAN") {
+    return totals.reduce((sum, value) => sum + value, 0) / totals.length;
+  }
+
+  const sorted = [...totals].sort((a, b) => a - b);
+  if (mode === "MEDIAN") {
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0
+      ? (sorted[mid - 1] + sorted[mid]) / 2
+      : sorted[mid];
+  }
+
+  const counts = new Map<string, { value: number; count: number }>();
+  totals.forEach((value) => {
+    const key = value.toFixed(2);
+    const entry = counts.get(key);
+    if (entry) {
+      entry.count += 1;
+    } else {
+      counts.set(key, { value, count: 1 });
+    }
+  });
+
+  let modeValue = totals[0];
+  let maxCount = 0;
+  counts.forEach((entry) => {
+    if (entry.count > maxCount) {
+      maxCount = entry.count;
+      modeValue = entry.value;
+    }
+  });
+  return modeValue;
 };
 
 // Helper to calculate current minimum payment based on flexible atoms
@@ -83,10 +232,16 @@ export const getMinPayment = (liability: Liability, currentPrincipal: number, ac
 
 export const calculateIndividualAmortization = (
   liability: Liability,
-  extraPaymentsByPeriod?: Record<number, number>,
+  extraPaymentsByPeriod?: Record<number, number | { amount: number; checkDate?: string; forceHistorical?: boolean }>,
   plannedPaymentsByPeriod?: Record<number, number>
 ) => {
-  let balance = liability.balance;
+  // Always seed from the original starting balance when provided so historical
+  // payments and start date drive the table; fall back to current balance.
+  const initialBalance =
+    liability.startingBalance && liability.startingBalance > 0
+      ? liability.startingBalance
+      : liability.balance;
+  let balance = initialBalance;
   const rate = liability.interestRate;
   
   const timeline: AmortizationRow[] = [];
@@ -99,7 +254,44 @@ export const calculateIndividualAmortization = (
   const periodsPerYear = isBiWeekly ? 26 : isWeekly ? 52 : 12;
 
   const periodRate = rate / 100 / periodsPerYear;
-  const startMonthIndex = new Date().getMonth(); // 0-11
+  const startMonthIndex = (() => {
+    const d = liability.startDate ? new Date(liability.startDate) : null;
+    return d && !Number.isNaN(d.getTime()) ? d.getMonth() : new Date().getMonth();
+  })(); // 0-11
+
+  // Apply historical payments (period <= 0) before starting the projection so they
+  // appear as their own rows prior to Payment #1.
+  const forcedHistoricalPeriods = new Set<number>();
+  const historicalPayments = Object.entries(extraPaymentsByPeriod || {})
+    .map(([k, v]) => {
+      const parsed = typeof v === 'number' ? { amount: v } : v || { amount: 0 };
+      const periodNum = Number(k);
+      if (parsed.forceHistorical) {
+        forcedHistoricalPeriods.add(periodNum);
+      }
+      return { period: periodNum, amount: parsed.amount, checkDate: parsed.checkDate, forceHistorical: parsed.forceHistorical };
+    })
+    .filter(({ period, amount, forceHistorical }) => (forceHistorical || period <= 0) && amount > 0)
+    .sort((a, b) => a.period - b.period);
+
+  const hasHistoricalPayments = historicalPayments.length > 0;
+
+  historicalPayments.forEach(({ period, amount, checkDate }) => {
+    if (balance <= 0) return;
+    const principal = Math.min(balance, amount);
+    const payment = principal;
+    balance -= principal;
+    timeline.push({
+      month: period,
+      payment,
+      interest: 0,
+      principal,
+      fees: 0,
+      remainingBalance: balance,
+      actualDate: checkDate,
+      isHistorical: true,
+    });
+  });
 
   // Initial sanity check for infinite loops (use period-equivalent)
   const firstInterest = balance * periodRate;
@@ -107,7 +299,10 @@ export const calculateIndividualAmortization = (
     ? (liability.annualFee / periodsPerYear) 
     : ((liability.feeMonth || 1) === startMonthIndex + 1 ? liability.annualFee : 0);
   const hasExternalPayments =
-    Object.values(extraPaymentsByPeriod || {}).some(v => v > 0) ||
+    Object.values(extraPaymentsByPeriod || {}).some(v => {
+      const parsed = typeof v === 'number' ? v : v?.amount || 0;
+      return parsed > 0;
+    }) ||
     Object.values(plannedPaymentsByPeriod || {}).some(v => v > 0);
 
   const firstMin = (() => {
@@ -143,7 +338,12 @@ export const calculateIndividualAmortization = (
 
   while (balance > 0.01 && periodsElapsed < 3000) {
     periodsElapsed++;
-    
+
+    // If this period was already converted to a historical payment, skip generating a scheduled row.
+    if (forcedHistoricalPeriods.has(periodsElapsed)) {
+      continue;
+    }
+
     // Fee Charge Logic
     let currentMonthFee = 0;
     if (liability.annualFee > 0) {
@@ -180,7 +380,14 @@ export const calculateIndividualAmortization = (
         requiredPayment = currentTotalDue;
     }
 
-    const extraPayment = extraPaymentsByPeriod?.[periodsElapsed] || 0;
+    const skipExtraThisPeriod = forcedHistoricalPeriods.has(periodsElapsed);
+    const extraEntry = skipExtraThisPeriod ? undefined : extraPaymentsByPeriod?.[periodsElapsed];
+    const extraPayment =
+      typeof extraEntry === 'number' ? extraEntry : extraEntry?.amount || 0;
+    const extraDate =
+      typeof extraEntry === 'number' ? undefined : extraEntry?.checkDate;
+    const isForcedHistorical =
+      typeof extraEntry === 'object' && !!extraEntry?.forceHistorical;
     const plannedPayment = plannedPaymentsByPeriod?.[periodsElapsed];
 
     // If a planned payment exists, treat anything above the required amount as additional extra
@@ -189,8 +396,24 @@ export const calculateIndividualAmortization = (
         ? Math.max(0, plannedPayment - requiredPayment)
         : 0;
 
-    let principal = requiredPayment - interest + extraPayment + plannedExtra;
-    let payment = requiredPayment + extraPayment + plannedExtra;
+    let effectiveRequired = requiredPayment;
+    let effectiveExtra = extraPayment;
+    let effectivePlannedExtra = plannedExtra;
+
+    // If this entry is forced historical, treat its amount as the full payment for that period
+    // instead of stacking on top of the minimum (prevents double-counting).
+    if (isForcedHistorical) {
+      effectiveRequired = extraPayment;
+      effectiveExtra = 0;
+      effectivePlannedExtra = 0;
+    }
+
+    const totalAdditional = effectiveExtra + effectivePlannedExtra;
+    const principalWithExtras = effectiveRequired - interest + totalAdditional;
+    const paymentWithExtras = effectiveRequired + totalAdditional;
+
+    let principal = principalWithExtras;
+    let payment = paymentWithExtras;
 
     // Final month adjustment
     if (balance < principal) {
@@ -211,9 +434,13 @@ export const calculateIndividualAmortization = (
       fees: currentMonthFee,
       remainingBalance: balance,
       extraPayment:
-        extraPayment + plannedExtra > 0
-          ? extraPayment + plannedExtra
-          : undefined,
+        isForcedHistorical
+          ? undefined
+          : totalAdditional > 0
+            ? totalAdditional
+            : undefined,
+      actualDate: extraDate,
+      isHistorical: isForcedHistorical ? true : undefined,
     });
   }
   

@@ -4,6 +4,7 @@ import {
     Ownership,
     UserSettings,
     BudgetSchedule,
+    IncomeSource,
 } from "../types";
 import {
     calculateIndividualAmortization,
@@ -32,11 +33,19 @@ import {
 } from "lucide-react";
 import { dbAPI } from "../server/db";
 
+type ExtraPayment = {
+    id: string;
+    liabilityId: string;
+    amount: number;
+    checkDate?: string | null;
+};
+
 interface LiabilityListProps {
     liabilities: Liability[];
     onSave: (liability: Liability) => void;
     onDelete: (id: string) => void;
     settings?: UserSettings;
+    incomes?: IncomeSource[];
 }
 
 const LiabilityList: React.FC<LiabilityListProps> = ({
@@ -44,6 +53,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
     onSave,
     onDelete,
     settings,
+    incomes = [],
 }) => {
     // Modal States
     const [isFormModalOpen, setIsFormModalOpen] = useState(false);
@@ -95,11 +105,17 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         date: string;
     }>({ amount: 0, date: "" });
     const [extraPayments, setExtraPayments] = useState<ExtraPayment[]>([]);
+    const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
+    const [editPayment, setEditPayment] = useState<{ amount: number; date: string }>({
+        amount: 0,
+        date: "",
+    });
     const [savedSchedule, setSavedSchedule] = useState<BudgetSchedule | null>(
         null
     );
     const [priorityMap, setPriorityMap] = useState<Record<string, number>>({});
     const [draggingId, setDraggingId] = useState<string | null>(null);
+    const [showAdvanced, setShowAdvanced] = useState(false);
 
     useEffect(() => {
         let active = true;
@@ -147,13 +163,20 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         return enriched.map((e) => e.id);
     }, [liabilities, priorityMap]);
 
+    const parseLocalDate = (value?: string | null) => {
+        if (!value) return null;
+        const d = value.includes("T")
+            ? new Date(value)
+            : new Date(`${value}T12:00:00`);
+        return Number.isNaN(d.getTime()) ? null : d;
+    };
+
     const getPeriodIndexFromDate = (
         liability: Liability,
         checkDate?: string | null
     ) => {
-        if (!checkDate) return null;
-        const target = new Date(checkDate);
-        if (Number.isNaN(target.getTime())) return null;
+        const target = parseLocalDate(checkDate);
+        if (!target) return null;
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const freq = liability.paymentFrequency || "MONTHLY";
@@ -162,17 +185,124 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             const intervalDays = freq === "WEEKLY" ? 7 : 14;
             const diffDays =
                 (target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
-            const periodsFromNow = Math.max(
-                0,
-                Math.round(diffDays / intervalDays)
-            );
+            const periodsFromNow = Math.round(diffDays / intervalDays);
             return periodsFromNow + 1;
         }
 
         const baseMonth = today.getFullYear() * 12 + today.getMonth();
         const targetMonth = target.getFullYear() * 12 + target.getMonth();
         const monthDiff = targetMonth - baseMonth;
-        return Math.max(0, monthDiff) + 1;
+        return monthDiff + 1;
+    };
+
+    const pDate = (date?: string | null) => {
+        const parsed = parseLocalDate(date);
+        return parsed ? parsed.getTime() : 0;
+    };
+
+    const getHistoricalPaidAmount = (liability: Liability) => {
+        return extraPayments
+            .filter((p) => p.liabilityId === liability.id)
+            .reduce((sum, p) => sum + (p.amount || 0), 0);
+    };
+
+    const getDisplayBalance = (liability: Liability) => {
+        const paid = getHistoricalPaidAmount(liability);
+        const base =
+            (liability.startingBalance && liability.startingBalance > 0
+                ? liability.startingBalance
+                : liability.balance) || 0;
+        const derived = Math.max(0, base - paid);
+        return Math.min(liability.balance, derived);
+    };
+
+    const getBalanceFromTimeline = () => {
+        if (!amortizationData || !amortizationData.timeline.length) return null;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const rowsWithDates = amortizationData.timeline
+            .map((row) => {
+                const dateValue = (row as any).actualDate;
+                const parsed = parseLocalDate(dateValue);
+                return parsed ? { row, date: parsed } : null;
+            })
+            .filter(Boolean) as { row: typeof amortizationData.timeline[0]; date: Date }[];
+
+        if (!rowsWithDates.length) return null;
+
+        // Find the latest applied payment (<= today)
+        const pastRows = rowsWithDates.filter(({ date }) => date <= today);
+        if (pastRows.length) {
+            const latest = pastRows.reduce((acc, cur) =>
+                cur.date > acc.date ? cur : acc
+            );
+            return latest.row.remainingBalance;
+        }
+
+        // Otherwise use the earliest dated row (upcoming) as the next balance marker
+        const earliest = rowsWithDates.reduce((acc, cur) =>
+            cur.date < acc.date ? cur : acc
+        );
+        return earliest.row.remainingBalance;
+    };
+
+    const paymentsForViewing = useMemo(() => {
+        if (!viewingLiability) return [];
+        return extraPayments
+            .filter((p) => p.liabilityId === viewingLiability.id)
+            .slice()
+            .sort((a, b) => {
+                const da = pDate(a.checkDate);
+                const db = pDate(b.checkDate);
+                if (da === db) return a.id.localeCompare(b.id);
+                return da - db;
+            });
+    }, [extraPayments, viewingLiability]);
+
+    // Helper: get local YYYY-MM-DD string (avoids timezone shifting to prior day)
+    const toLocalDateString = (date: Date) =>
+        new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+            .toISOString()
+            .split("T")[0];
+
+    // When a historical payment is added/edited/removed, adjust the live balance so the list matches reality.
+    const applyHistoricalBalanceDelta = (liabilityId: string, delta: number) => {
+        if (!delta) return;
+        const existing = liabilities.find((l) => l.id === liabilityId);
+        if (!existing) return;
+        const nextBalance = Math.max(0, (existing.balance || 0) + delta);
+        const updated = { ...existing, balance: nextBalance };
+        onSave(updated);
+        if (viewingLiability?.id === liabilityId) {
+            setViewingLiability(updated);
+        }
+    };
+
+    const reconcileHistoricalBalanceChange = (
+        liability: Liability,
+        oldAmount: number,
+        oldDate?: string | null,
+        newAmount?: number,
+        newDate?: string | null
+    ) => {
+        const oldPeriod = getPeriodIndexFromDate(liability, oldDate);
+        const newPeriod = getPeriodIndexFromDate(liability, newDate);
+
+        const wasHistorical = oldPeriod !== null && oldPeriod <= 0;
+        const isHistorical = newPeriod !== null && newPeriod <= 0;
+
+        let delta = 0;
+        if (wasHistorical && isHistorical) {
+            delta = oldAmount - (newAmount || 0);
+        } else if (wasHistorical && !isHistorical) {
+            delta = oldAmount; // removing a historical payment
+        } else if (!wasHistorical && isHistorical) {
+            delta = -(newAmount || 0); // adding/moving into history
+        }
+
+        if (delta !== 0) {
+            applyHistoricalBalanceDelta(liability.id, delta);
+        }
     };
 
     const getScheduleMonthIndex = (savedAt?: string) => {
@@ -188,6 +318,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
     // Form State
     const [formData, setFormData] = useState<Omit<Liability, "id">>({
         name: "",
+        subtitle: "",
+        transferAccount: "",
+        excludedIncomeSourceIds: [],
+        excludeFromSplitting: false,
         balance: 0,
         startingBalance: 0,
         startDate: "",
@@ -216,6 +350,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
 
     const partnerFirstWord =
         settings?.partnerName?.trim()?.split(/\s+/)[0] || "Partner";
+    const eligibleIncomes = useMemo(
+        () => incomes.filter((i) => i.includeInPlanner !== false),
+        [incomes]
+    );
 
     // --- CRUD Handlers ---
     const handleOpenFormModal = (liability?: Liability) => {
@@ -240,6 +378,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
 
             setFormData({
                 name: liability.name,
+                subtitle: liability.subtitle || "",
+                transferAccount: liability.transferAccount || "",
+                excludedIncomeSourceIds: liability.excludedIncomeSourceIds || [],
+                excludeFromSplitting: liability.excludeFromSplitting || false,
                 balance: liability.balance,
                 startingBalance: liability.startingBalance || liability.balance,
                 startDate: liability.startDate || todayStr,
@@ -275,6 +417,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
 
             setFormData({
                 name: "",
+                subtitle: "",
+                transferAccount: "",
+                excludedIncomeSourceIds: [],
+                excludeFromSplitting: false,
                 balance: 0,
                 startingBalance: 0,
                 startDate: todayStr,
@@ -303,22 +449,30 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
 
         // Final cleanup ensuring values match toggles
         const finalData = { ...formData };
+        const existing = editingId
+            ? liabilities.find((l) => l.id === editingId)
+            : null;
         if (!enablePercent) finalData.minPaymentPercentage = 0;
         if (!enableFixed) finalData.minPaymentAmount = 0;
         if (!enableFloor) finalData.minPaymentFloor = 0;
         if (!enableAnnualFee) finalData.annualFee = 0;
         finalData.customOrder = Number(finalData.customOrder) || 0;
 
+        if (editingId) {
+            finalData.balance = existing?.balance ?? finalData.balance;
+        } else {
+            finalData.balance = finalData.startingBalance;
+        }
+
         // Ensure starting balance is at least the current balance if not set
         if (finalData.startingBalance < finalData.balance) {
             finalData.startingBalance = finalData.balance;
         }
         if (!finalData.nextDueDate) {
-            finalData.nextDueDate = new Date().toISOString().split("T")[0];
+            finalData.nextDueDate = toLocalDateString(new Date());
         }
 
         if (editingId) {
-            const existing = liabilities.find((l) => l.id === editingId);
             onSave({
                 ...finalData,
                 id: editingId,
@@ -345,10 +499,22 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
     const handleViewAmortization = (liability: Liability) => {
         const extrasMap = extraPayments
             .filter((p) => p.liabilityId === liability.id)
-            .reduce<Record<number, number>>((acc, p) => {
-                const period = getPeriodIndexFromDate(liability, p.checkDate);
-                if (!period) return acc;
-                acc[period] = (acc[period] || 0) + p.amount;
+            .reduce<Record<number, { amount: number; checkDate?: string | null; forceHistorical?: boolean }>>((acc, p) => {
+                const parsedDate = parseLocalDate(p.checkDate);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const isPast = parsedDate ? parsedDate <= today : false;
+
+                // Use the period index from date; clamp to 1 so we can skip the corresponding scheduled row.
+                const rawPeriod = getPeriodIndexFromDate(liability, p.checkDate);
+                const period = Math.max(1, rawPeriod || 1);
+                if (period === null || period === undefined) return acc;
+
+                acc[period] = {
+                    amount: (acc[period]?.amount || 0) + p.amount,
+                    checkDate: p.checkDate,
+                    forceHistorical: isPast,
+                };
                 return acc;
             }, {});
 
@@ -383,21 +549,164 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         setIsAmortizationOpen(true);
     };
 
+    // Keep amortization in sync while modal is open
+    useEffect(() => {
+        if (!isAmortizationOpen || !viewingLiability) return;
+        handleViewAmortization(viewingLiability);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [extraPayments, savedSchedule, viewingLiability, isAmortizationOpen]);
+
+    // Auto-post scheduled payments whose dates have passed into historical payments
+    useEffect(() => {
+        if (!isAmortizationOpen || !viewingLiability || !amortizationData) return;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const rowsToPost = amortizationData.timeline
+            .map((row) => {
+                const dateValue = (row as any).actualDate;
+                const parsed =
+                    parseLocalDate(dateValue) ||
+                    getPaymentDateForRow(row.month, viewingLiability);
+                if (!parsed) return null;
+                parsed.setHours(0, 0, 0, 0);
+                return { row, date: parsed };
+            })
+            .filter((entry) => entry && entry.date <= today) as {
+            row: typeof amortizationData.timeline[0];
+            date: Date;
+        }[];
+
+        if (!rowsToPost.length) return;
+
+        const existingKeys = new Set(
+            extraPayments
+                .filter((p) => p.liabilityId === viewingLiability.id)
+                .map((p) => `${p.checkDate || ""}`)
+        );
+
+        const newPayments = rowsToPost
+            .filter(({ date }) => {
+                const key = toLocalDateString(date);
+                return !existingKeys.has(key);
+            })
+            .map(({ row, date }) => {
+                const checkDate = toLocalDateString(date);
+                existingKeys.add(checkDate);
+                return {
+                    id: Math.random().toString(36).substr(2, 9),
+                    liabilityId: viewingLiability.id,
+                    amount: row.payment,
+                    checkDate,
+                } as ExtraPayment;
+            });
+
+        if (!newPayments.length) return;
+
+        setExtraPayments((prev) => [...prev, ...newPayments]);
+        newPayments.forEach(async (p) => {
+            try {
+                await dbAPI.saveExtraPayment(p);
+            } catch {
+                /* ignore save failures */
+            }
+        });
+    }, [amortizationData, extraPayments, isAmortizationOpen, viewingLiability]);
+
     const addHistoricalPayment = async () => {
         if (!viewingLiability || historicalPayment.amount <= 0) return;
         const payload: ExtraPayment = {
             id: Math.random().toString(36).substr(2, 9),
             liabilityId: viewingLiability.id,
             amount: historicalPayment.amount,
-            checkDate: historicalPayment.date || new Date().toISOString().split("T")[0],
+            checkDate: historicalPayment.date || toLocalDateString(new Date()),
         };
         setExtraPayments((prev) => [...prev, payload]);
+        setHistoricalPayment({ amount: 0, date: "" });
+        reconcileHistoricalBalanceChange(
+            viewingLiability,
+            0,
+            undefined,
+            payload.amount,
+            payload.checkDate
+        );
         try {
             await dbAPI.saveExtraPayment(payload);
             // Recompute with new extra
             handleViewAmortization(viewingLiability);
         } catch {
             /* ignore save failures */
+        }
+    };
+
+    const startEditPayment = (payment: ExtraPayment) => {
+        setEditingPaymentId(payment.id);
+        setEditPayment({
+            amount: payment.amount,
+            date: payment.checkDate || "",
+        });
+    };
+
+    const cancelEditPayment = () => {
+        setEditingPaymentId(null);
+        setEditPayment({ amount: 0, date: "" });
+    };
+
+    const saveEditedPayment = async () => {
+        if (!editingPaymentId || !viewingLiability || editPayment.amount <= 0)
+            return;
+        const existing = extraPayments.find((p) => p.id === editingPaymentId);
+        if (!existing) {
+            setEditingPaymentId(null);
+            return;
+        }
+        const updated: ExtraPayment = {
+            ...existing,
+            amount: editPayment.amount,
+            checkDate:
+                editPayment.date ||
+                existing.checkDate ||
+                toLocalDateString(new Date()),
+        };
+        setExtraPayments((prev) =>
+            prev.map((p) => (p.id === editingPaymentId ? updated : p))
+        );
+        setEditingPaymentId(null);
+        reconcileHistoricalBalanceChange(
+            viewingLiability,
+            existing.amount,
+            existing.checkDate,
+            updated.amount,
+            updated.checkDate
+        );
+        try {
+            await dbAPI.saveExtraPayment(updated);
+            handleViewAmortization(viewingLiability);
+        } catch {
+            /* ignore save failures */
+        }
+    };
+
+    const deletePayment = async (id: string) => {
+        const existing = extraPayments.find((p) => p.id === id);
+        setExtraPayments((prev) => prev.filter((p) => p.id !== id));
+        if (editingPaymentId === id) {
+            setEditingPaymentId(null);
+        }
+        if (viewingLiability && existing) {
+            reconcileHistoricalBalanceChange(
+                viewingLiability,
+                existing.amount,
+                existing.checkDate,
+                0,
+                existing.checkDate
+            );
+            handleViewAmortization(viewingLiability);
+        }
+        try {
+            await dbAPI.deleteExtraPayment(id);
+        } catch {
+            /* ignore delete failures */
         }
     };
 
@@ -455,8 +764,15 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             liability.balance * (liability.interestRate / 100 / 12);
         // Estimate fee for label context - show monthly equivalent
         const estFee = liability.isFeeMonthly ? liability.annualFee / 12 : 0;
+        const adjustedLiability =
+            liability.paymentFrequency === "BI_WEEKLY"
+                ? {
+                      ...liability,
+                      minPaymentAmount: liability.minPaymentAmount * (24 / 26),
+                  }
+                : liability;
         const val = getMinPayment(
-            liability,
+            adjustedLiability,
             liability.balance,
             monthlyInt,
             estFee
@@ -770,6 +1086,9 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                         return 0;
                                     })
                                     .map((liability) => {
+                                    const displayBalance = getDisplayBalance(
+                                        liability
+                                    );
                                     const percentPaid =
                                         liability.startingBalance > 0
                                             ? Math.max(
@@ -777,7 +1096,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                   Math.min(
                                                       100,
                                                       ((liability.startingBalance -
-                                                          liability.balance) /
+                                                          displayBalance) /
                                                           liability.startingBalance) *
                                                           100
                                                   )
@@ -790,8 +1109,13 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                             className="hover:bg-slate-50 transition-colors"
                                         >
                                             <td className="px-6 py-4">
-                                                <div className="font-medium text-slate-900">
-                                                    {liability.name}
+                                                <div className="flex items-baseline gap-2 font-medium text-slate-900">
+                                                    <span>{liability.name}</span>
+                                                    {liability.subtitle && (
+                                                        <span className="text-xs font-normal text-slate-500">
+                                                            {liability.subtitle}
+                                                        </span>
+                                                    )}
                                                 </div>
                                                 {liability.category ? (
                                                     <span className="block text-xs font-normal text-slate-400">
@@ -817,10 +1141,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                             <td className="px-6 py-4 text-right">
                                                 <div className="font-medium text-slate-700">
                                                     $
-                                                    {liability.balance.toLocaleString()}
+                                                    {displayBalance.toLocaleString()}
                                                 </div>
                                                 {liability.startingBalance >
-                                                    liability.balance && (
+                                                    displayBalance && (
                                                     <div className="flex flex-col items-end mt-1">
                                                         <div className="w-24 bg-slate-100 rounded-full h-1.5 mb-1">
                                                             <div
@@ -941,7 +1265,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                             <span className="text-xs text-slate-500 font-medium truncate max-w-[150px]">
                                                 {formData.name || "New Debt"} •
                                                 $
-                                                {formData.balance.toLocaleString()}
+                                                {formData.startingBalance.toLocaleString()}
                                             </span>
                                         )}
                                         {expandLiabilityDetails ? (
@@ -981,6 +1305,24 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
 
                                         <div>
                                             <label className="block text-sm font-medium text-slate-700 mb-1">
+                                                Subtitle (Optional)
+                                            </label>
+                                            <input
+                                                type="text"
+                                                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                                                placeholder="e.g. Chase Sapphire"
+                                                value={formData.subtitle || ""}
+                                                onChange={(e) =>
+                                                    setFormData({
+                                                        ...formData,
+                                                        subtitle: e.target.value,
+                                                    })
+                                                }
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">
                                                 Category (Optional)
                                             </label>
                                             <input
@@ -996,44 +1338,25 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 }
                                             />
                                         </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">
+                                                Transfer Account (Optional)
+                                            </label>
+                                            <input
+                                                type="text"
+                                                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                                                placeholder="e.g. Checking - TD"
+                                                value={formData.transferAccount || ""}
+                                                onChange={(e) =>
+                                                    setFormData({
+                                                        ...formData,
+                                                        transferAccount: e.target.value,
+                                                    })
+                                                }
+                                            />
+                                        </div>
 
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="block text-sm font-medium text-slate-700 mb-1">
-                                                    Current Balance ($)
-                                                </label>
-                                                <input
-                                                    required
-                                                    type="number"
-                                                    step="0.01"
-                                                    min="0"
-                                                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
-                                                    value={formData.balance}
-                                                    onChange={(e) => {
-                                                        const val = parseFloat(
-                                                            e.target.value
-                                                        );
-                                                        // Auto-update starting balance if it hasn't been touched or is less than new balance for new liabilities
-                                                        if (
-                                                            !editingId &&
-                                                            val >
-                                                                formData.startingBalance
-                                                        ) {
-                                                            setFormData({
-                                                                ...formData,
-                                                                balance: val,
-                                                                startingBalance:
-                                                                    val,
-                                                            });
-                                                        } else {
-                                                            setFormData({
-                                                                ...formData,
-                                                                balance: val,
-                                                            });
-                                                        }
-                                                    }}
-                                                />
-                                            </div>
+                                        <div className="grid grid-cols-1 gap-4">
                                             <div>
                                                 <label className="block text-sm font-medium text-slate-700 mb-1">
                                                     Original Balance ($)
@@ -1792,6 +2115,101 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                 )}
                             </div>
 
+                            <div className="mt-4 border-t border-slate-200 pt-4">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAdvanced((v) => !v)}
+                                    className="text-sm font-semibold text-indigo-600 hover:text-indigo-800 flex items-center"
+                                >
+                                    {showAdvanced ? "Hide" : "Show"} Advanced
+                                </button>
+                                {showAdvanced && (
+                                    <div className="mt-3 space-y-2">
+                                        <p className="text-xs text-slate-500">
+                                            Exclude this liability from specific income sources when splitting per-check on the Budget page.
+                                        </p>
+                                        <label className="flex items-center space-x-2 text-sm text-slate-700">
+                                            <input
+                                                type="checkbox"
+                                                className="w-4 h-4 text-indigo-600 rounded border-slate-300"
+                                                checked={formData.excludeFromSplitting || false}
+                                                onChange={(e) =>
+                                                    setFormData({
+                                                        ...formData,
+                                                        excludeFromSplitting: e.target.checked,
+                                                    })
+                                                }
+                                            />
+                                            <span className="font-medium">
+                                                Exclude from Expense Splitting Strategy
+                                            </span>
+                                        </label>
+                                        <p className="text-[11px] text-slate-500 ml-6">
+                                            When checked, this liability won't be split; it stays with its owner.
+                                        </p>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                            {eligibleIncomes.map((inc) => {
+                                                const checked =
+                                                    formData.excludedIncomeSourceIds?.includes(
+                                                        inc.id
+                                                    ) || false;
+                                                return (
+                                                    <label
+                                                        key={inc.id}
+                                                        className={`flex items-center justify-between px-3 py-2 rounded-lg border ${
+                                                            checked
+                                                                ? "border-indigo-200 bg-indigo-50"
+                                                                : "border-slate-200 bg-white"
+                                                        }`}
+                                                    >
+                                                        <div>
+                                                            <p className="text-sm font-medium text-slate-800">
+                                                                {inc.name}
+                                                            </p>
+                                                            <p className="text-[11px] text-slate-500">
+                                                                {inc.isPartner
+                                                                    ? partnerFirstWord
+                                                                    : "You"}{" "}
+                                                                {" - "}
+                                                                {inc.amount.toLocaleString()} per pay
+                                                            </p>
+                                                        </div>
+                                                        <input
+                                                            type="checkbox"
+                                                            className="w-4 h-4 text-indigo-600 rounded border-slate-300"
+                                                            checked={checked}
+                                                            onChange={(e) => {
+                                                                const next =
+                                                                    new Set(
+                                                                        formData.excludedIncomeSourceIds ||
+                                                                            []
+                                                                    );
+                                                                if (e.target.checked) {
+                                                                    next.add(inc.id);
+                                                                } else {
+                                                                    next.delete(inc.id);
+                                                                }
+                                                                setFormData({
+                                                                    ...formData,
+                                                                    excludedIncomeSourceIds: Array.from(
+                                                                        next
+                                                                    ),
+                                                                });
+                                                            }}
+                                                        />
+                                                    </label>
+                                                );
+                                            })}
+                                            {eligibleIncomes.length === 0 && (
+                                                <p className="text-xs text-slate-400">
+                                                    No eligible income sources (others are excluded from Budget).
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
                             {/* Ownership Selector */}
                             <div>
                                 <label className="text-sm font-bold text-slate-800 ml-2 mb-2">
@@ -1869,9 +2287,13 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                             minPaymentPercentage: enablePercent
                                                 ? formData.minPaymentPercentage
                                                 : 0,
-                                            minPaymentAmount: enableFixed
-                                                ? formData.minPaymentAmount
-                                                : 0,
+                                            minPaymentAmount: (() => {
+                                                if (!enableFixed) return 0;
+                                                if (formData.paymentFrequency === "BI_WEEKLY") {
+                                                    return formData.minPaymentAmount * (24 / 26);
+                                                }
+                                                return formData.minPaymentAmount;
+                                            })(),
                                             minPaymentFloor: enableFloor
                                                 ? formData.minPaymentFloor
                                                 : 0,
@@ -1882,7 +2304,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 formData.minPaymentPlusFees, // ensure toggle is respected
                                         };
 
-                                        let effectiveBalance = formData.balance;
+                                        const baseBalance =
+                                            formData.balance ||
+                                            formData.startingBalance ||
+                                            0;
                                         let currentFee = 0;
 
                                         // Logic to show fee impact in preview
@@ -1893,7 +2318,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                             if (formData.isFeeMonthly) {
                                                 currentFee =
                                                     formData.annualFee / 12;
-                                                effectiveBalance += currentFee;
                                             } else {
                                                 // If current month matches selected fee month, show full fee
                                                 const currentMonth =
@@ -1904,18 +2328,16 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 ) {
                                                     currentFee =
                                                         formData.annualFee;
-                                                    effectiveBalance +=
-                                                        currentFee;
                                                 }
                                             }
                                         }
 
                                         const monthlyInt =
-                                            effectiveBalance *
+                                            baseBalance *
                                             (formData.interestRate / 100 / 12);
                                         const val = getMinPayment(
                                             mockLiability,
-                                            effectiveBalance,
+                                            baseBalance,
                                             monthlyInt,
                                             currentFee
                                         );
@@ -2052,65 +2474,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                             </button>
                         </div>
 
-                        {/* Historical Payments */}
-                        {viewingLiability && (
-                            <div className="px-6 py-4 border-b border-slate-200 bg-white flex flex-col gap-3">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                                            Historical Payments
-                                        </p>
-                                        <p className="text-sm text-slate-500">
-                                            Add past payments to reflect in the amortization.
-                                        </p>
-                                    </div>
-                                    <div className="flex items-end gap-3">
-                                        <div>
-                                            <label className="block text-xs font-medium text-slate-600 mb-1">
-                                                Date
-                                            </label>
-                                            <input
-                                                type="date"
-                                                className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
-                                                value={historicalPayment.date}
-                                                onChange={(e) =>
-                                                    setHistoricalPayment((prev) => ({
-                                                        ...prev,
-                                                        date: e.target.value,
-                                                    }))
-                                                }
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-medium text-slate-600 mb-1">
-                                                Amount
-                                            </label>
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                step="0.01"
-                                                className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
-                                                value={historicalPayment.amount}
-                                                onChange={(e) =>
-                                                    setHistoricalPayment((prev) => ({
-                                                        ...prev,
-                                                        amount: parseFloat(e.target.value) || 0,
-                                                    }))
-                                                }
-                                            />
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={addHistoricalPayment}
-                                            className="inline-flex items-center px-4 py-2 rounded-lg bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-700 transition-colors"
-                                        >
-                                            Add
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
                         {/* Warning for Infinite Liability */}
                         {amortizationData.isInfinite && (
                             <div className="p-4 bg-red-50 border-b border-red-100 flex items-start gap-3">
@@ -2159,13 +2522,20 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                     </p>
                                     <p className="text-xl font-bold text-slate-900 mt-1">
                                         $
-                                        {(
-                                            viewingLiability.balance +
-                                            amortizationData.totalInterest +
-                                            (amortizationData.totalFees || 0)
-                                        ).toLocaleString(undefined, {
-                                            maximumFractionDigits: 2,
-                                        })}
+                                        {(() => {
+                                            const timelineBalance = getBalanceFromTimeline();
+                                            const baseBalance =
+                                                timelineBalance !== null
+                                                    ? timelineBalance
+                                                    : getDisplayBalance(viewingLiability);
+                                            return (
+                                                baseBalance +
+                                                amortizationData.totalInterest +
+                                                (amortizationData.totalFees || 0)
+                                            ).toLocaleString(undefined, {
+                                                maximumFractionDigits: 2,
+                                            });
+                                        })()}
                                     </p>
                                     {amortizationData.totalFees > 0 && (
                                         <p className="text-xs text-slate-400 mt-1">
@@ -2204,6 +2574,9 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                         <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200 text-right">
                                             Balance
                                         </th>
+                                        <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200 text-right">
+                                            Actions
+                                        </th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 bg-white">
@@ -2219,13 +2592,22 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 </td>
                                             </tr>
                                         )}
-                                    {amortizationData.timeline.map((row) => {
+                                    {amortizationData.timeline.map((row, idx) => {
+                                        const paymentNumber = idx + 1;
                                         const paymentDate =
                                             getPaymentDateForRow(
                                                 row.month,
                                                 viewingLiability
                                             );
-                                        const isPast = paymentDate < new Date();
+        const displayDate = row.actualDate
+            ? parseLocalDate(row.actualDate) || paymentDate
+            : paymentDate;
+                                        const isPast = displayDate < new Date();
+                                        const matchingPayment = paymentsForViewing.find(
+                                            (p) =>
+                                                !!row.actualDate &&
+                                                p.checkDate === row.actualDate
+                                        );
                                         return (
                                             <tr
                                                 key={row.month}
@@ -2242,10 +2624,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                             className="text-emerald-500"
                                                         />
                                                     )}
-                                                    <span>{row.month}</span>
+                                                    <span>{paymentNumber}</span>
                                                 </td>
                                                 <td className="px-6 py-3 text-sm text-slate-500">
-                                                    {paymentDate.toLocaleDateString(
+                                                    {displayDate.toLocaleDateString(
                                                         "en-US",
                                                         {
                                                             month: "short",
@@ -2256,7 +2638,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 </td>
                                                 <td className="px-6 py-3 text-sm text-slate-900 text-right">
                                                     ${row.payment.toFixed(2)}
-                                                    {row.extraPayment ? (
+                                                    {row.extraPayment && !row.isHistorical ? (
                                                         <div className="text-[11px] text-emerald-600 font-semibold">
                                                             +${row.extraPayment.toFixed(2)} extra
                                                         </div>
@@ -2287,12 +2669,135 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                         2
                                                     )}
                                                 </td>
+                                                <td className="px-4 py-3 text-right text-xs text-slate-500">
+                                                    {matchingPayment ? (
+                                                        <div className="inline-flex gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => startEditPayment(matchingPayment)}
+                                                                className="px-2 py-1 border border-slate-200 rounded hover:bg-slate-50"
+                                                            >
+                                                                Edit
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => deletePayment(matchingPayment.id)}
+                                                                className="px-2 py-1 border border-red-200 text-red-600 rounded hover:bg-red-50"
+                                                            >
+                                                                Delete
+                                                            </button>
+                                                        </div>
+                                                    ) : null}
+                                                </td>
                                             </tr>
                                         );
                                     })}
                                 </tbody>
                             </table>
                         </div>
+
+                        {viewingLiability && (
+                            <div className="px-6 py-4 border-t border-slate-200 bg-white flex flex-col gap-3">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                                            {editingPaymentId
+                                                ? "Edit Historical Payment"
+                                                : "Add Historical Payment"}
+                                        </p>
+                                        <p className="text-sm text-slate-500">
+                                            These are applied directly into the amortization table.
+                                        </p>
+                                    </div>
+                                    <div className="flex items-end gap-3">
+                                        <div>
+                                            <label className="block text-xs font-medium text-slate-600 mb-1">
+                                                Date
+                                            </label>
+                                            <input
+                                                type="date"
+                                                className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
+                                                value={
+                                                    editingPaymentId
+                                                        ? editPayment.date
+                                                        : historicalPayment.date
+                                                }
+                                                onChange={(e) =>
+                                                    editingPaymentId
+                                                        ? setEditPayment((prev) => ({
+                                                              ...prev,
+                                                              date: e.target.value,
+                                                          }))
+                                                        : setHistoricalPayment((prev) => ({
+                                                              ...prev,
+                                                              date: e.target.value,
+                                                          }))
+                                                }
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-slate-600 mb-1">
+                                                Amount
+                                            </label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="0.01"
+                                                className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
+                                                value={
+                                                    editingPaymentId
+                                                        ? editPayment.amount
+                                                        : historicalPayment.amount
+                                                }
+                                                onChange={(e) =>
+                                                    editingPaymentId
+                                                        ? setEditPayment((prev) => ({
+                                                              ...prev,
+                                                              amount:
+                                                                  parseFloat(
+                                                                      e.target.value
+                                                                  ) || 0,
+                                                          }))
+                                                        : setHistoricalPayment((prev) => ({
+                                                              ...prev,
+                                                              amount:
+                                                                  parseFloat(
+                                                                      e.target.value
+                                                                  ) || 0,
+                                                          }))
+                                                }
+                                            />
+                                        </div>
+                                        {editingPaymentId ? (
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={saveEditedPayment}
+                                                    className="inline-flex items-center px-4 py-2 rounded-lg bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-700 transition-colors"
+                                                >
+                                                    Save
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={cancelEditPayment}
+                                                    className="inline-flex items-center px-3 py-2 rounded-lg border border-slate-200 text-slate-600 font-semibold hover:bg-slate-50 transition-colors"
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                onClick={addHistoricalPayment}
+                                                className="inline-flex items-center px-4 py-2 rounded-lg bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-700 transition-colors"
+                                            >
+                                                Add
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         <div className="p-4 border-t border-slate-200 bg-slate-50 rounded-b-2xl flex justify-end">
                             <button

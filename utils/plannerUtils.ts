@@ -23,6 +23,7 @@ export interface ExpenseEvent {
     owner: Ownership;
     frequency: "MONTHLY" | "BI_WEEKLY" | "WEEKLY" | "QUARTERLY";
     splitLabel?: string;
+    transferAccount?: string;
 }
 
 export interface PaychequeAllocation {
@@ -254,6 +255,7 @@ export const generatePaychequePlan = (
                             : expense.frequency === "QUARTERLY"
                             ? "QUARTERLY"
                             : "MONTHLY",
+                    transferAccount: expense.transferAccount,
                 });
             }
 
@@ -333,6 +335,7 @@ export const generatePaychequePlan = (
                             isPaid: false,
                             owner,
                             frequency: isBiWeekly ? "BI_WEEKLY" : "WEEKLY",
+                            transferAccount: liability.transferAccount,
                         });
                     }
                     currentDue = addDays(currentDue, intervalDays);
@@ -381,6 +384,7 @@ export const generatePaychequePlan = (
                             isPaid: false,
                             owner,
                             frequency: "MONTHLY",
+                            transferAccount: liability.transferAccount,
                         });
                     }
 

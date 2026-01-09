@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { IncomeSource, PayFrequency, UserSettings } from '../types';
-import { calculateMonthlyIncome } from '../server/liabilityAlgorithms';
+import { calculateMonthlyIncomeByMode } from '../server/liabilityAlgorithms';
 import { Plus, Trash2, Edit2, X, Wallet, DollarSign, Users } from 'lucide-react';
 
 interface IncomeProps {
@@ -130,11 +130,28 @@ const Income: React.FC<IncomeProps> = ({ incomes, onSaveIncome, onDeleteIncome, 
     );
   };
 
-  const totalMy = calculateMonthlyIncome(incomes.filter(i => !i.isPartner));
-  const totalPartner = calculateMonthlyIncome(incomes.filter(i => i.isPartner));
+  const monthlyIncomeMode = settings.monthlyIncomeMode || 'ANNUALIZED';
+  const totalMy = calculateMonthlyIncomeByMode(
+    incomes.filter(i => !i.isPartner),
+    monthlyIncomeMode,
+    true
+  );
+  const totalPartner = calculateMonthlyIncomeByMode(
+    incomes.filter(i => i.isPartner),
+    monthlyIncomeMode,
+    true
+  );
   const total = totalMy + totalPartner;
-  const plannerTotalMy = calculateMonthlyIncome(incomes.filter(i => !i.isPartner && i.includeInPlanner !== false));
-  const plannerTotalPartner = calculateMonthlyIncome(incomes.filter(i => i.isPartner && i.includeInPlanner !== false));
+  const plannerTotalMy = calculateMonthlyIncomeByMode(
+    incomes.filter(i => !i.isPartner && i.includeInPlanner !== false),
+    monthlyIncomeMode,
+    false
+  );
+  const plannerTotalPartner = calculateMonthlyIncomeByMode(
+    incomes.filter(i => i.isPartner && i.includeInPlanner !== false),
+    monthlyIncomeMode,
+    false
+  );
   const plannerTotal = plannerTotalMy + plannerTotalPartner;
 
   return (

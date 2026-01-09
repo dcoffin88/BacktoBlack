@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UserSettings, ExpenseSplitMethod, Liability, Expense, Asset, IncomeSource, PayFrequency } from '../types';
+import { UserSettings, ExpenseSplitMethod, Liability, Expense, Asset, IncomeSource, PayFrequency, MonthlyIncomeMode } from '../types';
 import { getMinPayment, calculateMonthlyIncome } from '../server/liabilityAlgorithms';
 import { Save, Mail, DollarSign, Send, Users, PieChart, Settings, AlertTriangle, ArrowRight, CheckCircle, Plus, Trash2, Edit2, X, Calendar, Lock } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -401,6 +401,21 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
                           {tempSettings.currencySymbol || '$'} 12,345.67
                         </div>
                       </div>
+                    </div>
+
+                    <div className="pt-4">
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Monthly Income Display</label>
+                      <select
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white text-sm"
+                        value={tempSettings.monthlyIncomeMode || 'ANNUALIZED'}
+                        onChange={e => setTempSettings({ ...tempSettings, monthlyIncomeMode: e.target.value as MonthlyIncomeMode })}
+                      >
+                        <option value="ANNUALIZED">Annualized (Annual / 12)</option>
+                        <option value="MODE">Mode (most common month)</option>
+                        <option value="MEDIAN">Median (middle month)</option>
+                        <option value="MEAN">Mean (average of 12 months)</option>
+                      </select>
+                      <p className="text-xs text-slate-500 mt-1">Affects the Dashboard income totals.</p>
                     </div>
 
                     <div className="pt-4 border-t border-slate-100">

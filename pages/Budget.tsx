@@ -854,11 +854,142 @@ const Budget: React.FC<BudgetProps> = ({
         const frequency =
             liability.scheduledFrequency || getLiabilityFrequency(liability);
         const extraAmount = extraByLiability[liability.id] || 0;
-        if (frequency === "BI_WEEKLY") {
-            return (liability.plannedPayment || 0) * biWeeklyRatio + extraAmount;
+        const excluded = new Set(liability.excludedIncomeSourceIds || []);
+        if (currentPaycheck && excluded.has(currentPaycheck.source.id)) return 0;
+        const useBiWeekly =
+            frequency === "BI_WEEKLY" || frequency === "WEEKLY";
+        const hasAdvanced =
+            liability.excludeFromSplitting ||
+            (liability.excludedIncomeSourceIds || []).length > 0;
+        const owner = liability.owner || "JOINT";
+
+        if (useBiWeekly) {
+            if (currentPaycheck?.eligibleBiWeekly === false) return 0;
+            if (owner === "PARTNER" && !currentPaycheck?.source.isPartner)
+                return 0;
+            if (owner === "USER" && currentPaycheck?.source.isPartner)
+                return 0;
+
+            const perPeriod =
+                frequency === "WEEKLY"
+                    ? (liability.plannedPayment || 0) * (12 / 52)
+                    : (liability.plannedPayment || 0) * (12 / 26);
+
+            if (owner === "JOINT") {
+                if (liability.excludeFromSplitting) {
+                    return perPeriod + extraAmount;
+                }
+                const splitRatio = currentPaycheck?.source.isPartner
+                    ? 1 - userSplitRatio
+                    : userSplitRatio;
+                return perPeriod * splitRatio + extraAmount;
+            }
+            return perPeriod + extraAmount;
         }
-        if (currentPaycheck?.eligibleMonthly === false) return 0;
-        return (liability.plannedPayment || 0) * monthlyRatio + extraAmount;
+
+        if (!hasAdvanced) {
+            if (currentPaycheck?.eligibleMonthly === false) return 0;
+            return (
+                (liability.plannedPayment || 0) * monthlyRatio + extraAmount
+            );
+        }
+
+        const eligibleMonthlyUser = monthPaychecks.filter(
+            (p) =>
+                p.eligibleMonthly !== false &&
+                !p.source.isPartner &&
+                !excluded.has(p.source.id)
+        );
+        const eligibleMonthlyPartner = monthPaychecks.filter(
+            (p) =>
+                p.eligibleMonthly !== false &&
+                p.source.isPartner &&
+                !excluded.has(p.source.id)
+        );
+        const eligibleBiWeeklyUser = monthPaychecks.filter(
+            (p) =>
+                p.eligibleBiWeekly !== false &&
+                !p.source.isPartner &&
+                !excluded.has(p.source.id)
+        );
+        const eligibleBiWeeklyPartner = monthPaychecks.filter(
+            (p) =>
+                p.eligibleBiWeekly !== false &&
+                p.source.isPartner &&
+                !excluded.has(p.source.id)
+        );
+
+        const monthlyPoolUserEff = eligibleMonthlyUser.reduce(
+            (sum, p) => sum + p.source.amount,
+            0
+        );
+        const monthlyPoolPartnerEff = eligibleMonthlyPartner.reduce(
+            (sum, p) => sum + p.source.amount,
+            0
+        );
+        const monthlyPoolEff = monthlyPoolUserEff + monthlyPoolPartnerEff;
+
+        const biWeeklyPoolUserEff = eligibleBiWeeklyUser.reduce(
+            (sum, p) => sum + p.source.amount,
+            0
+        );
+        const biWeeklyPoolPartnerEff = eligibleBiWeeklyPartner.reduce(
+            (sum, p) => sum + p.source.amount,
+            0
+        );
+        const biWeeklyPoolEff = biWeeklyPoolUserEff + biWeeklyPoolPartnerEff;
+
+        const monthlyRatioEff =
+            currentPaycheck &&
+            currentPaycheck.eligibleMonthly !== false &&
+            !excluded.has(currentPaycheck.source.id) &&
+            monthlyPoolEff > 0
+                ? (currentPaycheck.source.amount || 0) / monthlyPoolEff
+                : 0;
+        const biWeeklyRatioEff =
+            currentPaycheck &&
+            currentPaycheck.eligibleBiWeekly !== false &&
+            !excluded.has(currentPaycheck.source.id) &&
+            biWeeklyPoolEff > 0
+                ? (currentPaycheck.source.amount || 0) / biWeeklyPoolEff
+                : 0;
+
+        const monthlyRatioOwnerEff =
+            currentPaycheck?.eligibleMonthly === false ||
+            !currentPaycheck ||
+            excluded.has(currentPaycheck.source.id)
+                ? 0
+                : currentPaycheck.source.isPartner
+                ? monthlyPoolPartnerEff > 0
+                    ? (currentPaycheck.source.amount || 0) /
+                      monthlyPoolPartnerEff
+                    : monthlyRatioEff
+                : monthlyPoolUserEff > 0
+                ? (currentPaycheck.source.amount || 0) / monthlyPoolUserEff
+                : monthlyRatioEff;
+
+        const biWeeklyRatioOwnerEff =
+            currentPaycheck?.eligibleBiWeekly === false ||
+            !currentPaycheck ||
+            excluded.has(currentPaycheck.source.id)
+                ? 0
+                : currentPaycheck.source.isPartner
+                ? biWeeklyPoolPartnerEff > 0
+                    ? (currentPaycheck.source.amount || 0) /
+                      biWeeklyPoolPartnerEff
+                    : biWeeklyRatioEff
+                : biWeeklyPoolUserEff > 0
+                ? (currentPaycheck.source.amount || 0) / biWeeklyPoolUserEff
+                : biWeeklyRatioEff;
+
+        if (owner === "PARTNER" && !currentPaycheck?.source.isPartner) return 0;
+        if (owner === "USER" && currentPaycheck?.source.isPartner) return 0;
+
+        const ratioBase = useBiWeekly ? biWeeklyRatioEff : monthlyRatioEff;
+        const ratioOwner = useBiWeekly ? biWeeklyRatioOwnerEff : monthlyRatioOwnerEff;
+        const ratio = owner === "JOINT" ? ratioBase : ratioOwner;
+        if (!useBiWeekly && currentPaycheck?.eligibleMonthly === false) return 0;
+        return (liability.plannedPayment || 0) * ratio + extraAmount;
     };
 
     const expensePortions = expenses
@@ -913,7 +1044,7 @@ const Budget: React.FC<BudgetProps> = ({
             </div>
 
             {currentPaycheck && (
-                <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
+                <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-2 flex flex-wrap items-center justify-between gap-4 md:p-4">
                     <div className="order-1">
                         <p className="text-xs font-semibold text-indigo-500 uppercase tracking-wide">
                             Current Check

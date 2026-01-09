@@ -41,6 +41,8 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
         Omit<Expense, "id" | "isPaid"> & { dueDate?: number }
     >({
         name: "",
+        subtitle: "",
+        transferAccount: "",
         amount: 0,
         dueDate: undefined,
         frequency: "MONTHLY",
@@ -69,6 +71,8 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
             setEditingId(expense.id);
             setFormData({
                 name: expense.name,
+                subtitle: expense.subtitle || "",
+                transferAccount: expense.transferAccount || "",
                 amount: expense.amount,
                 dueDate: expense.dueDate,
                 frequency: expense.frequency,
@@ -82,6 +86,8 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
             setEditingId(null);
             setFormData({
                 name: "",
+                subtitle: "",
+                transferAccount: "",
                 amount: 0,
                 dueDate: undefined,
                 frequency: "MONTHLY",
@@ -502,7 +508,14 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                                 className="transition-colors hover:bg-slate-50"
                                             >
                                                 <td className="px-6 py-4 font-medium text-slate-900">
-                                                    {expense.name}
+                                                    <div className="flex items-baseline gap-2">
+                                                        <span>{expense.name}</span>
+                                                        {expense.subtitle && (
+                                                            <span className="text-xs font-normal text-slate-500">
+                                                                {expense.subtitle}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                     <span className="block text-xs font-normal text-slate-400">
                                                         {expense.category}
                                                     </span>
@@ -601,24 +614,41 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                             </button>
                         </div>
                         <form onSubmit={handleSave} className="p-6 space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">
-                                    Expense Name
-                                </label>
-                                <input
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                                        Expense Name
+                                    </label>
+                                    <input
                                     required
                                     type="text"
                                     className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
                                     placeholder="e.g. Rent, Netflix"
                                     value={formData.name}
                                     onChange={(e) =>
-                                        setFormData({
-                                            ...formData,
-                                            name: e.target.value,
-                                        })
-                                    }
-                                />
-                            </div>
+                                            setFormData({
+                                                ...formData,
+                                                name: e.target.value,
+                                            })
+                                        }
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                                        Subtitle (Opt)
+                                    </label>
+                                    <input
+                                        type="text"
+                                        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        placeholder="e.g. Electricity"
+                                        value={formData.subtitle || ""}
+                                        onChange={(e) =>
+                                            setFormData({
+                                                ...formData,
+                                                subtitle: e.target.value,
+                                            })
+                                        }
+                                    />
+                                </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 mb-1">
@@ -713,6 +743,23 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                         }
                                     />
                                 </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">
+                                    Transfer Account (Opt)
+                                </label>
+                                <input
+                                    type="text"
+                                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                                    placeholder="e.g. Savings - TFSA"
+                                    value={formData.transferAccount || ""}
+                                    onChange={(e) =>
+                                        setFormData({
+                                            ...formData,
+                                            transferAccount: e.target.value,
+                                        })
+                                    }
+                                />
                             </div>
                             {formData.frequency === "QUARTERLY" && (
                                 <div className="grid grid-cols-2 gap-4 mt-2">

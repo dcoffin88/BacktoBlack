@@ -1,10 +1,41 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Liability, Expense, Asset, StrategyType, STRATEGY_LABELS, UserSettings, IncomeSource, BudgetSchedule } from '../types';
-import { calculatePayoff, getMinPayment, calculateMonthlyIncome } from '../server/liabilityAlgorithms';
+import { calculatePayoff, getMinPayment, calculateMonthlyIncomeByMode } from '../server/liabilityAlgorithms';
 import { Link } from 'react-router-dom';
 import { ArrowRight, TrendingUp, Calendar, Wallet, LayoutDashboard, DollarSign, Receipt, Landmark, Calculator, AlertTriangle } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { dbAPI } from '../server/db';
+
+const useChartDimensions = () => {
+  const [node, setNode] = useState<HTMLDivElement | null>(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  const ref = useCallback((el: HTMLDivElement | null) => setNode(el), []);
+
+  useEffect(() => {
+    if (!node) return;
+
+    const update = () => {
+      const rect = node.getBoundingClientRect();
+      setSize({
+        width: rect.width > 0 ? rect.width : 0,
+        height: rect.height > 0 ? rect.height : 0,
+      });
+    };
+
+    update();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', update);
+      return () => window.removeEventListener('resize', update);
+    }
+
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [node]);
+
+  return { ref, size };
+};
 
 interface DashboardProps {
   liabilities: Liability[];
@@ -19,6 +50,7 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
   const [showAnnual, setShowAnnual] = useState(false);
   const [chartsReady, setChartsReady] = useState(false);
   const [savedPlan, setSavedPlan] = useState<BudgetSchedule | null>(null);
+  const { ref: payoffChartRef, size: payoffSize } = useChartDimensions();
 
   useEffect(() => {
     let active = true;
@@ -47,6 +79,7 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
   const expenseLabel = simpleTerms ? 'Bill' : 'Expense';
   const expensePlural = simpleTerms ? 'Bills' : 'Expenses';
   const currencySymbol = userSettings?.currencySymbol || '$';
+  const monthlyIncomeMode = userSettings?.monthlyIncomeMode || 'ANNUALIZED';
   const totalLiability = liabilities.reduce((sum, d) => sum + d.balance, 0);
   const totalMinPayment = liabilities.reduce((sum, d) => {
     const monthlyInterest = d.balance * (d.interestRate / 100 / 12);
@@ -76,11 +109,15 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
   const totalAssets = assets.reduce((sum, a) => sum + a.value, 0);
   const netWorth = totalAssets - totalLiability;
   const budgetedIncomes = incomes.filter((i) => i.includeInPlanner !== false);
-  const totalIncome = calculateMonthlyIncome(budgetedIncomes);
-  const totalPartnerIncome = calculateMonthlyIncome(
-    budgetedIncomes.filter((i) => i.isPartner)
+  const totalPartnerIncome = calculateMonthlyIncomeByMode(
+    budgetedIncomes.filter((i) => i.isPartner),
+    monthlyIncomeMode
   );
-  const totalMyIncome = totalIncome - totalPartnerIncome;
+  const totalMyIncome = calculateMonthlyIncomeByMode(
+    budgetedIncomes.filter((i) => !i.isPartner),
+    monthlyIncomeMode
+  );
+  const totalIncome = totalMyIncome + totalPartnerIncome;
   // const totalAnnualIncome = totalIncome * 12;
   // const totalAnnualPartnerIncome = totalPartnerIncome * 12;
   // const totalAnnualMyIncome = totalMyIncome * 12;
@@ -232,44 +269,46 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
             </div>
             <Link to="/strategy" className="text-indigo-600 text-sm font-medium hover:text-indigo-800">Compare Strategies &rarr;</Link>
           </div>
-          <div className="h-72 w-full min-w-[240px]">
-            {chartsReady && (
-              <ResponsiveContainer width="100%" height="100%" minWidth={200} minHeight={200}>
-                <AreaChart data={projection.timeline}>
-                  <defs>
-                    <linearGradient id="colorBalance" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.1}/>
-                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis 
-                    dataKey="month" 
-                    tickLine={false} 
-                    axisLine={false} 
-                    tick={{ fill: '#94a3b8', fontSize: 12 }}
-                    tickFormatter={(val) => `M${val}`}
-                  />
-                  <YAxis 
-                    tickLine={false} 
-                    axisLine={false} 
-                    tick={{ fill: '#94a3b8', fontSize: 12 }}
-                    tickFormatter={(val) => `$${val/1000}k`}
-                  />
-                  <Tooltip 
-                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                    formatter={(value: number) => [`$${value.toFixed(0)}`, 'Balance']}
-                  />
-                  <Area 
-                    type="monotone" 
-                    dataKey="totalBalance" 
-                    stroke="#6366f1" 
-                    strokeWidth={3}
-                    fillOpacity={1} 
-                    fill="url(#colorBalance)" 
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+          <div className="h-72 w-full min-w-[240px]" ref={payoffChartRef}>
+            {chartsReady && payoffSize.width > 0 && payoffSize.height > 0 && (
+              <AreaChart
+                width={Math.max(200, payoffSize.width)}
+                height={Math.max(200, payoffSize.height)}
+                data={projection.timeline}
+              >
+                <defs>
+                  <linearGradient id="colorBalance" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.1}/>
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis 
+                  dataKey="month" 
+                  tickLine={false} 
+                  axisLine={false} 
+                  tick={{ fill: '#94a3b8', fontSize: 12 }}
+                  tickFormatter={(val) => `M${val}`}
+                />
+                <YAxis 
+                  tickLine={false} 
+                  axisLine={false} 
+                  tick={{ fill: '#94a3b8', fontSize: 12 }}
+                  tickFormatter={(val) => `$${val/1000}k`}
+                />
+                <Tooltip 
+                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  formatter={(value: number) => [`$${value.toFixed(0)}`, 'Balance']}
+                />
+                <Area 
+                  type="monotone" 
+                  dataKey="totalBalance" 
+                  stroke="#6366f1" 
+                  strokeWidth={3}
+                  fillOpacity={1} 
+                  fill="url(#colorBalance)" 
+                />
+              </AreaChart>
             )}
           </div>
         </div>

@@ -7,6 +7,7 @@ import LiabilityList from './pages/LiabilityList';
 import ExpenseList from './pages/ExpenseList';
 import AssetList from './pages/AssetList';
 import StrategyLab from './pages/StrategyLab';
+import Reports from './pages/Reports';
 import AppSettings from './pages/Settings';
 import Income from './pages/Income';
 import Profile from './pages/Profile';
@@ -29,7 +30,8 @@ const App: React.FC = () => {
     email: '',
     incomeSources: [],
     useSimpleTerms: false,
-    currencySymbol: '$'
+    currencySymbol: '$',
+    monthlyIncomeMode: 'ANNUALIZED'
   });
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [requireName, setRequireName] = useState(false);
@@ -235,11 +237,12 @@ const App: React.FC = () => {
               userSettings={settings}
             />
           } />
-          <Route path="/liabilities" element={<LiabilityList liabilities={liabilities} onSave={saveLiability} onDelete={deleteLiability} settings={settings} />} />
+          <Route path="/liabilities" element={<LiabilityList liabilities={liabilities} onSave={saveLiability} onDelete={deleteLiability} settings={settings} incomes={incomes} />} />
           <Route path="/expenses" element={<ExpenseList expenses={expenses} onSave={saveExpense} onDelete={deleteExpense} userSettings={settings} incomes={incomes} />} />
           <Route path="/income" element={<Income incomes={incomes} onSaveIncome={saveIncome} onDeleteIncome={deleteIncome} settings={settings} />} />
           <Route path="/assets" element={<AssetList assets={assets} onSave={saveAsset} onDelete={deleteAsset} settings={settings} />} />
           <Route path="/strategy" element={<StrategyLab liabilities={liabilities} monthlyBudget={calculatedSurplus} />} />
+          <Route path="/reports" element={<Reports liabilities={liabilities} expenses={expenses} assets={assets} incomes={incomes} settings={settings} />} />
           <Route path="/budget" element={<Budget expenses={expenses} liabilities={liabilities} incomes={incomes} userSettings={settings} onUpdateLiability={saveLiability} />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/settings" element={
