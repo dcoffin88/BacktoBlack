@@ -826,14 +826,100 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
               Budget
             </button>
           </div>
-          <div className="space-y-3 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-slate-500">Income</span>
-              <span className="font-semibold text-emerald-600">+{formatCurrency(scale(monthlyIncome))}</span>
+          <div className="border-t border-slate-100 pt-4 space-y-4 text-sm">
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Income</p>
+              {budgetedIncomes.length === 0 ? (
+                <p className="text-xs text-slate-400">No income sources recorded.</p>
+              ) : (
+                <div className="space-y-2">
+                  <div className="space-y-1 pl-3 text-xs text-slate-400">
+                    {budgetedIncomes
+                      .slice()
+                      .sort((a, b) => a.name.localeCompare(b.name))
+                      .map((income) => (
+                        <div key={income.id} className="flex items-center justify-between">
+                          <span>{income.name}</span>
+                          <span>{formatCurrency(scale(calculateMonthlyIncomeByMode([income], monthlyIncomeMode, false)))}</span>
+                        </div>
+                      ))}
+                    <div className="flex items-center justify-between pt-2 text-slate-600 border-t border-slate-100">
+                      <span className="font-semibold">Total</span>
+                      <span className="font-semibold">+{formatCurrency(scale(monthlyIncome))}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Expenses</p>
+              {expenses.length === 0 ? (
+                <p className="text-xs text-slate-400">No expenses recorded.</p>
+              ) : (
+                <div className="space-y-2">
+                  {expenseCategoryRows.map((row) => (
+                    <div key={`budget-exp-${row.category}`} className="space-y-1">
+                      <div className="flex items-center justify-between text-slate-600">
+                        <span className="font-medium">{row.category}</span>
+                        {expandedReport !== 'budget' && (
+                          <span className="font-semibold">-{formatCurrency(scale(row.total))}</span>
+                        )}
+                      </div>
+                      {expandedReport === 'budget' && (
+                        <div className="space-y-1 pl-3 text-xs text-slate-400">
+                          {row.items.map((expense) => (
+                            <div key={expense.id} className="flex items-center justify-between">
+                              <span>{expense.name}</span>
+                              <span>{formatCurrency(scale(expense.amount))}</span>
+                            </div>
+                          ))}
+                          <div className="flex items-center justify-between pt-2 text-slate-600 border-t border-slate-100">
+                            <span className="font-semibold">Total</span>
+                            <span className="font-semibold">-{formatCurrency(scale(row.total))}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-500">Expenses</span>
               <span className="font-semibold text-slate-700">-{formatCurrency(scale(monthlyExpenses))}</span>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Liability Minimums</p>
+              {liabilities.length === 0 ? (
+                <p className="text-xs text-slate-400">No liabilities recorded.</p>
+              ) : (
+                <div className="space-y-2">
+                  {liabilityCategoryRows.map((row) => (
+                    <div key={`budget-liability-${row.category}`} className="space-y-1">
+                      <div className="flex items-center justify-between text-slate-600">
+                        <span className="font-medium">{row.category}</span>
+                        {expandedReport !== 'budget' && (
+                          <span className="font-semibold">-{formatCurrency(scale(row.total))}</span>
+                        )}
+                      </div>
+                    {expandedReport === 'budget' && (
+                        <div className="space-y-1 pl-3 text-xs text-slate-400">
+                          {row.items.map((liability) => (
+                            <div key={liability.id} className="flex items-center justify-between">
+                              <span>{liability.name}</span>
+                              <span>{formatCurrency(scale(getMinPayment(liability, liability.balance, liability.balance * (liability.interestRate / 100 / 12), liability.isFeeMonthly ? liability.annualFee / 12 : 0)))}</span>
+                            </div>
+                          ))}
+                          <div className="flex items-center justify-between pt-2 text-slate-600 border-t border-slate-100">
+                            <span className="font-semibold">Total</span>
+                            <span className="font-semibold">-{formatCurrency(scale(row.total))}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-500">Liability Minimums</span>
@@ -850,66 +936,6 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
               </span>
             </div>
           </div>
-          {expandedReport === 'budget' && (
-            <div className="border-t border-slate-100 pt-4 space-y-4 text-sm">
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Expenses</p>
-                {expenses.length === 0 ? (
-                  <p className="text-xs text-slate-400">No expenses recorded.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {expenseCategoryRows.map((row) => (
-                      <div key={`budget-exp-${row.category}`} className="space-y-1">
-                        <div className="flex items-center justify-between text-slate-600">
-                          <span className="font-medium">{row.category}</span>
-                        </div>
-                        <div className="space-y-1 pl-3 text-xs text-slate-400">
-                          {row.items.map((expense) => (
-                            <div key={expense.id} className="flex items-center justify-between">
-                              <span>{expense.name}</span>
-                              <span>{formatCurrency(scale(expense.amount))}</span>
-                            </div>
-                          ))}
-                          <div className="flex items-center justify-between pt-2 text-slate-600 border-t border-slate-100">
-                            <span className="font-semibold">Total</span>
-                            <span className="font-semibold">-{formatCurrency(scale(row.total))}</span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Liability Minimums</p>
-                {liabilities.length === 0 ? (
-                  <p className="text-xs text-slate-400">No liabilities recorded.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {liabilityCategoryRows.map((row) => (
-                      <div key={`budget-liability-${row.category}`} className="space-y-1">
-                        <div className="flex items-center justify-between text-slate-600">
-                          <span className="font-medium">{row.category}</span>
-                        </div>
-                        <div className="space-y-1 pl-3 text-xs text-slate-400">
-                          {row.items.map((liability) => (
-                            <div key={liability.id} className="flex items-center justify-between">
-                              <span>{liability.name}</span>
-                              <span>{formatCurrency(scale(getMinPayment(liability, liability.balance, liability.balance * (liability.interestRate / 100 / 12), liability.isFeeMonthly ? liability.annualFee / 12 : 0)))}</span>
-                            </div>
-                          ))}
-                          <div className="flex items-center justify-between pt-2 text-slate-600 border-t border-slate-100">
-                            <span className="font-semibold">Total</span>
-                            <span className="font-semibold">-{formatCurrency(scale(row.total))}</span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
         </div>
 
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 space-y-4">
