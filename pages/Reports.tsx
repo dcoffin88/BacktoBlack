@@ -833,20 +833,42 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
                 <p className="text-xs text-slate-400">No income sources recorded.</p>
               ) : (
                 <div className="space-y-2">
-                  <div className="space-y-1 pl-3 text-xs text-slate-400">
-                    {budgetedIncomes
-                      .slice()
-                      .sort((a, b) => a.name.localeCompare(b.name))
-                      .map((income) => (
-                        <div key={income.id} className="flex items-center justify-between pr-24">
-                          <span>{income.name}</span>
-                          <span>{formatCurrency(scale(calculateMonthlyIncomeByMode([income], monthlyIncomeMode, false)))}</span>
+
+                  <div>
+                    {expandedReport !== 'budget' ? (
+                      <div className="space-y-1">
+                        {budgetedIncomes
+                          .slice()
+                          .sort((a, b) => a.name.localeCompare(b.name))
+                          .map((income) => (
+                            <div key={income.id} className="flex items-center justify-between text-slate-600 pl-3 pr-24">
+                              <span className="font-medium">{income.name}</span>
+                              <span className="font-semibold">{formatCurrency(scale(calculateMonthlyIncomeByMode([income], monthlyIncomeMode, false)))}</span>
+                            </div>
+                          ))}
+                        <div className="flex items-center justify-end pt-2 text-slate-600 border-t border-slate-100">
+                          <span className="font-semibold">+{formatCurrency(scale(monthlyIncome))}</span>
                         </div>
-                      ))}
-                    <div className="flex items-center justify-end pt-2 text-slate-600 border-t border-slate-100">
-                      <span className="font-semibold">+{formatCurrency(scale(monthlyIncome))}</span>
-                    </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-1 pl-3 text-xs text-slate-400">
+                        {budgetedIncomes
+                          .slice()
+                          .sort((a, b) => a.name.localeCompare(b.name))
+                          .map((income) => (
+                            <div key={income.id} className="flex items-center justify-between pr-24">
+                              <span>{income.name}</span>
+                              <span>{formatCurrency(scale(calculateMonthlyIncomeByMode([income], monthlyIncomeMode, false)))}</span>
+                            </div>
+                          ))}
+                        <div className="flex items-center justify-end border-t border-slate-100">
+                          <span className="font-semibold text-slate-700">+{formatCurrency(scale(monthlyIncome))}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
+
+                  
                 </div>
               )}
             </div>
