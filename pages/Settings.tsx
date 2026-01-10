@@ -415,7 +415,7 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
                         <option value="MEDIAN">Median (middle month)</option>
                         <option value="MEAN">Mean (average of 12 months)</option>
                       </select>
-                      <p className="text-xs text-slate-500 mt-1">Affects the Dashboard income totals.</p>
+                      <p className="text-xs text-slate-500 mt-1">Controls how monthly income is calculated across the app (Dashboard, Reports, and Income summaries).</p>
                     </div>
 
                     <div className="pt-4 border-t border-slate-100">
