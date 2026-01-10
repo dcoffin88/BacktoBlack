@@ -888,7 +888,7 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
                    <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200 text-right bg-slate-50">Remaining</th>
                  </tr>
                </thead>
-               <tbody className="divide-y divide-slate-100">
+               <tbody className="divide-y divide-slate-100 font-mono">
                   {singleResult.timeline.map((row) => {
                      // Calculate total payment for this month from the breakdown
                      const monthTotalPayment = row.breakdown?.reduce((sum, b) => sum + b.payment, 0) || 0;

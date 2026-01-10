@@ -266,7 +266,7 @@ export const calculateIndividualAmortization = (
     .map(([k, v]) => {
       const parsed = typeof v === 'number' ? { amount: v } : v || { amount: 0 };
       const periodNum = Number(k);
-      if (parsed.forceHistorical) {
+      if (parsed.forceHistorical && parsed.amount > 0) {
         forcedHistoricalPeriods.add(periodNum);
       }
       return { period: periodNum, amount: parsed.amount, checkDate: parsed.checkDate, forceHistorical: parsed.forceHistorical };

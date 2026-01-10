@@ -856,7 +856,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
               </div>
             </div>
           </div>
-          <div className="border-t border-slate-100 pt-4 space-y-4 text-sm">
+          <div className="border-t border-slate-100 pt-4 space-y-4 font-mono text-sm">
             <div>
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Income</p>
               {budgetedIncomes.length === 0 ? (
@@ -1036,7 +1036,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
             <div className="space-y-4 text-sm">
               {transferGroups.map((group) => (
                 <div key={group.account} className="space-y-1">
-                  <div className="flex items-center justify-between text-slate-600">
+                  <div className="flex items-center justify-between font-mono text-slate-600">
                     <span className="font-semibold text-slate-700">{group.account}</span>
                     {expandedReport !== 'transfers' && (
                       <span className="font-semibold text-slate-900">{formatCurrencyPrecise(group.total)}</span>

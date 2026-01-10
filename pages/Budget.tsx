@@ -70,6 +70,9 @@ const Budget: React.FC<BudgetProps> = ({
     const [scheduleMonthIndex, setScheduleMonthIndex] = useState<number | null>(
         null
     );
+    const isMinimumPaymentId = (id: string) => id.startsWith("min-");
+    const getMinimumPaymentId = (liabilityId: string, checkDate: string) =>
+        `min-${liabilityId}-${checkDate}`;
     const budgetStartDate = useMemo(() => {
         if (!userSettings?.startDate) return null;
         const parsed = new Date(userSettings.startDate);
@@ -476,20 +479,34 @@ const Budget: React.FC<BudgetProps> = ({
         });
     };
 
-    const applyLiabilityPayment = async (
-        liability: Liability & { plannedPayment: number }
+    const saveMinimumPayment = async (
+        liability: Liability & { plannedPayment: number },
+        amount: number
     ) => {
-        if (!onUpdateLiability) return;
-        const original = liabilities.find((l) => l.id === liability.id);
-        if (!original) return;
-        const portion = getPerCheckLiability(liability);
-        if (portion <= 0) return;
-        const updated: Liability = {
-            ...original,
-            balance: Math.max(0, original.balance - portion),
+        const rounded = Math.max(0, Number(amount.toFixed(2)));
+        if (rounded <= 0) return;
+        const payload: ExtraPayment = {
+            id: getMinimumPaymentId(liability.id, currentCheckKey),
+            liabilityId: liability.id,
+            amount: rounded,
+            checkDate: currentCheckKey,
         };
+        setExtraPayments((prev) => {
+            const filtered = prev.filter((p) => p.id !== payload.id);
+            return [...filtered, payload];
+        });
         try {
-            await onUpdateLiability(updated);
+            await dbAPI.saveExtraPayment(payload);
+        } catch {
+            /* silently ignore budget-only errors */
+        }
+    };
+
+    const deleteMinimumPayment = async (liabilityId: string) => {
+        const id = getMinimumPaymentId(liabilityId, currentCheckKey);
+        setExtraPayments((prev) => prev.filter((p) => p.id !== id));
+        try {
+            await dbAPI.deleteExtraPayment(id);
         } catch {
             /* silently ignore budget-only errors */
         }
@@ -501,7 +518,14 @@ const Budget: React.FC<BudgetProps> = ({
             nextForCheck[liability.id] = !nextForCheck[liability.id];
             const willCheck = nextForCheck[liability.id];
             if (willCheck) {
-                applyLiabilityPayment(liability);
+                const extraAmount = extraByLiability[liability.id] || 0;
+                const minimumPortion = Math.max(
+                    0,
+                    getPerCheckLiability(liability) - extraAmount
+                );
+                saveMinimumPayment(liability, minimumPortion);
+            } else {
+                deleteMinimumPayment(liability.id);
             }
             const nextState = { ...prev, [currentCheckKey]: nextForCheck };
             persistChecks(
@@ -549,7 +573,10 @@ const Budget: React.FC<BudgetProps> = ({
     const extrasForCurrentCheck = useMemo(
         () =>
             extraPayments.filter(
-                (p) => p.checkDate && p.checkDate === currentCheckKey
+                (p) =>
+                    p.checkDate &&
+                    p.checkDate === currentCheckKey &&
+                    !isMinimumPaymentId(p.id)
             ),
         [extraPayments, currentCheckKey]
     );

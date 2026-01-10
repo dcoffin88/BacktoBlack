@@ -110,9 +110,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         amount: 0,
         date: "",
     });
-    const [planPaymentsByPeriod, setPlanPaymentsByPeriod] = useState<
-        Record<number, number>
-    >({});
+    const isMinimumPaymentId = (id: string) => id.startsWith("min-");
     const [savedSchedule, setSavedSchedule] = useState<BudgetSchedule | null>(
         null
     );
@@ -174,6 +172,17 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         return Number.isNaN(d.getTime()) ? null : d;
     };
 
+    const addDays = (date: Date, days: number) => {
+        const d = new Date(date);
+        d.setDate(d.getDate() + days);
+        return d;
+    };
+    const addMonths = (date: Date, months: number) => {
+        const d = new Date(date);
+        d.setMonth(d.getMonth() + months);
+        return d;
+    };
+
     const getScheduleAnchorDate = (liability: Liability) => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -185,27 +194,102 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         return today;
     };
 
+    const getPaymentAnchorDate = (liability: Liability) => {
+        const parsed = parseLocalDate(liability.nextDueDate);
+        if (parsed) {
+            parsed.setHours(0, 0, 0, 0);
+            return parsed;
+        }
+        const start = parseLocalDate(liability.startDate);
+        const base = start || new Date();
+        const anchor = new Date(
+            base.getFullYear(),
+            base.getMonth(),
+            liability.dueDate || 1
+        );
+        anchor.setHours(0, 0, 0, 0);
+        return anchor;
+    };
+
     const getPeriodIndexFromDate = (
         liability: Liability,
         checkDate?: string | null
     ) => {
         const target = parseLocalDate(checkDate);
         if (!target) return null;
-        const baseDate = getScheduleAnchorDate(liability);
+        target.setHours(0, 0, 0, 0);
+        let anchor = getPaymentAnchorDate(liability);
         const freq = liability.paymentFrequency || "MONTHLY";
 
         if (freq === "WEEKLY" || freq === "BI_WEEKLY") {
             const intervalDays = freq === "WEEKLY" ? 7 : 14;
-            const diffDays =
-                (target.getTime() - baseDate.getTime()) / (1000 * 60 * 60 * 24);
-            const periodsFromNow = Math.round(diffDays / intervalDays);
-            return periodsFromNow + 1;
+            const start = parseLocalDate(liability.startDate);
+            if (start && anchor < start) {
+                let guard = 0;
+                while (anchor < start && guard < 500) {
+                    anchor = addDays(anchor, intervalDays);
+                    guard++;
+                }
+            }
+            const previousAnchor = addDays(anchor, -intervalDays);
+            if (target >= previousAnchor && target < anchor) {
+                return target.getTime() === previousAnchor.getTime() ? 0 : 1;
+            }
+            let period = 1;
+            let cursor = new Date(anchor);
+            let guard = 0;
+            while (cursor < target && guard < 500) {
+                cursor = addDays(cursor, intervalDays);
+                period += 1;
+                guard++;
+            }
+            while (cursor > target && guard < 1000) {
+                cursor = addDays(cursor, -intervalDays);
+                period -= 1;
+                guard++;
+            }
+            return period;
         }
 
-        const baseMonth = baseDate.getFullYear() * 12 + baseDate.getMonth();
-        const targetMonth = target.getFullYear() * 12 + target.getMonth();
-        const monthDiff = targetMonth - baseMonth;
-        return monthDiff + 1;
+        const start = parseLocalDate(liability.startDate);
+        if (start && anchor < start) {
+            let guard = 0;
+            while (anchor < start && guard < 120) {
+                anchor = new Date(
+                    anchor.getFullYear(),
+                    anchor.getMonth() + 1,
+                    anchor.getDate()
+                );
+                guard++;
+            }
+        }
+        const previousAnchor = addMonths(anchor, -1);
+        if (target.getTime() === previousAnchor.getTime()) {
+            return 0;
+        }
+        if (
+            target.getFullYear() === previousAnchor.getFullYear() &&
+            target.getMonth() === previousAnchor.getMonth()
+        ) {
+            return 1;
+        }
+        if (target >= previousAnchor && target < anchor) {
+            return 1;
+        }
+        let period = 1;
+        let cursor = new Date(anchor);
+        let guard = 0;
+        while (cursor < target && guard < 120) {
+            cursor = addMonths(cursor, 1);
+            period += 1;
+            guard++;
+        }
+        while (cursor > target && guard < 240) {
+            cursor = addMonths(cursor, -1);
+            period -= 1;
+            guard++;
+        }
+        return period;
     };
 
     const pDate = (date?: string | null) => {
@@ -215,7 +299,11 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
 
     const getHistoricalPaidAmount = (liability: Liability) => {
         return extraPayments
-            .filter((p) => p.liabilityId === liability.id)
+            .filter(
+                (p) =>
+                    p.liabilityId === liability.id &&
+                    !isMinimumPaymentId(p.id)
+            )
             .reduce((sum, p) => sum + (p.amount || 0), 0);
     };
 
@@ -269,6 +357,26 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                 if (da === db) return a.id.localeCompare(b.id);
                 return da - db;
             });
+    }, [extraPayments, viewingLiability]);
+
+    const minimumPaidByPeriod = useMemo(() => {
+        if (!viewingLiability) return {};
+        return extraPayments
+            .filter(
+                (p) =>
+                    p.liabilityId === viewingLiability.id &&
+                    isMinimumPaymentId(p.id)
+            )
+            .reduce<Record<number, number>>((acc, p) => {
+                const period = getPeriodIndexFromDate(
+                    viewingLiability,
+                    p.checkDate
+                );
+                if (period === null || period === undefined) return acc;
+                const bucket = period < 0 ? 0 : period;
+                acc[bucket] = (acc[bucket] || 0) + (p.amount || 0);
+                return acc;
+            }, {});
     }, [extraPayments, viewingLiability]);
 
     // Helper: get local YYYY-MM-DD string (avoids timezone shifting to prior day)
@@ -510,7 +618,11 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
     // --- Amortization Handlers ---
     const handleViewAmortization = (liability: Liability) => {
         const extrasMap = extraPayments
-            .filter((p) => p.liabilityId === liability.id)
+            .filter(
+                (p) =>
+                    p.liabilityId === liability.id &&
+                    !isMinimumPaymentId(p.id)
+            )
             .reduce<Record<number, { amount: number; checkDate?: string | null; forceHistorical?: boolean }>>((acc, p) => {
                 const parsedDate = parseLocalDate(p.checkDate);
                 const today = new Date();
@@ -550,7 +662,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             });
             return map;
         })();
-        setPlanPaymentsByPeriod(planPaymentsMap);
 
         const data = calculateIndividualAmortization(
             liability,
@@ -768,12 +879,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         );
     };
 
-    const addDays = (date: Date, days: number) => {
-        const d = new Date(date);
-        d.setDate(d.getDate() + days);
-        return d;
-    };
-
     const getNextDueDate = (liability: Liability) => {
         const baseDate = getScheduleAnchorDate(liability);
         const isBiWeekly = liability.paymentFrequency === "BI_WEEKLY";
@@ -826,29 +931,16 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             start.setHours(0, 0, 0, 0);
         }
         const useFutureStart = !!(start && start > today);
-        const baseDate = useFutureStart ? start : today;
         const isBiWeekly = liability.paymentFrequency === "BI_WEEKLY";
         const isWeekly = liability.paymentFrequency === "WEEKLY";
         const intervalDays = isBiWeekly ? 14 : isWeekly ? 7 : null;
+        let anchor = getPaymentAnchorDate(liability);
 
         if (intervalDays) {
-            const parsedAnchor = parseLocalDate(liability.nextDueDate) || null;
-            let anchor =
-                parsedAnchor ||
-                new Date(
-                    baseDate.getFullYear(),
-                    baseDate.getMonth(),
-                    liability.dueDate || 1
-                );
             let guard = 0;
             if (useFutureStart) {
-                while (anchor < baseDate && guard < 500) {
+                while (anchor < (start || today) && guard < 500) {
                     anchor = addDays(anchor, intervalDays);
-                    guard++;
-                }
-            } else {
-                while (anchor > baseDate && guard < 500) {
-                    anchor = addDays(anchor, -intervalDays);
                     guard++;
                 }
             }
@@ -856,27 +948,13 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         }
 
         // Monthly payments
-        let anchor = new Date(
-            baseDate.getFullYear(),
-            baseDate.getMonth(),
-            liability.dueDate || 1
-        );
         let guard = 0;
         if (useFutureStart) {
-            while (anchor < baseDate && guard < 120) {
+            while (anchor < (start || today) && guard < 120) {
                 anchor = new Date(
                     anchor.getFullYear(),
                     anchor.getMonth() + 1,
-                    liability.dueDate || 1
-                );
-                guard++;
-            }
-        } else {
-            while (anchor > baseDate && guard < 120) {
-                anchor = new Date(
-                    anchor.getFullYear(),
-                    anchor.getMonth() - 1,
-                    liability.dueDate || 1
+                    anchor.getDate()
                 );
                 guard++;
             }
@@ -884,7 +962,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         return new Date(
             anchor.getFullYear(),
             anchor.getMonth() + rowIndex - 1,
-            liability.dueDate || 1
+            anchor.getDate()
         );
     };
 
@@ -2439,7 +2517,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
 
             {isAmortizationOpen && viewingLiability && amortizationData && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col animate-fade-in-up">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[80vh] flex flex-col animate-fade-in-up">
                         <div className="px-6 py-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 rounded-t-2xl">
                             <div>
                                 <h3 className="text-xl font-bold text-slate-900 flex items-center">
@@ -2595,16 +2673,27 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 !!row.actualDate &&
                                                 p.checkDate === row.actualDate
                                         );
-                                        const isPaid = Boolean(
-                                            row.isHistorical || matchingPayment
+                                        const requiredDue = Math.max(
+                                            0,
+                                            row.payment - (row.extraPayment || 0)
                                         );
-                                        const plannedPayment =
-                                            planPaymentsByPeriod[row.month];
-                                        const showPartialPaid =
-                                            row.isHistorical &&
-                                            plannedPayment !== undefined &&
-                                            plannedPayment > 0 &&
-                                            row.payment < plannedPayment;
+                                        const paidForPeriod =
+                                            minimumPaidByPeriod[row.month] || 0;
+                                        const remainingDue = Math.max(
+                                            0,
+                                            requiredDue - paidForPeriod
+                                        );
+                                        const isPaid = Boolean(
+                                            row.isHistorical ||
+                                                matchingPayment ||
+                                                (requiredDue > 0 &&
+                                                    paidForPeriod >= requiredDue)
+                                        );
+                                        const showMinimumProgress =
+                                            requiredDue > 0 &&
+                                            paidForPeriod > 0 &&
+                                            paidForPeriod < requiredDue &&
+                                            !isPaid;
 
                                         return (
                                             <tr
@@ -2615,7 +2704,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                         : "hover:bg-slate-50"
                                                 }`}
                                             >
-                                                <td className="px-6 py-3 text-sm text-slate-600 font-medium flex items-center space-x-2">
+                                                <td className="px-6 py-3 text-sm font-mono text-slate-600 font-medium flex items-center space-x-2">
                                                     {isPaid && (
                                                         <CheckCircle
                                                             size={14}
@@ -2624,7 +2713,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                     )}
                                                     <span>{paymentNumber}</span>
                                                 </td>
-                                                <td className="px-6 py-3 text-sm text-slate-500">
+                                                <td className="px-6 py-3 text-sm font-mono text-slate-500">
                                                     {displayDate.toLocaleDateString(
                                                         "en-US",
                                                         {
@@ -2634,28 +2723,28 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                         }
                                                     )}
                                                 </td>
-                                                <td className="px-6 py-3 text-sm text-slate-900 text-right">
+                                                <td className="px-6 py-3 text-sm text-slate-900 font-mono text-right">
                                                     ${row.payment.toFixed(2)}
                                                     {row.extraPayment && !row.isHistorical ? (
-                                                        <div className="text-[11px] text-emerald-600 font-semibold">
+                                                        <div className="text-[10px] text-emerald-600 font-semibold">
                                                             +${row.extraPayment.toFixed(2)} extra
                                                         </div>
                                                     ) : null}
-                                                    {showPartialPaid ? (
-                                                        <div className="text-[11px] text-amber-600 font-semibold">
-                                                            Paid ${row.payment.toFixed(2)} of $
-                                                            {plannedPayment.toFixed(2)}
+                                                    {showMinimumProgress ? (
+                                                        <div className="text-[10px] text-amber-600 font-semibold">
+                                                            *Allocated ${paidForPeriod.toFixed(2)}
                                                         </div>
+                                                        
                                                     ) : null}
                                                 </td>
-                                                <td className="px-6 py-3 text-sm text-green-600 text-right font-medium">
+                                                <td className="px-6 py-3 text-sm font-mono text-green-600 text-right font-medium">
                                                     ${row.principal.toFixed(2)}
                                                 </td>
-                                                <td className="px-6 py-3 text-sm text-red-500 text-right">
+                                                <td className="px-6 py-3 text-sm font-mono text-red-500 text-right">
                                                     ${row.interest.toFixed(2)}
                                                 </td>
                                                 <td
-                                                    className={`px-6 py-3 text-sm text-right ${
+                                                    className={`px-6 py-3 text-sm font-mono text-right ${
                                                         row.fees > 0
                                                             ? "text-orange-600 font-bold"
                                                             : "text-slate-400"
@@ -2667,7 +2756,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                           )}`
                                                         : "-"}
                                                 </td>
-                                                <td className="px-6 py-3 text-sm text-slate-700 text-right font-mono">
+                                                <td className="px-6 py-3 text-sm font-mono text-slate-700 text-right font-mono">
                                                     $
                                                     {row.remainingBalance.toFixed(
                                                         2
