@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Asset, Expense, IncomeSource, Liability, UserSettings } from '../types';
 import { calculateMonthlyIncome, calculateMonthlyIncomeByMode, getMinPayment } from '../server/liabilityAlgorithms';
-import { CalendarRange, FileText, LineChart, Wallet } from 'lucide-react';
+import { CalendarRange, ChevronDown, ChevronUp, Calculator, Receipt, FileText, Wallet } from 'lucide-react';
 
 interface ReportsProps {
   liabilities: Liability[];
@@ -13,7 +13,8 @@ interface ReportsProps {
 
 const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, incomes, settings }) => {
   const now = new Date();
-  const defaultMonth = now.toISOString().slice(0, 7);
+  const currentMonthIndex = now.getMonth() + 1;
+  const defaultMonth = String(currentMonthIndex).padStart(2, '0');
   const [startMonth, setStartMonth] = useState(defaultMonth);
   const [endMonth, setEndMonth] = useState(defaultMonth);
 
@@ -124,10 +125,8 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
   };
 
   const toMonthIndex = (value: string) => {
-    const parts = value.split('-').map(Number);
-    const year = parts[0] || 0;
-    const month = (parts[1] || 1) - 1;
-    return year * 12 + month;
+    const month = Number(value) || 1;
+    return month - 1;
   };
 
   const monthCount = (() => {
@@ -137,12 +136,9 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
   })();
 
   const formatMonthLabel = (value: string) => {
-    const parts = value.split('-').map(Number);
-    const year = parts[0] || now.getFullYear();
-    const month = (parts[1] || now.getMonth() + 1) - 1;
-    return new Date(year, month, 1).toLocaleDateString(undefined, {
+    const month = Number(value) || now.getMonth() + 1;
+    return new Date(now.getFullYear(), month - 1, 1).toLocaleDateString(undefined, {
       month: 'short',
-      year: 'numeric',
     });
   };
 
@@ -730,20 +726,19 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     );
   }, [expenses, getPerCheckExpense, getPerCheckLiability, liabilityWithMins, selectedTransfer]);
 
-  const forecastMonths = useMemo(() => {
-    const startParts = startMonth.split('-').map(Number);
-    const baseYear = startParts[0] || now.getFullYear();
-    const baseMonth = (startParts[1] || now.getMonth() + 1) - 1;
-    return Array.from({ length: 3 }, (_, idx) => {
-      const d = new Date(baseYear, baseMonth + idx, 1);
-      return {
-        label: d.toLocaleDateString(undefined, { month: 'short', year: 'numeric' }),
-        income: monthlyIncome,
-        outflow: monthlyCashOut,
-        net: monthlyNet,
-      };
-    });
-  }, [startMonth, monthlyIncome, monthlyCashOut, monthlyNet, now]);
+  const monthOptions = useMemo(
+    () =>
+      Array.from({ length: 12 }, (_, idx) => {
+        const value = String(idx + 1).padStart(2, '0');
+        return {
+          value,
+          label: new Date(now.getFullYear(), idx, 1).toLocaleDateString(undefined, {
+            month: 'long',
+          }),
+        };
+      }),
+    [now]
+  );
 
   return (
     <div className="space-y-8">
@@ -753,78 +748,65 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
         </div>
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Reports</h1>
-          <p className="text-sm text-slate-500">Showing {periodLabel} ({monthCount} mo)</p>
-        </div>
-      </div>
-
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="flex items-center space-x-2">
-            <div className="p-2 bg-slate-100 rounded-lg text-slate-500">
-              <CalendarRange size={18} />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-700">Report Period</p>
-              <p className="text-xs text-slate-400">Defaults to current month</p>
-            </div>
-          </div>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Start</label>
-              <input
-                type="month"
-                value={startMonth}
-                onChange={(e) => setStartMonth(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">End</label>
-              <input
-                type="month"
-                value={endMonth}
-                onChange={(e) => setEndMonth(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-          <p className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Net Worth</p>
-          <p className="text-3xl font-bold text-slate-900 mt-2">{formatCurrency(netWorth)}</p>
-          <p className="text-xs text-slate-400 mt-1">Assets {formatCurrency(totalAssets)} • Liabilities {formatCurrency(totalLiabilities)}</p>
-        </div>
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-          <p className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Total Income</p>
-          <p className="text-3xl font-bold text-emerald-600 mt-2">{formatCurrency(scale(monthlyIncome))}</p>
-          <p className="text-xs text-slate-400 mt-1">Budgeted income • {monthlyIncomeMode.toLowerCase()}</p>
-        </div>
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-          <p className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Net Cash Flow</p>
-          <p className={`text-3xl font-bold mt-2 ${monthlyNet >= 0 ? 'text-indigo-600' : 'text-red-600'}`}>
-            {formatCurrency(scale(monthlyNet))}
-          </p>
-          <p className="text-xs text-slate-400 mt-1">Income minus outflows</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 space-y-4">
-          <div className="flex items-center space-x-2">
-            <div className="p-2 bg-indigo-100 text-indigo-600 rounded-lg">
-              <Wallet size={18} />
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex-1 space-y-1">
+              <button
+                type="button"
+                onClick={() => toggleReport('budget')}
+                className="flex items-center justify-between w-full text-left"
+                aria-expanded={expandedReport === 'budget'}
+              >
+                <span className="flex items-center space-x-2">
+                  <span className="p-2 bg-indigo-100 text-indigo-600 rounded-lg">
+                    <Calculator size={18} />
+                  </span>
+                  <span className="text-lg font-bold text-slate-900 hover:text-indigo-600 transition-colors">
+                    Budget
+                  </span>
+                </span>
+                <span className="text-slate-500">
+                  {expandedReport === 'budget' ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                </span>
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => toggleReport('budget')}
-              className="text-lg font-bold text-slate-900 hover:text-indigo-600 transition-colors"
-              aria-expanded={expandedReport === 'budget'}
-            >
-              Budget
-            </button>
+            <div>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div>
+                  <select
+                    value={startMonth}
+                    onChange={(e) => setStartMonth(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 bg-white"
+                  >
+                    {monthOptions.map((option) => (
+                      <option key={`start-${option.value}`} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center">
+                  <p className="text-xs text-slate-400 items-center">to</p>
+                </div>
+                <div>
+                  <select
+                    value={endMonth}
+                    onChange={(e) => setEndMonth(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 bg-white"
+                  >
+                    {monthOptions.map((option) => (
+                      <option key={`end-${option.value}`} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
           </div>
           <div className="border-t border-slate-100 pt-4 space-y-4 text-sm">
             <div>
@@ -833,7 +815,6 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
                 <p className="text-xs text-slate-400">No income sources recorded.</p>
               ) : (
                 <div className="space-y-2">
-
                   <div>
                     {expandedReport !== 'budget' ? (
                       <div className="space-y-1">
@@ -867,8 +848,6 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
                       </div>
                     )}
                   </div>
-
-                  
                 </div>
               )}
             </div>
@@ -964,64 +943,28 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
         </div>
 
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 space-y-4">
-          <div className="flex items-center space-x-2">
-            <div className="p-2 bg-emerald-100 text-emerald-600 rounded-lg">
-              <LineChart size={18} />
-            </div>
-            <h2 className="text-lg font-bold text-slate-900">Cash Flow Forecasting</h2>
-          </div>
-          <div className="space-y-3">
-            {forecastMonths.map((row) => (
-              <div key={row.label} className="flex items-center justify-between text-sm">
-                <span className="text-slate-500">{row.label}</span>
-                <span className="font-semibold text-slate-700">
-                  {formatCurrency(row.income)} / {formatCurrency(row.outflow)}
-                  <span className={`ml-2 ${row.net >= 0 ? 'text-indigo-600' : 'text-red-600'}`}>
-                    {row.net >= 0 ? '+' : ''}{formatCurrency(row.net)}
-                  </span>
-                </span>
-              </div>
-            ))}
-            <p className="text-xs text-slate-400">Forecast uses your monthly equivalents for each upcoming month.</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 space-y-4">
-          <h2 className="text-lg font-bold text-slate-900">Cash Flow Statement</h2>
-          <div className="space-y-2 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-slate-500">Cash In</span>
-              <span className="font-semibold text-emerald-600">{formatCurrency(scale(monthlyIncome))}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-500">Cash Out</span>
-              <span className="font-semibold text-slate-700">{formatCurrency(scale(monthlyCashOut))}</span>
-            </div>
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-              <span className="font-semibold text-slate-700">Net Cash Flow</span>
-              <span className={`text-xl font-bold ${monthlyNet >= 0 ? 'text-indigo-600' : 'text-red-600'}`}>
-                {formatCurrency(scale(monthlyNet))}
-              </span>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 space-y-4">
           <div className="flex items-center justify-between gap-4">
-            <div>
+            <div className="flex-1 space-y-1">
               <button
                 type="button"
                 onClick={() => toggleReport('transfers')}
-                className="text-lg font-bold text-slate-900 hover:text-indigo-600 transition-colors text-left"
+                className="flex items-center justify-between w-full text-left"
                 aria-expanded={expandedReport === 'transfers'}
               >
-                Transfers
+                <span className="flex items-center space-x-2">
+                  <span className="p-2 bg-indigo-100 text-indigo-600 rounded-lg">
+                    <Receipt size={18} />
+                  </span>
+                  <span className="text-lg font-bold text-slate-900 hover:text-indigo-600 transition-colors">
+                    Transfers
+                  </span>
+                </span>
+                <span className="text-slate-500">
+                  {expandedReport === 'transfers' ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                </span>
               </button>
-              <p className="text-xs text-slate-400">Based on the selected check.</p>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Check</label>
               <select
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 bg-white"
                 value={selectedCheckKey || ''}
@@ -1052,13 +995,12 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
                   {expandedReport === 'transfers' && (
                     <div className="space-y-1 pl-3 text-xs text-slate-400">
                       {group.items.map((item, idx) => (
-                        <div key={`${group.account}-${item.name}-${idx}`} className="flex items-center justify-between">
+                        <div key={`${group.account}-${item.name}-${idx}`} className="flex items-center justify-between pr-24">
                           <span>{item.name}</span>
                           <span>{formatCurrencyPrecise(item.amount)}</span>
                         </div>
                       ))}
-                      <div className="flex items-center justify-between pt-2 text-slate-600 border-t border-slate-100">
-                        <span className="font-semibold">Total</span>
+                      <div className="flex items-center justify-end pt-2 text-slate-600 border-t border-slate-100">
                         <span className="font-semibold text-slate-900">{formatCurrencyPrecise(group.total)}</span>
                       </div>
                     </div>
