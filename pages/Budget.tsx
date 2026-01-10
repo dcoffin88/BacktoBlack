@@ -1069,24 +1069,24 @@ const Budget: React.FC<BudgetProps> = ({
                             {currentPaycheck.date.getFullYear()}
                         </p>
                     </div>
-                    <div className="order-3 md:order-2 w-full md:w-auto md:flex-1 flex flex-wrap items-center gap-2 lg:gap-6 justify-center md:justify-center">
+                    <div className="order-3 md:order-2 w-full md:w-auto md:flex-1 flex flex-wrap items-center gap-2 md:justify-center lg:gap-6 justify-center">
                         <div className="text-center">
-                            <p className="text-sm text-slate-500">
+                            <p className="text-xs text-slate-500">
                                 Amount
                             </p>
-                            <p className="text-l sm:text-2xl font-bold text-emerald-700">
+                            <p className="text-s sm:text-xl font-bold text-emerald-700">
                                 {currencySymbol}
                                 {currentPaycheck.source.amount.toLocaleString()}
                             </p>
                         </div>
                         <div className="text-center">
-                            <p className="text-base sm:text-lg font-bold text-slate-900">-</p>
+                            <p className="text-xs font-bold text-slate-500">-</p>
                         </div>
                         <div className="text-center">
-                            <p className="text-sm text-slate-500">
+                            <p className="text-xs text-slate-500">
                                 Expenses
                             </p>
-                            <p className="text-l sm:text-2xl font-bold text-slate-900">
+                            <p className="text-s sm:text-xl font-bold text-slate-900">
                                 {currencySymbol}
                                 {currentExpenseTotal.toLocaleString(
                                     undefined,
@@ -1095,13 +1095,13 @@ const Budget: React.FC<BudgetProps> = ({
                             </p>
                         </div>
                         <div className="text-center">
-                            <p className="text-base sm:text-lg font-bold text-slate-900">-</p>
+                            <p className="text-xs font-bold text-slate-500">-</p>
                         </div>
                         <div className="text-center">
-                            <p className="text-sm text-slate-500">
+                            <p className="text-xs text-slate-500">
                                 Liabilities
                             </p>
-                            <p className="text-l sm:text-2xl font-bold text-slate-900">
+                            <p className="text-s sm:text-xl font-bold text-slate-900">
                                 {currencySymbol}
                                 {currentLiabilityTotal.toLocaleString(
                                     undefined,
@@ -1110,14 +1110,14 @@ const Budget: React.FC<BudgetProps> = ({
                             </p>
                         </div>
                         <div className="text-center">
-                            <p className="text-base sm:text-lg font-bold text-slate-900">=</p>
+                            <p className="text-xs font-bold text-slate-500">=</p>
                         </div>
                         <div className="text-center">
-                            <p className="text-sm text-slate-500">
+                            <p className="text-xs text-slate-500">
                                 Remaining
                             </p>
                             <p
-                                className={`text-l sm:text-2xl font-bold ${
+                                className={`text-s sm:text-xl font-bold ${
                                     currentLeftOver >= 0
                                         ? "text-emerald-700"
                                         : "text-red-600"

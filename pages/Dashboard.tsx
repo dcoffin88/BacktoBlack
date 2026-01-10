@@ -42,12 +42,11 @@ interface DashboardProps {
   expenses: Expense[];
   assets: Asset[];
   incomes?: IncomeSource[];
-  monthlyBudget: number; // This is now the Calculated Surplus (Snowball)
+  monthlyBudget: number;
   userSettings?: UserSettings;
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, incomes = [], monthlyBudget, userSettings }) => {
-  const [showAnnual, setShowAnnual] = useState(false);
   const [chartsReady, setChartsReady] = useState(false);
   const [savedPlan, setSavedPlan] = useState<BudgetSchedule | null>(null);
   const { ref: payoffChartRef, size: payoffSize } = useChartDimensions();
@@ -70,7 +69,6 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
   }, []);
 
   useEffect(() => {
-    // Delay chart render until after mount to avoid ResponsiveContainer measuring at -1/-1
     setChartsReady(true);
   }, []);
   const simpleTerms = userSettings?.useSimpleTerms;
@@ -80,6 +78,9 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
   const expensePlural = simpleTerms ? 'Bills' : 'Expenses';
   const currencySymbol = userSettings?.currencySymbol || '$';
   const monthlyIncomeMode = userSettings?.monthlyIncomeMode || 'ANNUALIZED';
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonthIndex = now.getMonth();
   const totalLiability = liabilities.reduce((sum, d) => sum + d.balance, 0);
   const totalMinPayment = liabilities.reduce((sum, d) => {
     const monthlyInterest = d.balance * (d.interestRate / 100 / 12);
@@ -109,6 +110,108 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
   const totalAssets = assets.reduce((sum, a) => sum + a.value, 0);
   const netWorth = totalAssets - totalLiability;
   const budgetedIncomes = incomes.filter((i) => i.includeInPlanner !== false);
+  const budgetStartDate = useMemo(() => {
+    if (!userSettings?.startDate) return null;
+    const parsed = new Date(userSettings.startDate);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+  }, [userSettings?.startDate]);
+  const activeLiabilities = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return liabilities.filter((liability) => {
+      if (!liability.startDate) return true;
+      const start = new Date(`${liability.startDate}T12:00:00`);
+      if (Number.isNaN(start.getTime())) return true;
+      start.setHours(0, 0, 0, 0);
+      return start <= today;
+    });
+  }, [liabilities]);
+  const currentMonthLiabilityMins = useMemo(() => {
+    return activeLiabilities.reduce((sum, l) => {
+      const monthlyInterest = l.balance * (l.interestRate / 100 / 12);
+      const estFee = l.isFeeMonthly ? l.annualFee / 12 : 0;
+      return sum + getMinPayment(l, l.balance, monthlyInterest, estFee);
+    }, 0);
+  }, [activeLiabilities]);
+  const currentMonthIncome = useMemo(() => {
+    if (budgetedIncomes.length === 0) return 0;
+    const periodStart = new Date(currentYear, currentMonthIndex, 1);
+    const periodEnd = new Date(currentYear, currentMonthIndex + 1, 0);
+    const startBoundary =
+      budgetStartDate && budgetStartDate.getTime() > periodStart.getTime()
+        ? budgetStartDate
+        : periodStart;
+
+    const getPayDates = (source: IncomeSource, startDate: Date, endDate: Date): Date[] => {
+      if (!source.nextPayDate) return [];
+      const [y, m, d] = source.nextPayDate.split('-').map(Number);
+      const seed = new Date(y, m - 1, d);
+      if (Number.isNaN(seed.getTime())) return [];
+
+      let current = new Date(seed);
+      const dates: Date[] = [];
+      let iterations = 0;
+      while (current > startDate && iterations < 5000) {
+        const prev = new Date(current);
+        switch (source.frequency) {
+          case 'WEEKLY':
+            prev.setDate(prev.getDate() - 7);
+            break;
+          case 'BI_WEEKLY':
+            prev.setDate(prev.getDate() - 14);
+            break;
+          case 'SEMI_MONTHLY':
+            prev.setDate(prev.getDate() - 15);
+            break;
+          case 'MONTHLY':
+            prev.setMonth(prev.getMonth() - 1);
+            break;
+          case 'ANNUAL':
+            prev.setFullYear(prev.getFullYear() - 1);
+            break;
+          default:
+            prev.setDate(prev.getDate() - 30);
+        }
+        if (prev < startDate) break;
+        current = prev;
+        iterations += 1;
+      }
+
+      iterations = 0;
+      while (current <= endDate && iterations < 5000) {
+        if (current >= startDate) {
+          dates.push(new Date(current));
+        }
+        iterations += 1;
+        switch (source.frequency) {
+          case 'WEEKLY':
+            current.setDate(current.getDate() + 7);
+            break;
+          case 'BI_WEEKLY':
+            current.setDate(current.getDate() + 14);
+            break;
+          case 'SEMI_MONTHLY':
+            current.setDate(current.getDate() + 15);
+            break;
+          case 'MONTHLY':
+            current.setMonth(current.getMonth() + 1);
+            break;
+          case 'ANNUAL':
+            current.setFullYear(current.getFullYear() + 1);
+            break;
+          default:
+            current.setDate(current.getDate() + 30);
+        }
+      }
+      return dates;
+    };
+
+    return budgetedIncomes.reduce((sum, source) => {
+      const count = getPayDates(source, startBoundary, periodEnd).length;
+      return sum + count * source.amount;
+    }, 0);
+  }, [budgetStartDate, budgetedIncomes, currentMonthIndex, currentYear]);
   const totalPartnerIncome = calculateMonthlyIncomeByMode(
     budgetedIncomes.filter((i) => i.isPartner),
     monthlyIncomeMode
@@ -118,17 +221,10 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
     monthlyIncomeMode
   );
   const totalIncome = totalMyIncome + totalPartnerIncome;
-  // const totalAnnualIncome = totalIncome * 12;
-  // const totalAnnualPartnerIncome = totalPartnerIncome * 12;
-  // const totalAnnualMyIncome = totalMyIncome * 12;
-  
-  // Total Monthly Outflow (Liabilities + Expenses + Extra)
-  // This essentially reconstructs the Total Income if budget was derived correctly
   const totalCommitment = totalMinPayment + totalMonthlyExpenses + monthlyBudget;
-  const freeCashFlow = totalIncome - totalMonthlyExpenses - totalMinPayment;
+  const freeCashFlow = currentMonthIncome - totalMonthlyExpenses - currentMonthLiabilityMins;
   const isDeficit = freeCashFlow < 0;
 
-  // Use saved plan if present, else default Avalanche projection
   const projection = useMemo(() => {
     if (savedPlan?.timeline?.length) {
       const last = savedPlan.timeline[savedPlan.timeline.length - 1];
@@ -150,21 +246,17 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
   const availableForLabel = savedPlan ? planLabel : 'Snowball/Avalanche';
   const planSavedAt = savedPlan?.savedAt ? new Date(savedPlan.savedAt) : null;
 
-  const scaleAmount = (val: number) => showAnnual ? val * 12 : val;
   const formatCurrency = (val: number, opts?: Intl.NumberFormatOptions) => {
-    return `${currencySymbol}${scaleAmount(val).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0, ...opts })}`;
+    return `${currencySymbol}${val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0, ...opts })}`;
   };
-  const periodLabel = showAnnual ? 'Annual' : 'Monthly';
-  
-  const StatCard = ({ title, value, icon: Icon, color, subValue }: any) => (
-    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex items-start justify-between">
+  const currentMonthLabel = now.toLocaleDateString(undefined, { month: 'long' });
+
+  const StatCard = ({ title, value, subValue }: any) => (
+    <div>
       <div>
-        <p className="text-slate-500 text-sm font-medium mb-1">{title}</p>
-        <h3 className="text-2xl font-bold text-slate-900">{value}</h3>
+        <p className="text-sm font-semibold text-slate-500 uppercase tracking-wide">{title}</p>
+        <h3 className="text-3xl font-bold text-slate-900 mt-2">{value}</h3>
         {subValue && <p className="text-xs text-slate-400 mt-1">{subValue}</p>}
-      </div>
-      <div className={`p-3 rounded-lg ${color}`}>
-        <Icon size={24} className="text-white" />
       </div>
     </div>
   );
@@ -206,53 +298,28 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Dashboard</h1>
         </div>
-        <div className="flex items-center space-x-2 ml-auto text-sm">
-          <span className={`font-medium ${!showAnnual ? 'text-indigo-600' : ''}`}>Monthly</span>
-          <button
-            type="button"
-            onClick={() => setShowAnnual(!showAnnual)}
-            className={`w-12 h-6 rounded-full border transition-colors flex items-center ${showAnnual ? 'bg-indigo-600 border-indigo-600 justify-end' : 'bg-slate-200 border-slate-300 justify-start'}`}
-            aria-label="Toggle annualized view"
-          >
-            <span className="w-5 h-5 bg-white rounded-full shadow-sm"></span>
-          </button>
-          <span className={`font-medium ${showAnnual ? 'text-indigo-600' : ''}`}>Annual</span>
-        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <StatCard 
-          title="Net Worth" 
-          value={`${currencySymbol}${netWorth.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`} 
-          subValue={totalAssets > 0 ? `${currencySymbol}${totalAssets.toLocaleString()} Assets` : undefined}
-          icon={Landmark} 
-          color={netWorth >= 0 ? "bg-green-500" : "bg-orange-500"} 
-        />
-        <StatCard 
-          title={`Total ${liabilityLabel}`} 
-          value={`${currencySymbol}${totalLiability.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`} 
-          icon={DollarSign} 
-          color="bg-red-500" 
-        />
-        <StatCard 
-          title={`${liabilityLabel} Free Date`} 
-          value={projection.monthsToFreedom === 0 ? `${liabilityLabel} Free!` : `${Math.floor(projection.monthsToFreedom / 12)}y ${projection.monthsToFreedom % 12}m`} 
-          icon={Calendar} 
-          color="bg-indigo-500" 
-        />
-        <StatCard 
-          title={`${periodLabel} Income`} 
-          value={formatCurrency(totalIncome)} 
-          subValue={`You: ${formatCurrency(totalMyIncome)} • Partner: ${formatCurrency(totalPartnerIncome)}`} 
-          icon={Wallet} 
-          color="bg-emerald-500" 
-        />
-        <StatCard 
-          title={`${periodLabel} ${expensePlural}`} 
-          value={formatCurrency(totalMonthlyExpenses)} 
-          icon={Receipt} 
-          color="bg-purple-500" 
-        />
+        <Link to="/assets" className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+          <StatCard 
+            title="Net Worth"
+            value={`${currencySymbol}${netWorth.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`} 
+            subValue={totalAssets > 0 ? `Assets ${currencySymbol}${totalAssets.toLocaleString()} • Liabilities ${currencySymbol}${totalLiability.toLocaleString()}` : undefined}
+          />
+        </Link>
+        <Link to="/liabilities" className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+          <StatCard 
+            title={`Total ${liabilityLabel}`}
+            value={`${currencySymbol}${totalLiability.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} 
+          />
+        </Link>
+        <Link to="/strategy" className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+          <StatCard 
+            title={`${liabilityLabel} Free Date`}
+            value={projection.monthsToFreedom === 0 ? `${liabilityLabel} Free!` : `${Math.floor(projection.monthsToFreedom / 12)}y ${projection.monthsToFreedom % 12}m`} 
+          />
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -319,34 +386,41 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
           {/* Quick Summary */}
           <div className={`bg-white p-6 rounded-xl shadow-sm border ${isDeficit ? 'border-red-200' : 'border-slate-100'} space-y-4`}>
             <div className="flex items-center justify-between">
+              <Link to="/reports">
               <div className="flex items-center space-x-2">
-                <Calculator size={18} className="text-slate-500" />
-                <h3 className="text-lg font-bold text-slate-900">{periodLabel} Breakdown</h3>
+                  <h3 className="text-lg font-bold text-slate-900">{currentMonthLabel} Breakdown</h3><p className="ml-1 text-xs text-indigo-400 hover:text-indigo-600"><ArrowRight size={10}/></p>
               </div>
+              </Link>
             </div>
             <div className="space-y-3">
               <div className="flex justify-between items-center text-sm">
-                <span className="text-slate-500 flex items-center">
-                  Total Monthly Income <Link to="/income" className="ml-1 text-xs text-indigo-400 hover:text-indigo-600"><ArrowRight size={10}/></Link>
-                </span>
-                <span className="font-bold text-emerald-600">+{formatCurrency(totalIncome, { maximumFractionDigits: 0 })}</span>
+                <Link to="/income">
+                  <span className="text-slate-500 flex items-center">
+                    Income <p className="ml-1 text-xs text-indigo-400 hover:text-indigo-600"><ArrowRight size={10}/></p>
+                  </span>
+                </Link>
+                <span className="font-bold text-emerald-600">+{formatCurrency(currentMonthIncome, { maximumFractionDigits: 0 })}</span>
               </div>
               <div className="flex justify-between items-center text-sm">
-                <span className="text-slate-500 flex items-center">
-                  {expensePlural} <Link to="/expenses" className="ml-1 text-xs text-indigo-400 hover:text-indigo-600"><ArrowRight size={10}/></Link>
-                </span>
+                <Link to="/expenses">
+                  <span className="text-slate-500 flex items-center">
+                    {expensePlural} <p className="ml-1 text-xs text-indigo-400 hover:text-indigo-600"><ArrowRight size={10}/></p>
+                  </span>
+                </Link>
                 <span className="font-medium text-slate-700">-{formatCurrency(totalMonthlyExpenses)}</span>
               </div>
               <div className="flex justify-between items-center text-sm pb-3 border-b border-slate-100">
-                <span className="text-slate-500 flex items-center">
-                  {liabilityLabel} Minimums <Link to="/liabilities" className="ml-1 text-xs text-indigo-400 hover:text-indigo-600"><ArrowRight size={10}/></Link>
-                </span>
-                <span className="font-medium text-slate-700">-{formatCurrency(totalMinPayment)}</span>
+                <Link to="/liabilities">
+                  <span className="text-slate-500 flex items-center">
+                    {liabilityLabel} Minimums <p className="ml-1 text-xs text-indigo-400 hover:text-indigo-600"><ArrowRight size={10}/></p>
+                  </span>
+                </Link>
+                <span className="font-medium text-slate-700">-{formatCurrency(currentMonthLiabilityMins)}</span>
               </div>
             </div>
             <div className="pt-1">
               <div className="flex justify-between items-end mb-1">
-                <span className="text-sm font-bold text-slate-800">Leftover ({periodLabel})</span>
+                <span className="text-sm font-bold text-slate-800">Leftover ({currentMonthLabel})</span>
                 <span className={`text-2xl font-bold ${isDeficit ? 'text-red-600' : 'text-indigo-600'}`}>
                   {freeCashFlow >= 0 ? '+' : ''}{formatCurrency(freeCashFlow)}
                 </span>

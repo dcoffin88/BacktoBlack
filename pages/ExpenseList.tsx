@@ -173,30 +173,24 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
         return "No due date";
     };
 
+    const getMonthlyMultiplier = (frequency: Expense["frequency"]) => {
+        if (frequency === "BI_WEEKLY") return 2;
+        if (frequency === "WEEKLY") return 52 / 12;
+        if (frequency === "QUARTERLY") return 1 / 3;
+        if (frequency === "ANNUAL") return 1 / 12;
+        return 1;
+    };
+
     // --- Expense Stats ---
     const totalMonthlyExpenses = expenses.reduce((sum, b) => {
-        const freqMultiplier =
-            b.frequency === "BI_WEEKLY"
-                ? 2
-                : b.frequency === "WEEKLY"
-                ? 52 / 12
-                : b.frequency === "QUARTERLY"
-                ? 1 / 3
-                : 1;
+        const freqMultiplier = getMonthlyMultiplier(b.frequency);
         return sum + b.amount * freqMultiplier;
     }, 0);
 
     const monthlyCategoryTotals = useMemo(() => {
         const bucket: Record<string, number> = {};
         expenses.forEach((e) => {
-            const multiplier =
-                e.frequency === "BI_WEEKLY"
-                    ? 2
-                    : e.frequency === "WEEKLY"
-                    ? 52 / 12
-                    : e.frequency === "QUARTERLY"
-                    ? 1 / 3
-                    : 1;
+            const multiplier = getMonthlyMultiplier(e.frequency);
             const key = e.category?.trim() || "Uncategorized";
             bucket[key] = (bucket[key] || 0) + e.amount * multiplier;
         });
@@ -237,14 +231,7 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
 
         // Calculate shares by iterating expenses
         expenses.forEach((b) => {
-            const freqMultiplier =
-                b.frequency === "BI_WEEKLY"
-                    ? 2
-                    : b.frequency === "WEEKLY"
-                    ? 52 / 12
-                    : b.frequency === "QUARTERLY"
-                    ? 1 / 3
-                    : 1;
+            const freqMultiplier = getMonthlyMultiplier(b.frequency);
             const amt = b.amount * freqMultiplier;
             const owner = b.owner || "JOINT";
 
@@ -309,8 +296,8 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                     <p className="text-3xl font-extrabold text-slate-900">
                         $
                         {totalMonthlyExpenses.toLocaleString(undefined, {
-                            minimumFractionDigits: 0,
-                            maximumFractionDigits: 0,
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
                         })}
                     </p>
                     <p className="mt-2 text-xs text-slate-400">
@@ -338,8 +325,10 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                         <p className="text-lg font-bold text-slate-700">
                                             $
                                             {userShare.toLocaleString(
-                                                undefined,
-                                                { maximumFractionDigits: 0 }
+                                                undefined, {
+                                                    minimumFractionDigits: 2,
+                                                    maximumFractionDigits: 2,
+                                                }
                                             )}
                                         </p>
                                     </div>
@@ -350,8 +339,10 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                         <p className="text-lg font-bold text-slate-700">
                                             $
                                             {partnerShare.toLocaleString(
-                                                undefined,
-                                                { maximumFractionDigits: 0 }
+                                                undefined, {
+                                                    minimumFractionDigits: 2,
+                                                    maximumFractionDigits: 2,
+                                                }
                                             )}
                                         </p>
                                     </div>
@@ -376,7 +367,8 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                     </span>
                                     <span className="text-sm font-semibold text-slate-900">
                                         ${total.toLocaleString(undefined, {
-                                            maximumFractionDigits: 0,
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
                                         })}
                                     </span>
                                 </div>

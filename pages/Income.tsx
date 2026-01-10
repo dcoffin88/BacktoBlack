@@ -131,28 +131,51 @@ const Income: React.FC<IncomeProps> = ({ incomes, onSaveIncome, onDeleteIncome, 
   };
 
   const monthlyIncomeMode = settings.monthlyIncomeMode || 'ANNUALIZED';
+  const includedIncomes = incomes.filter(i => i.includeInPlanner !== false);
   const totalMy = calculateMonthlyIncomeByMode(
-    incomes.filter(i => !i.isPartner),
+    includedIncomes.filter(i => !i.isPartner),
     monthlyIncomeMode,
     true
   );
   const totalPartner = calculateMonthlyIncomeByMode(
-    incomes.filter(i => i.isPartner),
+    includedIncomes.filter(i => i.isPartner),
     monthlyIncomeMode,
     true
   );
   const total = totalMy + totalPartner;
   const plannerTotalMy = calculateMonthlyIncomeByMode(
-    incomes.filter(i => !i.isPartner && i.includeInPlanner !== false),
+    includedIncomes.filter(i => !i.isPartner),
     monthlyIncomeMode,
     false
   );
   const plannerTotalPartner = calculateMonthlyIncomeByMode(
-    incomes.filter(i => i.isPartner && i.includeInPlanner !== false),
+    includedIncomes.filter(i => i.isPartner),
     monthlyIncomeMode,
     false
   );
   const plannerTotal = plannerTotalMy + plannerTotalPartner;
+  const annualizedMy = calculateMonthlyIncomeByMode(
+    includedIncomes.filter(i => !i.isPartner),
+    'ANNUALIZED',
+    true
+  );
+  const annualizedPartner = calculateMonthlyIncomeByMode(
+    includedIncomes.filter(i => i.isPartner),
+    'ANNUALIZED',
+    true
+  );
+  const annualizedTotal = annualizedMy + annualizedPartner;
+  const plannerAnnualizedMy = calculateMonthlyIncomeByMode(
+    includedIncomes.filter(i => !i.isPartner),
+    'ANNUALIZED',
+    false
+  );
+  const plannerAnnualizedPartner = calculateMonthlyIncomeByMode(
+    includedIncomes.filter(i => i.isPartner),
+    'ANNUALIZED',
+    false
+  );
+  const plannerAnnualizedTotal = plannerAnnualizedMy + plannerAnnualizedPartner;
 
   return (
     <div className="space-y-8">
@@ -167,6 +190,96 @@ const Income: React.FC<IncomeProps> = ({ incomes, onSaveIncome, onDeleteIncome, 
         </div>
       </div>
 
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+        <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-2">Monthly Summary</h3>
+        <div className="grid grid-cols-3 gap-4 text-center">
+          <div>
+            <p className="text-xs text-slate-500">You</p>
+            <p className="text-xl font-bold text-slate-900">
+              ${totalMy.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </p>
+            <p className="text-[10px] text-slate-400">Budget: ${plannerTotalMy.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-500">{settings.partnerName || 'Partner'}</p>
+            <p className="text-xl font-bold text-slate-900">${totalPartner.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </p>
+            <p className="text-[10px] text-slate-400">Budget: ${plannerTotalPartner.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-500">Total</p>
+            <p className="text-xl font-bold text-emerald-600">${total.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </p>
+            <p className="text-[10px] text-slate-400">Budget: ${plannerTotal.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </p>
+          </div>
+        </div>
+
+        <h3 className="pt-6 text-sm font-semibold text-slate-500 uppercase tracking-wide mb-2">Annualized Monthly Summary</h3>
+        <div className="grid grid-cols-3 gap-4 text-center">
+          <div>
+            <p className="text-xs text-slate-500">You</p>
+            <p className="text-xl font-bold text-slate-900">
+              ${annualizedMy.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </p>
+            <p className="text-[10px] text-slate-400">Budget: ${plannerAnnualizedMy.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-500">{settings.partnerName || 'Partner'}</p>
+            <p className="text-xl font-bold text-slate-900">${annualizedPartner.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </p>
+            <p className="text-[10px] text-slate-400">Budget: ${plannerAnnualizedPartner.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-500">Total</p>
+            <p className="text-xl font-bold text-emerald-600">${annualizedTotal.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </p>
+            <p className="text-[10px] text-slate-400">Budget: ${plannerAnnualizedTotal.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </p>
+          </div>
+        </div>
+      </div>
+      
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
           <h3 className="text-sm font-bold text-slate-700 mb-2">My Income</h3>
@@ -182,27 +295,6 @@ const Income: React.FC<IncomeProps> = ({ incomes, onSaveIncome, onDeleteIncome, 
             {renderList(true)}
           </div>
         )}
-      </div>
-
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-        <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-2">Monthly Rollup</h3>
-        <div className="grid grid-cols-3 gap-4 text-center">
-          <div>
-            <p className="text-xs text-slate-500">You</p>
-            <p className="text-xl font-bold text-slate-900">${totalMy.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
-            <p className="text-[10px] text-slate-400">Budget: ${plannerTotalMy.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
-          </div>
-          <div>
-            <p className="text-xs text-slate-500">{settings.partnerName || 'Partner'}</p>
-            <p className="text-xl font-bold text-slate-900">${totalPartner.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
-            <p className="text-[10px] text-slate-400">Budget: ${plannerTotalPartner.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
-          </div>
-          <div>
-            <p className="text-xs text-slate-500">Total</p>
-            <p className="text-xl font-bold text-emerald-600">${total.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
-            <p className="text-[10px] text-slate-400">Budget: ${plannerTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
-          </div>
-        </div>
       </div>
 
       {isModalOpen && (

@@ -110,6 +110,9 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         amount: 0,
         date: "",
     });
+    const [planPaymentsByPeriod, setPlanPaymentsByPeriod] = useState<
+        Record<number, number>
+    >({});
     const [savedSchedule, setSavedSchedule] = useState<BudgetSchedule | null>(
         null
     );
@@ -222,8 +225,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             (liability.startingBalance && liability.startingBalance > 0
                 ? liability.startingBalance
                 : liability.balance) || 0;
-        const derived = Math.max(0, base - paid);
-        return Math.min(liability.balance, derived);
+        return Math.max(0, base - paid);
     };
 
     const getBalanceFromTimeline = () => {
@@ -515,10 +517,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                 today.setHours(0, 0, 0, 0);
                 const isPast = parsedDate ? parsedDate <= today : false;
 
-                // Use the period index from date; clamp to 1 so we can skip the corresponding scheduled row.
+                // Use the period index from date; keep historical periods (<= 0) so they render before payment #1.
                 const rawPeriod = getPeriodIndexFromDate(liability, p.checkDate);
-                const period = Math.max(1, rawPeriod || 1);
-                if (period === null || period === undefined) return acc;
+                if (rawPeriod === null || rawPeriod === undefined) return acc;
+                const period = rawPeriod;
 
                 acc[period] = {
                     amount: (acc[period]?.amount || 0) + p.amount,
@@ -548,6 +550,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             });
             return map;
         })();
+        setPlanPaymentsByPeriod(planPaymentsMap);
 
         const data = calculateIndividualAmortization(
             liability,
@@ -566,62 +569,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [extraPayments, savedSchedule, viewingLiability, isAmortizationOpen]);
 
-    // Auto-post scheduled payments whose dates have passed into historical payments
-    useEffect(() => {
-        if (!isAmortizationOpen || !viewingLiability || !amortizationData) return;
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        const rowsToPost = amortizationData.timeline
-            .map((row) => {
-                const dateValue = (row as any).actualDate;
-                const parsed =
-                    parseLocalDate(dateValue) ||
-                    getPaymentDateForRow(row.month, viewingLiability);
-                if (!parsed) return null;
-                parsed.setHours(0, 0, 0, 0);
-                return { row, date: parsed };
-            })
-            .filter((entry) => entry && entry.date <= today) as {
-            row: typeof amortizationData.timeline[0];
-            date: Date;
-        }[];
-
-        if (!rowsToPost.length) return;
-
-        const existingKeys = new Set(
-            extraPayments
-                .filter((p) => p.liabilityId === viewingLiability.id)
-                .map((p) => `${p.checkDate || ""}`)
-        );
-
-        const newPayments = rowsToPost
-            .filter(({ date }) => {
-                const key = toLocalDateString(date);
-                return !existingKeys.has(key);
-            })
-            .map(({ row, date }) => {
-                const checkDate = toLocalDateString(date);
-                existingKeys.add(checkDate);
-                return {
-                    id: Math.random().toString(36).substr(2, 9),
-                    liabilityId: viewingLiability.id,
-                    amount: row.payment,
-                    checkDate,
-                } as ExtraPayment;
-            });
-
-        if (!newPayments.length) return;
-
-        setExtraPayments((prev) => [...prev, ...newPayments]);
-        newPayments.forEach(async (p) => {
-            try {
-                await dbAPI.saveExtraPayment(p);
-            } catch {
-                /* ignore save failures */
-            }
-        });
-    }, [amortizationData, extraPayments, isAmortizationOpen, viewingLiability]);
 
     const addHistoricalPayment = async () => {
         if (!viewingLiability || historicalPayment.amount <= 0) return;
@@ -833,13 +780,14 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         const isWeekly = liability.paymentFrequency === "WEEKLY";
         if (isBiWeekly || isWeekly) {
             const interval = isBiWeekly ? 14 : 7;
-            let anchor = liability.nextDueDate
-                ? new Date(liability.nextDueDate)
-                : new Date(
-                      baseDate.getFullYear(),
-                      baseDate.getMonth(),
-                      liability.dueDate || 1
-                  );
+            const parsedAnchor = parseLocalDate(liability.nextDueDate) || null;
+            let anchor =
+                parsedAnchor ||
+                new Date(
+                    baseDate.getFullYear(),
+                    baseDate.getMonth(),
+                    liability.dueDate || 1
+                );
             let guard = 0;
             while (anchor < baseDate && guard < 500) {
                 anchor = addDays(anchor, interval);
@@ -884,13 +832,14 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         const intervalDays = isBiWeekly ? 14 : isWeekly ? 7 : null;
 
         if (intervalDays) {
-            let anchor = liability.nextDueDate
-                ? new Date(liability.nextDueDate)
-                : new Date(
-                      baseDate.getFullYear(),
-                      baseDate.getMonth(),
-                      liability.dueDate || 1
-                  );
+            const parsedAnchor = parseLocalDate(liability.nextDueDate) || null;
+            let anchor =
+                parsedAnchor ||
+                new Date(
+                    baseDate.getFullYear(),
+                    baseDate.getMonth(),
+                    liability.dueDate || 1
+                );
             let guard = 0;
             if (useFutureStart) {
                 while (anchor < baseDate && guard < 500) {
@@ -1110,7 +1059,11 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                             );
                                         }
                                         if (sortBy === "balance") {
-                                            return (a.balance - b.balance) * dir;
+                                            return (
+                                                (getDisplayBalance(a) -
+                                                    getDisplayBalance(b)) *
+                                                dir
+                                            );
                                         }
                                         if (sortBy === "interestRate") {
                                             return (
@@ -2455,7 +2408,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                         </span>
                                                     )}
                                                     <span className="text-slate-400 text-xs ml-2">
-                                                        ${l.balance.toLocaleString()}
+                                                        ${getDisplayBalance(l).toLocaleString()}
                                                     </span>
                                                 </div>
                                             </div>
@@ -2637,23 +2590,33 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         const displayDate = row.actualDate
             ? parseLocalDate(row.actualDate) || paymentDate
             : paymentDate;
-                                        const isPast = displayDate < new Date();
                                         const matchingPayment = paymentsForViewing.find(
                                             (p) =>
                                                 !!row.actualDate &&
                                                 p.checkDate === row.actualDate
                                         );
+                                        const isPaid = Boolean(
+                                            row.isHistorical || matchingPayment
+                                        );
+                                        const plannedPayment =
+                                            planPaymentsByPeriod[row.month];
+                                        const showPartialPaid =
+                                            row.isHistorical &&
+                                            plannedPayment !== undefined &&
+                                            plannedPayment > 0 &&
+                                            row.payment < plannedPayment;
+
                                         return (
                                             <tr
                                                 key={row.month}
                                                 className={`transition-colors ${
-                                                    isPast
+                                                    isPaid
                                                         ? "bg-green-50"
                                                         : "hover:bg-slate-50"
                                                 }`}
                                             >
                                                 <td className="px-6 py-3 text-sm text-slate-600 font-medium flex items-center space-x-2">
-                                                    {isPast && (
+                                                    {isPaid && (
                                                         <CheckCircle
                                                             size={14}
                                                             className="text-emerald-500"
@@ -2676,6 +2639,12 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                     {row.extraPayment && !row.isHistorical ? (
                                                         <div className="text-[11px] text-emerald-600 font-semibold">
                                                             +${row.extraPayment.toFixed(2)} extra
+                                                        </div>
+                                                    ) : null}
+                                                    {showPartialPaid ? (
+                                                        <div className="text-[11px] text-amber-600 font-semibold">
+                                                            Paid ${row.payment.toFixed(2)} of $
+                                                            {plannedPayment.toFixed(2)}
                                                         </div>
                                                     ) : null}
                                                 </td>
