@@ -562,27 +562,6 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
                                 </div>
                             ) : null}
 
-                            {/* Partner Name Input */}
-                            <div>
-                                <div className="mb-3">
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Partner Name</label>
-                                    {tempSettings.partnerLinked ? (
-                                      <div className="flex items-center space-x-2 bg-slate-100 px-4 py-2 rounded-lg border border-slate-200">
-                                        <Lock size={16} className="text-slate-400" />
-                                        <span className="text-slate-600">{tempSettings.partnerName || 'Partner'}</span>
-                                      </div>
-                                    ) : (
-                                      <input 
-                                          type="text"
-                                          className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 outline-none bg-white"
-                                          placeholder="e.g. Alex"
-                                          value={tempSettings.partnerName || ''}
-                                          onChange={e => setTempSettings({...tempSettings, partnerName: e.target.value})}
-                                      />
-                                    )}
-                                </div>
-                            </div>
-
                             {/* Expense Splitting Settings */}
                             <div className="border-t border-pink-200 pt-4">
                                 <div className="flex items-center space-x-2 mb-3">

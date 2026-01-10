@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Asset, Expense, IncomeSource, Liability, UserSettings } from '../types';
 import { calculateMonthlyIncome, calculateMonthlyIncomeByMode, getMinPayment } from '../server/liabilityAlgorithms';
-import { CalendarRange, ChevronDown, ChevronUp, Calculator, Receipt, FileText, Wallet } from 'lucide-react';
+import { CalendarRange, ChevronDown, ChevronUp, Calculator, ArrowRightLeft, Receipt, FileText, Wallet } from 'lucide-react';
 
 interface ReportsProps {
   liabilities: Liability[];
@@ -13,6 +13,7 @@ interface ReportsProps {
 
 const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, incomes, settings }) => {
   const now = new Date();
+  const currentYear = now.getFullYear();
   const currentMonthIndex = now.getMonth() + 1;
   const defaultMonth = String(currentMonthIndex).padStart(2, '0');
   const [startMonth, setStartMonth] = useState(defaultMonth);
@@ -33,6 +34,18 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     () => incomes.filter((i) => i.includeInPlanner !== false),
     [incomes]
   );
+
+  const activeLiabilities = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return liabilities.filter((liability) => {
+      if (!liability.startDate) return true;
+      const start = new Date(`${liability.startDate}T12:00:00`);
+      if (Number.isNaN(start.getTime())) return true;
+      start.setHours(0, 0, 0, 0);
+      return start <= today;
+    });
+  }, [liabilities]);
 
   const monthlyIncome = useMemo(
     () => calculateMonthlyIncomeByMode(budgetedIncomes, monthlyIncomeMode, false),
@@ -56,12 +69,12 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
   }, [expenses]);
 
   const monthlyLiabilityMins = useMemo(() => {
-    return liabilities.reduce((sum, l) => {
+    return activeLiabilities.reduce((sum, l) => {
       const monthlyInterest = l.balance * (l.interestRate / 100 / 12);
       const estFee = l.isFeeMonthly ? l.annualFee / 12 : 0;
       return sum + getMinPayment(l, l.balance, monthlyInterest, estFee);
     }, 0);
-  }, [liabilities]);
+  }, [activeLiabilities]);
 
   const monthlyBudget = settings.monthlyBudget || 0;
   const monthlyCashOut = monthlyExpenses + monthlyLiabilityMins + monthlyBudget;
@@ -101,7 +114,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
 
   const liabilityCategoryRows = useMemo(() => {
     const buckets = new Map<string, { items: Liability[]; total: number }>();
-    liabilities.forEach((liability) => {
+    activeLiabilities.forEach((liability) => {
       const key = liability.category?.trim() || 'Uncategorized';
       const existing = buckets.get(key) || { items: [], total: 0 };
       const monthlyInterest = liability.balance * (liability.interestRate / 100 / 12);
@@ -118,7 +131,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
         total: data.total,
       }))
       .sort((a, b) => a.category.localeCompare(b.category));
-  }, [liabilities]);
+  }, [activeLiabilities]);
 
   const toggleReport = (key: string) => {
     setExpandedReport((current) => (current === key ? null : key));
@@ -150,6 +163,16 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
   const formatCurrency = (value: number) =>
     `${currencySymbol}${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const formatCurrencyPrecise = formatCurrency;
+
+  const periodRange = useMemo(() => {
+    const startValue = Number(startMonth) || currentMonthIndex;
+    const endValue = Number(endMonth) || startValue;
+    const normalizedEnd = endValue < startValue ? startValue : endValue;
+    return {
+      start: new Date(currentYear, startValue - 1, 1),
+      end: new Date(currentYear, normalizedEnd, 0),
+    };
+  }, [currentYear, currentMonthIndex, endMonth, startMonth]);
 
   const paychecks = useMemo(() => {
     const today = new Date();
@@ -258,6 +281,31 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     return occurrences.sort((a, b) => a.date.getTime() - b.date.getTime());
   }, [budgetStartDate, budgetedIncomes]);
 
+  const paychecksInPeriod = useMemo(
+    () =>
+      paychecks.filter(
+        (paycheck) => paycheck.date >= periodRange.start && paycheck.date <= periodRange.end
+      ),
+    [paychecks, periodRange]
+  );
+
+  const incomeTotalsById = useMemo(() => {
+    const totals = new Map<string, number>();
+    paychecksInPeriod.forEach((paycheck) => {
+      const current = totals.get(paycheck.source.id) || 0;
+      totals.set(paycheck.source.id, current + paycheck.source.amount);
+    });
+    return totals;
+  }, [paychecksInPeriod]);
+
+  const periodIncomeTotal = useMemo(
+    () => paychecksInPeriod.reduce((sum, paycheck) => sum + paycheck.source.amount, 0),
+    [paychecksInPeriod]
+  );
+
+  const periodCashOut = useMemo(() => monthlyCashOut * monthCount, [monthlyCashOut, monthCount]);
+  const periodNet = useMemo(() => periodIncomeTotal - periodCashOut, [periodCashOut, periodIncomeTotal]);
+
   const transferChecks = useMemo(() => {
     return paychecks.map((paycheck) => {
       const dateKey = paycheck.date.toISOString().split('T')[0];
@@ -317,7 +365,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
   };
 
   const liabilityWithMins = useMemo(() => {
-    return liabilities.map((liability) => {
+    return activeLiabilities.map((liability) => {
       const monthlyInterest = liability.balance * (liability.interestRate / 100 / 12);
       const estFee = liability.isFeeMonthly ? liability.annualFee / 12 : 0;
       return {
@@ -326,7 +374,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
         scheduledFrequency: liability.paymentFrequency || 'MONTHLY',
       };
     });
-  }, [liabilities]);
+  }, [activeLiabilities]);
 
   const monthPaychecks = useMemo(() => {
     if (!selectedTransfer) return paychecks;
@@ -824,11 +872,13 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
                           .map((income) => (
                             <div key={income.id} className="flex items-center justify-between text-slate-600 pl-3 pr-24">
                               <span className="font-medium">{income.name}</span>
-                              <span className="font-semibold">{formatCurrency(scale(calculateMonthlyIncomeByMode([income], monthlyIncomeMode, false)))}</span>
+                              <span className="font-semibold">
+                                {formatCurrency(incomeTotalsById.get(income.id) || 0)}
+                              </span>
                             </div>
                           ))}
                         <div className="flex items-center justify-end pt-2 text-slate-600 border-t border-slate-100">
-                          <span className="font-semibold">+{formatCurrency(scale(monthlyIncome))}</span>
+                          <span className="font-semibold">+{formatCurrency(periodIncomeTotal)}</span>
                         </div>
                       </div>
                     ) : (
@@ -839,11 +889,11 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
                           .map((income) => (
                             <div key={income.id} className="flex items-center justify-between pr-24">
                               <span>{income.name}</span>
-                              <span>{formatCurrency(scale(calculateMonthlyIncomeByMode([income], monthlyIncomeMode, false)))}</span>
+                              <span>{formatCurrency(incomeTotalsById.get(income.id) || 0)}</span>
                             </div>
                           ))}
                         <div className="flex items-center justify-end border-t border-slate-100">
-                          <span className="font-semibold text-slate-700">+{formatCurrency(scale(monthlyIncome))}</span>
+                          <span className="font-semibold text-slate-700">+{formatCurrency(periodIncomeTotal)}</span>
                         </div>
                       </div>
                     )}
@@ -935,8 +985,8 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
             </div>
             <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
               <span className="font-semibold text-slate-700">Remaining</span>
-              <span className={`font-semibold ${monthlyNet >= 0 ? 'text-indigo-600' : 'text-red-600'}`}>
-                {formatCurrency(scale(monthlyNet))}
+              <span className={`font-semibold ${periodNet >= 0 ? 'text-indigo-600' : 'text-red-600'}`}>
+                {formatCurrency(periodNet)}
               </span>
             </div>
           </div>
@@ -953,7 +1003,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
               >
                 <span className="flex items-center space-x-2">
                   <span className="p-2 bg-indigo-100 text-indigo-600 rounded-lg">
-                    <Receipt size={18} />
+                    <ArrowRightLeft size={18} />
                   </span>
                   <span className="text-lg font-bold text-slate-900 hover:text-indigo-600 transition-colors">
                     Transfers

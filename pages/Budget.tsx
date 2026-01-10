@@ -234,21 +234,33 @@ const Budget: React.FC<BudgetProps> = ({
         );
     }, [activeScheduleRow]);
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const isLiabilityActive = (liability: Liability) => {
+        if (!liability.startDate) return true;
+        const start = new Date(`${liability.startDate}T12:00:00`);
+        if (Number.isNaN(start.getTime())) return true;
+        start.setHours(0, 0, 0, 0);
+        return start <= today;
+    };
+
     const liabilityWithMins = liabilities.map((d) => {
+        const isActive = isLiabilityActive(d);
         const monthlyInterest = d.balance * (d.interestRate / 100 / 12);
         const estFee = d.isFeeMonthly ? d.annualFee / 12 : 0;
         const rawMin = getMinPayment(d, d.balance, monthlyInterest, estFee);
-        const minPayment = Number.isFinite(rawMin) ? rawMin : 0;
+        const minPayment = isActive && Number.isFinite(rawMin) ? rawMin : 0;
         return { ...d, minPayment };
     });
 
     const liabilityWithPlan = liabilityWithMins.map((d) => ({
         ...d,
         scheduledFrequency: getLiabilityFrequency(d),
-        plannedPayment:
-            plannedPaymentsByLiability[d.id] !== undefined
+        plannedPayment: isLiabilityActive(d)
+            ? plannedPaymentsByLiability[d.id] !== undefined
                 ? plannedPaymentsByLiability[d.id]
-                : d.minPayment,
+                : d.minPayment
+            : 0,
     }));
 
     const totalLiabilityPayments = liabilityWithPlan.reduce(

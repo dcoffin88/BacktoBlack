@@ -171,25 +171,35 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         return Number.isNaN(d.getTime()) ? null : d;
     };
 
+    const getScheduleAnchorDate = (liability: Liability) => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const start = parseLocalDate(liability.startDate);
+        if (start) {
+            start.setHours(0, 0, 0, 0);
+            if (start > today) return start;
+        }
+        return today;
+    };
+
     const getPeriodIndexFromDate = (
         liability: Liability,
         checkDate?: string | null
     ) => {
         const target = parseLocalDate(checkDate);
         if (!target) return null;
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        const baseDate = getScheduleAnchorDate(liability);
         const freq = liability.paymentFrequency || "MONTHLY";
 
         if (freq === "WEEKLY" || freq === "BI_WEEKLY") {
             const intervalDays = freq === "WEEKLY" ? 7 : 14;
             const diffDays =
-                (target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
+                (target.getTime() - baseDate.getTime()) / (1000 * 60 * 60 * 24);
             const periodsFromNow = Math.round(diffDays / intervalDays);
             return periodsFromNow + 1;
         }
 
-        const baseMonth = today.getFullYear() * 12 + today.getMonth();
+        const baseMonth = baseDate.getFullYear() * 12 + baseDate.getMonth();
         const targetMonth = target.getFullYear() * 12 + target.getMonth();
         const monthDiff = targetMonth - baseMonth;
         return monthDiff + 1;
@@ -818,7 +828,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
     };
 
     const getNextDueDate = (liability: Liability) => {
-        const today = new Date();
+        const baseDate = getScheduleAnchorDate(liability);
         const isBiWeekly = liability.paymentFrequency === "BI_WEEKLY";
         const isWeekly = liability.paymentFrequency === "WEEKLY";
         if (isBiWeekly || isWeekly) {
@@ -826,12 +836,12 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             let anchor = liability.nextDueDate
                 ? new Date(liability.nextDueDate)
                 : new Date(
-                      today.getFullYear(),
-                      today.getMonth(),
+                      baseDate.getFullYear(),
+                      baseDate.getMonth(),
                       liability.dueDate || 1
                   );
             let guard = 0;
-            while (anchor < today && guard < 500) {
+            while (anchor < baseDate && guard < 500) {
                 anchor = addDays(anchor, interval);
                 guard++;
             }
@@ -843,14 +853,14 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
 
         // Monthly fallback
         let target = new Date(
-            today.getFullYear(),
-            today.getMonth(),
+            baseDate.getFullYear(),
+            baseDate.getMonth(),
             liability.dueDate
         );
-        if (target < today) {
+        if (target < baseDate) {
             target = new Date(
-                today.getFullYear(),
-                today.getMonth() + 1,
+                baseDate.getFullYear(),
+                baseDate.getMonth() + 1,
                 liability.dueDate
             );
         }
@@ -862,6 +872,13 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
 
     const getPaymentDateForRow = (rowIndex: number, liability: Liability) => {
         const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const start = parseLocalDate(liability.startDate);
+        if (start) {
+            start.setHours(0, 0, 0, 0);
+        }
+        const useFutureStart = !!(start && start > today);
+        const baseDate = useFutureStart ? start : today;
         const isBiWeekly = liability.paymentFrequency === "BI_WEEKLY";
         const isWeekly = liability.paymentFrequency === "WEEKLY";
         const intervalDays = isBiWeekly ? 14 : isWeekly ? 7 : null;
@@ -870,32 +887,50 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             let anchor = liability.nextDueDate
                 ? new Date(liability.nextDueDate)
                 : new Date(
-                      today.getFullYear(),
-                      today.getMonth(),
+                      baseDate.getFullYear(),
+                      baseDate.getMonth(),
                       liability.dueDate || 1
                   );
             let guard = 0;
-            while (anchor > today && guard < 500) {
-                anchor = addDays(anchor, -intervalDays);
-                guard++;
+            if (useFutureStart) {
+                while (anchor < baseDate && guard < 500) {
+                    anchor = addDays(anchor, intervalDays);
+                    guard++;
+                }
+            } else {
+                while (anchor > baseDate && guard < 500) {
+                    anchor = addDays(anchor, -intervalDays);
+                    guard++;
+                }
             }
             return addDays(anchor, (rowIndex - 1) * intervalDays);
         }
 
         // Monthly payments
         let anchor = new Date(
-            today.getFullYear(),
-            today.getMonth(),
+            baseDate.getFullYear(),
+            baseDate.getMonth(),
             liability.dueDate || 1
         );
         let guard = 0;
-        while (anchor > today && guard < 120) {
-            anchor = new Date(
-                anchor.getFullYear(),
-                anchor.getMonth() - 1,
-                liability.dueDate || 1
-            );
-            guard++;
+        if (useFutureStart) {
+            while (anchor < baseDate && guard < 120) {
+                anchor = new Date(
+                    anchor.getFullYear(),
+                    anchor.getMonth() + 1,
+                    liability.dueDate || 1
+                );
+                guard++;
+            }
+        } else {
+            while (anchor > baseDate && guard < 120) {
+                anchor = new Date(
+                    anchor.getFullYear(),
+                    anchor.getMonth() - 1,
+                    liability.dueDate || 1
+                );
+                guard++;
+            }
         }
         return new Date(
             anchor.getFullYear(),

@@ -1,6 +1,7 @@
 import { Liability, Expense, Asset, UserSettings, IncomeSource, UserProfile, BudgetSchedule } from '../types';
 
 const API_BASE_URL = '/api';
+type ApiPayload = { error?: string; [key: string]: any };
 
 const getAuthHeaders = () => {
   const token = localStorage.getItem('token');
@@ -28,7 +29,7 @@ export const dbAPI = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
-    const payload = await response.json();
+    const payload = (await response.json()) as ApiPayload;
     if (!response.ok) {
       throw new Error(payload?.error || 'Login failed');
     }
@@ -41,7 +42,7 @@ export const dbAPI = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
-    const payload = await response.json();
+    const payload = (await response.json()) as ApiPayload;
     if (!response.ok) {
       throw new Error(payload?.error || 'Registration failed');
     }
@@ -223,7 +224,7 @@ export const dbAPI = {
       headers: getAuthHeaders(),
       body: JSON.stringify({ partnerEmail }),
     });
-    const payload = await response.json();
+    const payload = (await response.json()) as ApiPayload;
     if (!response.ok) {
       throw new Error(payload?.error || 'Failed to send invite');
     }
@@ -234,7 +235,7 @@ export const dbAPI = {
     const response = await fetch(`${API_BASE_URL}/household/invites`, {
       headers: getAuthHeaders(),
     });
-    const payload = await response.json();
+    const payload = (await response.json()) as ApiPayload;
     if (!response.ok) {
       throw new Error(payload?.error || 'Failed to fetch invites');
     }
@@ -247,7 +248,7 @@ export const dbAPI = {
       headers: getAuthHeaders(),
       body: JSON.stringify({ token }),
     });
-    const payload = await response.json();
+    const payload = (await response.json()) as ApiPayload;
     if (!response.ok) {
       throw new Error(payload?.error || 'Failed to accept invite');
     }
@@ -259,7 +260,7 @@ export const dbAPI = {
       method: 'POST',
       headers: getAuthHeaders(),
     });
-    const payload = await response.json();
+    const payload = (await response.json()) as ApiPayload;
     if (!response.ok) {
       throw new Error(payload?.error || 'Failed to leave household');
     }
@@ -272,7 +273,7 @@ export const dbAPI = {
       headers: getAuthHeaders(),
       body: JSON.stringify({ token }),
     });
-    const payload = await response.json();
+    const payload = (await response.json()) as ApiPayload;
     if (!response.ok) {
       throw new Error(payload?.error || 'Failed to cancel invite');
     }
@@ -285,7 +286,7 @@ export const dbAPI = {
       headers: getAuthHeaders(),
       body: JSON.stringify({ token }),
     });
-    const payload = await response.json();
+    const payload = (await response.json()) as ApiPayload;
     if (!response.ok) {
       throw new Error(payload?.error || 'Failed to decline invite');
     }
