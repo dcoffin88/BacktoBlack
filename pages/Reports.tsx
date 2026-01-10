@@ -838,7 +838,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
                       .slice()
                       .sort((a, b) => a.name.localeCompare(b.name))
                       .map((income) => (
-                        <div key={income.id} className="flex items-center justify-between">
+                        <div key={income.id} className="flex items-center justify-between pr-25">
                           <span>{income.name}</span>
                           <span>{formatCurrency(scale(calculateMonthlyIncomeByMode([income], monthlyIncomeMode, false)))}</span>
                         </div>
@@ -859,16 +859,16 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
                 <div className="space-y-2">
                   {expenseCategoryRows.map((row) => (
                     <div key={`budget-exp-${row.category}`} className="space-y-1">
-                      <div className="flex items-center justify-between text-slate-600">
+                      <div className="flex items-center justify-between text-slate-600 pl-3 pr-25">
                         <span className="font-medium">{row.category}</span>
                         {expandedReport !== 'budget' && (
                           <span className="font-semibold">-{formatCurrency(scale(row.total))}</span>
                         )}
                       </div>
                       {expandedReport === 'budget' && (
-                        <div className="space-y-1 pl-3 text-xs text-slate-400">
+                        <div className="space-y-1 pl-6 text-xs text-slate-400">
                           {row.items.map((expense) => (
-                            <div key={expense.id} className="flex items-center justify-between">
+                            <div key={expense.id} className="flex items-center justify-between pr-25">
                               <span>{expense.name}</span>
                               <span>{formatCurrency(scale(expense.amount))}</span>
                             </div>
@@ -884,8 +884,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
                 </div>
               )}
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-500">Expenses</span>
+            <div className="flex items-center justify-end border-t border-slate-100">
               <span className="font-semibold text-slate-700">-{formatCurrency(scale(monthlyExpenses))}</span>
             </div>
             <div>
@@ -896,16 +895,16 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
                 <div className="space-y-2">
                   {liabilityCategoryRows.map((row) => (
                     <div key={`budget-liability-${row.category}`} className="space-y-1">
-                      <div className="flex items-center justify-between text-slate-600">
+                      <div className="flex items-center justify-between text-slate-600 pl-3 pr-25">
                         <span className="font-medium">{row.category}</span>
                         {expandedReport !== 'budget' && (
                           <span className="font-semibold">-{formatCurrency(scale(row.total))}</span>
                         )}
                       </div>
                     {expandedReport === 'budget' && (
-                        <div className="space-y-1 pl-3 text-xs text-slate-400">
+                        <div className="space-y-1 pl-6 text-xs text-slate-400">
                           {row.items.map((liability) => (
-                            <div key={liability.id} className="flex items-center justify-between">
+                            <div key={liability.id} className="flex items-center justify-between pr-25">
                               <span>{liability.name}</span>
                               <span>{formatCurrency(scale(getMinPayment(liability, liability.balance, liability.balance * (liability.interestRate / 100 / 12), liability.isFeeMonthly ? liability.annualFee / 12 : 0)))}</span>
                             </div>
@@ -916,22 +915,17 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
                           </div>
                         </div>
                       )}
-                    </div>
+                   </div>
                   ))}
                 </div>
               )}
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-500">Liability Minimums</span>
-              <span className="font-semibold text-slate-700">-{formatCurrency(scale(monthlyLiabilityMins))}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-500">Extra Budget</span>
-              <span className="font-semibold text-slate-700">-{formatCurrency(scale(monthlyBudget))}</span>
+            <div className="space-y-1 flex items-center justify-end border-t border-slate-100">
+              <span className="font-semibold">-{formatCurrency(scale(monthlyLiabilityMins))}</span>
             </div>
             <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-              <span className="font-semibold text-slate-700">Available</span>
-              <span className={`text-xl font-bold ${monthlyNet >= 0 ? 'text-indigo-600' : 'text-red-600'}`}>
+              <span className="font-semibold text-slate-700">Remaining</span>
+              <span className={`font-semibold ${monthlyNet >= 0 ? 'text-indigo-600' : 'text-red-600'}`}>
                 {formatCurrency(scale(monthlyNet))}
               </span>
             </div>
