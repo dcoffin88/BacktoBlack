@@ -105,6 +105,16 @@ export interface BudgetSchedule {
     timeline: PayoffMonth[];
 }
 
+export interface AmortizationOverride {
+    id: string;
+    liabilityId: string;
+    period: number;
+    payment: number;
+    interest: number;
+    purchase?: number;
+    checkDate?: string | null;
+}
+
 export enum ExpenseSplitMethod {
     EQUAL = "EQUAL",
     PERCENTAGE = "PERCENTAGE",

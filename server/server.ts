@@ -10,7 +10,11 @@ const app = express();
 const port = 3001;
 const DB_FILE = 'backtoblack.db';
 const JWT_SECRET = 'your_jwt_secret'; // Replace with a strong secret in a real application
-const todayIso = new Date().toISOString().split('T')[0];
+const toLocalDateString = (date: Date) =>
+  new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+    .toISOString()
+    .split('T')[0];
+const todayIso = toLocalDateString(new Date());
 
 const db = new sqlite3.Database(DB_FILE, (err) => {
   if (err) {
@@ -79,6 +83,49 @@ const ensureBudgetExtrasTable = () => {
   );
 };
 ensureBudgetExtrasTable();
+
+const ensureBudgetAmortizationOverridesTable = () => {
+  db.run(
+    `CREATE TABLE IF NOT EXISTS budget_amortization_overrides (
+      id TEXT PRIMARY KEY,
+      liability_id TEXT,
+      period INTEGER,
+      payment REAL,
+      purchase REAL,
+      interest REAL,
+      check_date TEXT,
+      household_id TEXT,
+      user_id INTEGER,
+      updated_at TEXT
+    )`,
+    (err) => {
+      if (err) {
+        console.error('Failed to ensure budget_amortization_overrides table:', err.message);
+      }
+    }
+  );
+};
+ensureBudgetAmortizationOverridesTable();
+
+const ensureBudgetAmortizationOverridesPurchaseColumn = () => {
+  db.all('PRAGMA table_info(budget_amortization_overrides)', (tableErr, rows) => {
+    if (tableErr) {
+      console.error('Failed to inspect amortization overrides table:', tableErr.message);
+      return;
+    }
+    const hasPurchase = rows.some((r: any) => r.name === 'purchase');
+    if (!hasPurchase) {
+      db.run('ALTER TABLE budget_amortization_overrides ADD COLUMN purchase REAL', (alterErr) => {
+        if (alterErr) {
+          console.error('Failed to add purchase column to amortization overrides table:', alterErr.message);
+        } else {
+          console.log('Added purchase column to amortization overrides table.');
+        }
+      });
+    }
+  });
+};
+ensureBudgetAmortizationOverridesPurchaseColumn();
 
 const ensureBudgetScheduleTable = () => {
   db.run(
@@ -323,6 +370,66 @@ app.delete('/api/liabilities/:id', authenticateToken, (req: AuthedRequest, res) 
     }
     res.json({ id });
   });
+});
+
+app.post('/api/liabilities/:id/reset-settings', authenticateToken, (req: AuthedRequest, res) => {
+  const { id } = req.params;
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  if (!id) return res.status(400).json({ error: 'id is required' });
+
+  db.get(
+    'SELECT content FROM liabilities WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+    [id, scopeId, user.id],
+    (fetchErr, row) => {
+      if (fetchErr) {
+        res.status(500).json({ error: fetchErr.message });
+        return;
+      }
+      if (!row) {
+        res.status(404).json({ error: 'Liability not found' });
+        return;
+      }
+      const existing = JSON.parse((row as any).content) as Liability;
+      const updated: Liability = {
+        ...existing,
+        balance: 0,
+        interestRate: 0,
+        startDate: todayIso,
+      };
+      db.run(
+        'INSERT OR REPLACE INTO liabilities (id, content, user_id, household_id) VALUES (?, ?, ?, ?)',
+        [id, JSON.stringify({ ...updated, householdId: scopeId }), user.id, scopeId],
+        (saveErr) => {
+          if (saveErr) {
+            res.status(500).json({ error: saveErr.message });
+            return;
+          }
+          db.run(
+            'DELETE FROM budget_extra_payments WHERE liability_id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+            [id, scopeId, user.id],
+            (extrasErr) => {
+              if (extrasErr) {
+                res.status(500).json({ error: extrasErr.message });
+                return;
+              }
+              db.run(
+                'DELETE FROM budget_amortization_overrides WHERE liability_id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+                [id, scopeId, user.id],
+                (overridesErr) => {
+                  if (overridesErr) {
+                    res.status(500).json({ error: overridesErr.message });
+                    return;
+                  }
+                  res.json({ liability: updated });
+                }
+              );
+            }
+          );
+        }
+      );
+    }
+  );
 });
 
 // --- Expenses ---
@@ -628,6 +735,79 @@ app.delete('/api/budget/extra-payments/:id', authenticateToken, (req: AuthedRequ
 
     db.run(
         'DELETE FROM budget_extra_payments WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+        [id, scopeId, user.id],
+        (err) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            res.json({ success: true, id });
+        }
+    );
+});
+
+app.get('/api/budget/amortization-overrides', authenticateToken, (req: AuthedRequest, res) => {
+    const user = req.user!;
+    const scopeId = user.householdId || user.id;
+    db.all(
+        'SELECT id, liability_id, period, payment, purchase, interest, check_date FROM budget_amortization_overrides WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
+        [scopeId, user.id],
+        (err, rows) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            const overrides = rows.map((row: any) => ({
+                id: row.id,
+                liabilityId: row.liability_id,
+                period: row.period,
+                payment: row.payment,
+                purchase: row.purchase ?? 0,
+                interest: row.interest,
+                checkDate: row.check_date || null,
+            }));
+            res.json({ overrides });
+        }
+    );
+});
+
+app.post('/api/budget/amortization-overrides', authenticateToken, (req: AuthedRequest, res) => {
+    const user = req.user!;
+    const scopeId = user.householdId || user.id;
+    const { id, liabilityId, period, payment, purchase, interest, checkDate } = req.body as {
+        id: string;
+        liabilityId: string;
+        period: number;
+        payment: number;
+        purchase?: number;
+        interest: number;
+        checkDate?: string | null;
+    };
+
+    if (!id || !liabilityId || !Number.isFinite(period) || !Number.isFinite(payment) || !Number.isFinite(interest)) {
+        return res.status(400).json({ error: 'id, liabilityId, period, payment, and interest are required' });
+    }
+
+    const updatedAt = new Date().toISOString();
+    db.run(
+        `INSERT OR REPLACE INTO budget_amortization_overrides (id, liability_id, period, payment, purchase, interest, check_date, household_id, user_id, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, liabilityId, period, payment, purchase ?? 0, interest, checkDate || null, scopeId, user.id, updatedAt],
+        (err) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            res.json({ success: true, id });
+        }
+    );
+});
+
+app.delete('/api/budget/amortization-overrides/:id', authenticateToken, (req: AuthedRequest, res) => {
+    const user = req.user!;
+    const scopeId = user.householdId || user.id;
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'id is required' });
+
+    db.run(
+        'DELETE FROM budget_amortization_overrides WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
         [id, scopeId, user.id],
         (err) => {
             if (err) {

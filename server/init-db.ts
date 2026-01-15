@@ -101,6 +101,21 @@ db.serialize(() => {
     )
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS budget_amortization_overrides (
+      id TEXT PRIMARY KEY,
+      liability_id TEXT,
+      period INTEGER,
+      payment REAL,
+      purchase REAL,
+      interest REAL,
+      check_date TEXT,
+      household_id TEXT,
+      user_id INTEGER,
+      updated_at TEXT
+    )
+  `);
+
   console.log('Database tables created successfully.');
 });
 

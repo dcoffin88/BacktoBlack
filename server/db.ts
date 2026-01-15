@@ -1,4 +1,4 @@
-import { Liability, Expense, Asset, UserSettings, IncomeSource, UserProfile, BudgetSchedule } from '../types';
+import { Liability, Expense, Asset, UserSettings, IncomeSource, UserProfile, BudgetSchedule, AmortizationOverride } from '../types';
 
 const API_BASE_URL = '/api';
 type ApiPayload = { error?: string; [key: string]: any };
@@ -101,6 +101,12 @@ export const dbAPI = {
   deleteLiability: async (id: string) => {
     await fetchJson(`${API_BASE_URL}/liabilities/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
   },
+  resetLiabilitySettings: async (id: string) => {
+    return await fetchJson(`${API_BASE_URL}/liabilities/${id}/reset-settings`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+  },
 
   // BILLS
   getExpenses: async (): Promise<Expense[]> => {
@@ -170,6 +176,23 @@ export const dbAPI = {
   },
   deleteExtraPayment: async (id: string) => {
     await fetchJson(`${API_BASE_URL}/budget/extra-payments/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+  },
+
+  getAmortizationOverrides: async (): Promise<{ overrides: AmortizationOverride[] }> => {
+    return await fetchJson(`${API_BASE_URL}/budget/amortization-overrides`, { headers: getAuthHeaders() });
+  },
+  saveAmortizationOverride: async (payload: AmortizationOverride) => {
+    await fetchJson(`${API_BASE_URL}/budget/amortization-overrides`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+  },
+  deleteAmortizationOverride: async (id: string) => {
+    await fetchJson(`${API_BASE_URL}/budget/amortization-overrides/${id}`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });

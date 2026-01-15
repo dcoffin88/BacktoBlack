@@ -232,16 +232,11 @@ export const getMinPayment = (liability: Liability, currentPrincipal: number, ac
 
 export const calculateIndividualAmortization = (
   liability: Liability,
-  extraPaymentsByPeriod?: Record<number, number | { amount: number; checkDate?: string; forceHistorical?: boolean }>,
+  extraPaymentsByPeriod?: Record<number, number | { amount: number; checkDate?: string; forceHistorical?: boolean; interest?: number }>,
   plannedPaymentsByPeriod?: Record<number, number>
 ) => {
   // Always seed from the original starting balance when provided so historical
   // payments and start date drive the table; fall back to current balance.
-  const initialBalance =
-    liability.startingBalance && liability.startingBalance > 0
-      ? liability.startingBalance
-      : liability.balance;
-  let balance = initialBalance;
   const rate = liability.interestRate;
   
   const timeline: AmortizationRow[] = [];
@@ -266,25 +261,45 @@ export const calculateIndividualAmortization = (
     .map(([k, v]) => {
       const parsed = typeof v === 'number' ? { amount: v } : v || { amount: 0 };
       const periodNum = Number(k);
-      if (parsed.forceHistorical && parsed.amount > 0) {
+      if (parsed.forceHistorical && parsed.amount !== 0) {
         forcedHistoricalPeriods.add(periodNum);
       }
-      return { period: periodNum, amount: parsed.amount, checkDate: parsed.checkDate, forceHistorical: parsed.forceHistorical };
+      return {
+        period: periodNum,
+        amount: parsed.amount,
+        checkDate: parsed.checkDate,
+        forceHistorical: parsed.forceHistorical,
+        interest: parsed.interest,
+      };
     })
-    .filter(({ period, amount, forceHistorical }) => (forceHistorical || period <= 0) && amount > 0)
+    .filter(({ period, amount, forceHistorical, interest, checkDate }) =>
+      (forceHistorical || period <= 0) &&
+      (amount !== 0 || (interest ?? 0) !== 0 || (!!checkDate && period <= 0))
+    )
     .sort((a, b) => a.period - b.period);
 
   const hasHistoricalPayments = historicalPayments.length > 0;
+  const initialBalance =
+    liability.startingBalance && liability.startingBalance > 0
+      ? liability.startingBalance
+      : hasHistoricalPayments
+        ? 0
+        : liability.balance;
+  let balance = initialBalance;
 
-  historicalPayments.forEach(({ period, amount, checkDate }) => {
-    if (balance <= 0) return;
-    const principal = Math.min(balance, amount);
+  historicalPayments.forEach(({ period, amount, checkDate, interest }) => {
+    if (amount >= 0 && balance <= 0 && !(interest && interest > 0)) return;
+    const principal = amount >= 0 ? Math.min(balance, amount) : amount;
     const payment = principal;
     balance -= principal;
+    if (interest && interest > 0) {
+      balance += interest;
+      totalInterest += interest;
+    }
     timeline.push({
       month: period,
       payment,
-      interest: 0,
+      interest: interest || 0,
       principal,
       fees: 0,
       remainingBalance: balance,
@@ -301,9 +316,9 @@ export const calculateIndividualAmortization = (
   const hasExternalPayments =
     Object.values(extraPaymentsByPeriod || {}).some(v => {
       const parsed = typeof v === 'number' ? v : v?.amount || 0;
-      return parsed > 0;
+      return parsed !== 0;
     }) ||
-    Object.values(plannedPaymentsByPeriod || {}).some(v => v > 0);
+    Object.values(plannedPaymentsByPeriod || {}).some(v => v !== 0);
 
   const firstMin = (() => {
     const percentAmount = balance * (liability.minPaymentPercentage / 100);
