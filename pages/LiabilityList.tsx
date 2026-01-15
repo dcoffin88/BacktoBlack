@@ -3852,9 +3852,11 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                                                         row
                                                                                     );
                                                                                 }}
-                                                                                className="px-2 py-1 border border-slate-200 rounded hover:bg-slate-50"
+                                                                                className="inline-flex items-center justify-center w-8 h-8 border border-slate-200 rounded hover:bg-slate-50"
+                                                                                aria-label="Edit amortization row"
+                                                                                title="Edit"
                                                                             >
-                                                                                Edit
+                                                                                <Edit2 className="w-4 h-4" />
                                                                             </button>
                                                                             <button
                                                                                 type="button"
@@ -3868,9 +3870,11 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                                                               row.month
                                                                                           )
                                                                                 }
-                                                                                className="px-2 py-1 border border-red-200 text-red-600 rounded hover:bg-red-50"
+                                                                                className="inline-flex items-center justify-center w-8 h-8 border border-red-200 text-red-600 rounded hover:bg-red-50"
+                                                                                aria-label="Delete amortization row"
+                                                                                title="Delete"
                                                                             >
-                                                                                Delete
+                                                                                <Trash2 className="w-4 h-4" />
                                                                             </button>
                                                                         </>
                                                                     )}
