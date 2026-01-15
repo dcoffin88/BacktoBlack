@@ -82,6 +82,18 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
   const currentYear = now.getFullYear();
   const currentMonthIndex = now.getMonth();
   const totalLiability = liabilities.reduce((sum, d) => sum + d.balance, 0);
+  const creditLimitLiabilities = liabilities.filter(
+    (liability) => (liability.creditLimit || 0) > 0
+  );
+  const totalCreditLimit = creditLimitLiabilities.reduce(
+    (sum, liability) => sum + (liability.creditLimit || 0),
+    0
+  );
+  const totalCreditBalance = creditLimitLiabilities.reduce(
+    (sum, liability) => sum + liability.balance,
+    0
+  );
+  const creditAvailable = totalCreditLimit - totalCreditBalance;
   const totalMinPayment = liabilities.reduce((sum, d) => {
     const monthlyInterest = d.balance * (d.interestRate / 100 / 12);
     const estFee = d.isFeeMonthly ? (d.annualFee / 12) : 0;
@@ -300,18 +312,23 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Link to="/assets" className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
           <StatCard 
             title="Net Worth"
             value={`${currencySymbol}${netWorth.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`} 
-            subValue={totalAssets > 0 ? `Assets ${currencySymbol}${totalAssets.toLocaleString()} • Liabilities ${currencySymbol}${totalLiability.toLocaleString()}` : undefined}
           />
         </Link>
         <Link to="/liabilities" className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
           <StatCard 
             title={`Total ${liabilityLabel}`}
             value={`${currencySymbol}${totalLiability.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} 
+          />
+        </Link>
+        <Link to="/liabilities" className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+          <StatCard 
+            title="Credit Available"
+            value={formatCurrency(creditAvailable, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           />
         </Link>
         <Link to="/strategy" className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
