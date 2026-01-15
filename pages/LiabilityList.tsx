@@ -856,7 +856,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         }
     };
 
-    const getScheduleMonthIndex = (savedAt?: string) => {
+    function getScheduleMonthIndex(savedAt?: string) {
         if (!savedAt) return 1;
         const savedDate = new Date(savedAt);
         if (Number.isNaN(savedDate.getTime())) return 1;
@@ -865,7 +865,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             savedDate.getFullYear() * 12 + savedDate.getMonth();
         const currentMonthCount = today.getFullYear() * 12 + today.getMonth();
         return Math.max(1, currentMonthCount - savedMonthCount + 1);
-    };
+    }
 
     // Form State
     const [formData, setFormData] = useState<Omit<Liability, "id">>({

@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Asset, Expense, IncomeSource, Liability, UserSettings } from '../types';
-import { calculateMonthlyIncome, calculateMonthlyIncomeByMode, getMinPayment } from '../server/liabilityAlgorithms';
+import { calculateMonthlyIncome, getMinPayment } from '../server/liabilityAlgorithms';
 import { CalendarRange, ChevronDown, ChevronUp, Calculator, ArrowRightLeft, Receipt, FileText, Wallet } from 'lucide-react';
 
 interface ReportsProps {
@@ -10,6 +10,54 @@ interface ReportsProps {
   incomes: IncomeSource[];
   settings: UserSettings;
 }
+
+const getMonthlyExpenseAmount = (expense: Expense) => {
+  if (expense.frequency === 'BI_WEEKLY') return expense.amount * 2;
+  if (expense.frequency === 'WEEKLY') return expense.amount * (52 / 12);
+  if (expense.frequency === 'QUARTERLY') return expense.amount / 3;
+  if (expense.frequency === 'ANNUAL') return expense.amount / 12;
+  return expense.amount;
+};
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+const countIntervalsByDays = (start: Date, end: Date, intervalDays: number) => {
+  const startMidnight = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const endMidnight = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  if (endMidnight < startMidnight) return 0;
+  const diffDays = Math.floor((endMidnight.getTime() - startMidnight.getTime()) / MS_PER_DAY);
+  return Math.floor(diffDays / intervalDays) + 1;
+};
+
+const countAnchoredOccurrences = (
+  start: Date,
+  end: Date,
+  anchor: Date,
+  intervalMonths: number
+) => {
+  const startDate = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const endDate = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  let current = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
+  if (endDate < startDate) return 0;
+
+  const monthDiff =
+    (startDate.getFullYear() - current.getFullYear()) * 12 +
+    (startDate.getMonth() - current.getMonth());
+  if (monthDiff > 0) {
+    const stepCount = Math.floor(monthDiff / intervalMonths);
+    current.setMonth(current.getMonth() + stepCount * intervalMonths);
+  }
+  while (current < startDate) {
+    current.setMonth(current.getMonth() + intervalMonths);
+  }
+
+  let count = 0;
+  while (current <= endDate) {
+    count += 1;
+    current.setMonth(current.getMonth() + intervalMonths);
+  }
+  return count;
+};
 
 const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, incomes, settings }) => {
   const now = new Date();
@@ -47,27 +95,6 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     });
   }, [liabilities]);
 
-  const monthlyIncome = useMemo(
-    () => calculateMonthlyIncomeByMode(budgetedIncomes, monthlyIncomeMode, false),
-    [budgetedIncomes, monthlyIncomeMode]
-  );
-
-  const monthlyExpenses = useMemo(() => {
-    return expenses.reduce((sum, e) => {
-      const multiplier =
-        e.frequency === 'BI_WEEKLY'
-          ? 2
-          : e.frequency === 'WEEKLY'
-          ? 52 / 12
-          : e.frequency === 'QUARTERLY'
-          ? 1 / 3
-          : e.frequency === 'ANNUAL'
-          ? 1 / 12
-          : 1;
-      return sum + e.amount * multiplier;
-    }, 0);
-  }, [expenses]);
-
   const monthlyLiabilityMins = useMemo(() => {
     return activeLiabilities.reduce((sum, l) => {
       const monthlyInterest = l.balance * (l.interestRate / 100 / 12);
@@ -77,30 +104,78 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
   }, [activeLiabilities]);
 
   const monthlyBudget = settings.monthlyBudget || 0;
-  const monthlyCashOut = monthlyExpenses + monthlyLiabilityMins + monthlyBudget;
-  const monthlyNet = monthlyIncome - monthlyCashOut;
 
   const totalAssets = assets.reduce((sum, a) => sum + a.value, 0);
   const totalLiabilities = liabilities.reduce((sum, l) => sum + l.balance, 0);
   const netWorth = totalAssets - totalLiabilities;
+
+  const toMonthIndex = (value: string) => {
+    const month = Number(value) || 1;
+    return month - 1;
+  };
+
+  const monthCount = (() => {
+    const startIdx = toMonthIndex(startMonth);
+    const endIdx = toMonthIndex(endMonth);
+    return Math.max(1, endIdx - startIdx + 1);
+  })();
+
+  const periodRange = useMemo(() => {
+    const startValue = Number(startMonth) || currentMonthIndex;
+    const endValue = Number(endMonth) || startValue;
+    const normalizedEnd = endValue < startValue ? startValue : endValue;
+    return {
+      start: new Date(currentYear, startValue - 1, 1),
+      end: new Date(currentYear, normalizedEnd, 0),
+    };
+  }, [currentYear, currentMonthIndex, endMonth, startMonth]);
+
+  const getExpensePeriodAmount = useCallback(
+    (expense: Expense) => {
+      if (expense.frequency === 'WEEKLY') {
+        const weeks = countIntervalsByDays(periodRange.start, periodRange.end, 7);
+        return expense.amount * weeks;
+      }
+      if (expense.frequency === 'BI_WEEKLY') {
+        const periods = countIntervalsByDays(periodRange.start, periodRange.end, 14);
+        return expense.amount * periods;
+      }
+      if (expense.frequency === 'QUARTERLY') {
+        const anchor = expense.quarterlyAnchor
+          ? new Date(expense.quarterlyAnchor)
+          : null;
+        if (anchor && !Number.isNaN(anchor.getTime())) {
+          const occurrences = countAnchoredOccurrences(
+            periodRange.start,
+            periodRange.end,
+            anchor,
+            3
+          );
+          return expense.amount * occurrences;
+        }
+      }
+      return getMonthlyExpenseAmount(expense) * monthCount;
+    },
+    [monthCount, periodRange.end, periodRange.start]
+  );
+
+  const periodExpenseTotal = useMemo(
+    () => expenses.reduce((sum, expense) => sum + getExpensePeriodAmount(expense), 0),
+    [expenses, getExpensePeriodAmount]
+  );
+
+  const scale = (value: number) => value * monthCount;
+  const formatCurrency = (value: number) =>
+    `${currencySymbol}${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const formatCurrencyPrecise = formatCurrency;
 
   const expenseCategoryRows = useMemo(() => {
     const buckets = new Map<string, { items: Expense[]; total: number }>();
     expenses.forEach((expense) => {
       const key = expense.category?.trim() || 'Uncategorized';
       const existing = buckets.get(key) || { items: [], total: 0 };
-      const multiplier =
-        expense.frequency === 'BI_WEEKLY'
-          ? 2
-          : expense.frequency === 'WEEKLY'
-          ? 52 / 12
-          : expense.frequency === 'QUARTERLY'
-          ? 1 / 3
-          : expense.frequency === 'ANNUAL'
-          ? 1 / 12
-          : 1;
       existing.items.push(expense);
-      existing.total += expense.amount * multiplier;
+      existing.total += getExpensePeriodAmount(expense);
       buckets.set(key, existing);
     });
     return Array.from(buckets.entries())
@@ -110,7 +185,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
         total: data.total,
       }))
       .sort((a, b) => a.category.localeCompare(b.category));
-  }, [expenses]);
+  }, [expenses, getExpensePeriodAmount]);
 
   const liabilityCategoryRows = useMemo(() => {
     const buckets = new Map<string, { items: Liability[]; total: number }>();
@@ -136,43 +211,6 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
   const toggleReport = (key: string) => {
     setExpandedReport((current) => (current === key ? null : key));
   };
-
-  const toMonthIndex = (value: string) => {
-    const month = Number(value) || 1;
-    return month - 1;
-  };
-
-  const monthCount = (() => {
-    const startIdx = toMonthIndex(startMonth);
-    const endIdx = toMonthIndex(endMonth);
-    return Math.max(1, endIdx - startIdx + 1);
-  })();
-
-  const formatMonthLabel = (value: string) => {
-    const month = Number(value) || now.getMonth() + 1;
-    return new Date(now.getFullYear(), month - 1, 1).toLocaleDateString(undefined, {
-      month: 'short',
-    });
-  };
-
-  const periodLabel = startMonth === endMonth
-    ? formatMonthLabel(startMonth)
-    : `${formatMonthLabel(startMonth)} - ${formatMonthLabel(endMonth)}`;
-
-  const scale = (value: number) => value * monthCount;
-  const formatCurrency = (value: number) =>
-    `${currencySymbol}${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const formatCurrencyPrecise = formatCurrency;
-
-  const periodRange = useMemo(() => {
-    const startValue = Number(startMonth) || currentMonthIndex;
-    const endValue = Number(endMonth) || startValue;
-    const normalizedEnd = endValue < startValue ? startValue : endValue;
-    return {
-      start: new Date(currentYear, startValue - 1, 1),
-      end: new Date(currentYear, normalizedEnd, 0),
-    };
-  }, [currentYear, currentMonthIndex, endMonth, startMonth]);
 
   const paychecks = useMemo(() => {
     const today = new Date();
@@ -303,7 +341,10 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     [paychecksInPeriod]
   );
 
-  const periodCashOut = useMemo(() => monthlyCashOut * monthCount, [monthlyCashOut, monthCount]);
+  const periodCashOut = useMemo(
+    () => periodExpenseTotal + (monthlyLiabilityMins + monthlyBudget) * monthCount,
+    [monthlyBudget, monthlyLiabilityMins, monthCount, periodExpenseTotal]
+  );
   const periodNet = useMemo(() => periodIncomeTotal - periodCashOut, [periodCashOut, periodIncomeTotal]);
 
   const transferChecks = useMemo(() => {
@@ -912,7 +953,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
                       <div className="flex items-center justify-between text-slate-600 pl-3 pr-24">
                         <span className="font-medium">{row.category}</span>
                         {expandedReport !== 'budget' && (
-                          <span className="font-semibold">-{formatCurrency(scale(row.total))}</span>
+                          <span className="font-semibold">-{formatCurrency(row.total)}</span>
                         )}
                       </div>
                       {expandedReport === 'budget' && (
@@ -920,11 +961,11 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
                           {row.items.map((expense) => (
                             <div key={expense.id} className="flex items-center justify-between pr-24">
                               <span>{expense.name}</span>
-                              <span>{formatCurrency(scale(expense.amount))}</span>
+                              <span>{formatCurrency(getExpensePeriodAmount(expense))}</span>
                             </div>
                           ))}
                           <div className="flex items-center justify-end pt-2 text-slate-600 border-t border-slate-100">
-                            <span className="font-semibold">-{formatCurrency(scale(row.total))}</span>
+                            <span className="font-semibold">-{formatCurrency(row.total)}</span>
                           </div>
                         </div>
                       )}
@@ -936,7 +977,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
             <div>
               {expandedReport !== 'budget' ? (
                 <div className="flex items-center justify-end border-t border-slate-100">
-                  <span className="font-semibold text-slate-700">-{formatCurrency(scale(monthlyExpenses))}</span>
+                  <span className="font-semibold text-slate-700">-{formatCurrency(periodExpenseTotal)}</span>
                 </div>
               ) : (
                 <span aria-hidden="true" />
