@@ -3424,7 +3424,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                     <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
                                         <tr>
                                             <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200">
-                                                Payment #
+                                                #
                                             </th>
                                             <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200">
                                                 Date
