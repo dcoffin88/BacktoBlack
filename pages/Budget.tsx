@@ -837,6 +837,8 @@ const Budget: React.FC<BudgetProps> = ({
                 : expense.amount;
         const perCheckBase = expense.amount;
 
+        const rounded = (value: number) => Math.ceil(value * 100) / 100;
+
         if (useBiWeekly) {
             const monthSources = Array.from(
                 new Map(monthPaychecks.map((p) => [p.source.id, p.source])).values()
@@ -873,22 +875,22 @@ const Budget: React.FC<BudgetProps> = ({
                 const baseShare = sourceShare + monthlyOnlyShare / biWeeklyCount;
                 if (owner === "PARTNER" && !currentPaycheck?.source.isPartner) return 0;
                 if (owner === "USER" && currentPaycheck?.source.isPartner) return 0;
-                return perCheckBase * baseShare;
+                return rounded(perCheckBase * baseShare);
             }
         }
 
         if (owner === "PARTNER") {
             if (!currentPaycheck?.source.isPartner) return 0;
-            return expense.frequency === "BI_WEEKLY" || expense.frequency === "WEEKLY"
+            return rounded(expense.frequency === "BI_WEEKLY" || expense.frequency === "WEEKLY"
                 ? perCheckBase * biWeeklyRatioOwnerEff
-                : monthlyEquivalent * monthlyRatioOwnerEff;
+                : monthlyEquivalent * monthlyRatioOwnerEff);
         }
 
         if (owner === "USER") {
             if (currentPaycheck?.source.isPartner) return 0;
-            return expense.frequency === "BI_WEEKLY" || expense.frequency === "WEEKLY"
+            return rounded(expense.frequency === "BI_WEEKLY" || expense.frequency === "WEEKLY"
                 ? perCheckBase * biWeeklyRatioOwnerEff
-                : monthlyEquivalent * monthlyRatioOwnerEff;
+                : monthlyEquivalent * monthlyRatioOwnerEff);
         }
 
         // Joint: split by configured ratio and allocate only to the corresponding partner's paychecks
@@ -896,14 +898,14 @@ const Budget: React.FC<BudgetProps> = ({
         const partnerPortion = perCheckBase - userPortion;
 
         if (currentPaycheck?.source.isPartner) {
-            return expense.frequency === "BI_WEEKLY" || expense.frequency === "WEEKLY"
+            return rounded(expense.frequency === "BI_WEEKLY" || expense.frequency === "WEEKLY"
                 ? partnerPortion * biWeeklyRatioOwnerEff
-                : partnerPortion * monthlyRatioOwnerEff;
+                : partnerPortion * monthlyRatioOwnerEff);
         }
 
-        return expense.frequency === "BI_WEEKLY" || expense.frequency === "WEEKLY"
+        return rounded(expense.frequency === "BI_WEEKLY" || expense.frequency === "WEEKLY"
             ? userPortion * biWeeklyRatioOwnerEff
-            : userPortion * monthlyRatioOwnerEff;
+            : userPortion * monthlyRatioOwnerEff);
     };
 
     const getPerCheckLiability = (
@@ -924,6 +926,8 @@ const Budget: React.FC<BudgetProps> = ({
             (liability.excludedIncomeSourceIds || []).length > 0;
         const owner = liability.owner || "JOINT";
 
+        const rounded = (value: number) => Math.ceil(value * 100) / 100;
+
         if (useBiWeekly) {
             if (currentPaycheck?.eligibleBiWeekly === false) return 0;
             if (owner === "PARTNER" && !currentPaycheck?.source.isPartner)
@@ -938,19 +942,19 @@ const Budget: React.FC<BudgetProps> = ({
 
             if (owner === "JOINT") {
                 if (liability.excludeFromSplitting) {
-                    return perPeriod + extraAmount;
+                    return rounded(perPeriod + extraAmount);
                 }
                 const splitRatio = currentPaycheck?.source.isPartner
                     ? 1 - userSplitRatio
                     : userSplitRatio;
-                return perPeriod * splitRatio + extraAmount;
+                return rounded(perPeriod * splitRatio + extraAmount);
             }
-            return perPeriod + extraAmount;
+            return rounded(perPeriod + extraAmount);
         }
 
         if (!hasAdvanced) {
             if (currentPaycheck?.eligibleMonthly === false) return 0;
-            return (
+            return rounded(
                 (liability.plannedPayment || 0) * monthlyRatio + extraAmount
             );
         }
