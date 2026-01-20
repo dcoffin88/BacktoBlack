@@ -1297,24 +1297,7 @@ const Budget: React.FC<BudgetProps> = ({
                                                 {expense.name}
                                             </p>
                                             <p className="text-xs text-slate-400">
-                                                {expense.category
-                                                    ? `${expense.category} • `
-                                                    : ""}
-                                                {expense.dueDate
-                                                    ? `Due ${expense.dueDate} • `
-                                                    : expense.frequency === "QUARTERLY" &&
-                                                      expense.quarterlyAnchor
-                                                    ? `Starts ${expense.quarterlyAnchor} • `
-                                                    : ""}
-                                                {expense.frequency === "MONTHLY"
-                                                    ? "Monthly"
-                                                    : expense.frequency === "WEEKLY"
-                                                    ? "Weekly"
-                                                    : expense.frequency === "QUARTERLY"
-                                                    ? "Quarterly"
-                                                    : expense.frequency === "ANNUAL"
-                                                    ? "Annual"
-                                                    : "Bi-Weekly"}
+                                                {expense.category ? expense.category : ""}
                                             </p>
                                         </div>
                                     </div>
@@ -1328,9 +1311,6 @@ const Budget: React.FC<BudgetProps> = ({
                                                     maximumFractionDigits: 2,
                                                 }
                                             )}
-                                        </p>
-                                        <p className="text-xs text-slate-400">
-                                            This check portion
                                         </p>
                                     </div>
                                     <input
@@ -1430,9 +1410,6 @@ const Budget: React.FC<BudgetProps> = ({
                                                 extra
                                             </p>
                                         )}
-                                        <p className="text-xs text-slate-400">
-                                            This check portion
-                                        </p>
                                     </div>
                                     <input
                                         type="checkbox"
