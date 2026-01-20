@@ -1219,7 +1219,9 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
                             if (amount === 0) return null;
                             return (
                               <div key={liability.id} className="flex items-center justify-between pr-24">
-                                <span>{liability.name}</span>
+                                <div>
+                                  <span>{liability.name}{liability.subtitle ? ` • ${liability.subtitle}` : ''}</span>
+                                </div>
                                 <span>{formatCurrency(amount)}</span>
                               </div>
                             );

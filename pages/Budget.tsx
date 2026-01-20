@@ -1389,11 +1389,8 @@ const Budget: React.FC<BudgetProps> = ({
                                                 {liability.name}
                                             </p>
                                             <p className="text-xs text-slate-400">
-                                                {liability.category
-                                                    ? `${liability.category} • `
-                                                    : ""}
-                                                Due {liability.dueDate} •{" "}
-                                                {liability.interestRate}% APR
+                                                {liability.category ? `${liability.category}` : ''}
+                                                {liability.subtitle ? ` • ${liability.subtitle}` : ''}
                                             </p>
                                         </div>
                                     </div>
