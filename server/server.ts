@@ -1,7 +1,8 @@
 import 'dotenv/config';
 import express from 'express';
 import sqlite3 from 'sqlite3';
-import { Liability, Expense, Asset, UserSettings, IncomeSource } from '../types';
+import { Liability, Expense, Asset, UserSettings, IncomeSource, BudgetSchedule, StrategyType, PayoffResult } from '../types';
+import { calculateIndividualAmortization, AmortizationRow, calculatePayoff } from './liabilityAlgorithms';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
@@ -149,9 +150,677 @@ const ensureBudgetScheduleTable = () => {
 };
 ensureBudgetScheduleTable();
 
+const ensureLiabilityAmortizationTables = () => {
+  db.run(
+    `CREATE TABLE IF NOT EXISTS liability_amortization (
+      id TEXT PRIMARY KEY,
+      liability_id TEXT,
+      period INTEGER,
+      payment REAL,
+      interest REAL,
+      principal REAL,
+      fees REAL,
+      remaining_balance REAL,
+      extra_payment REAL,
+      actual_date TEXT,
+      is_historical INTEGER,
+      household_id TEXT,
+      user_id INTEGER,
+      updated_at TEXT
+    )`,
+    (err) => {
+      if (err) {
+        console.error('Failed to ensure liability_amortization table:', err.message);
+      }
+    }
+  );
+
+  db.run(
+    `CREATE TABLE IF NOT EXISTS liability_amortization_summary (
+      id TEXT PRIMARY KEY,
+      liability_id TEXT,
+      is_infinite INTEGER,
+      total_interest REAL,
+      total_fees REAL,
+      months INTEGER,
+      household_id TEXT,
+      user_id INTEGER,
+      updated_at TEXT
+    )`,
+    (err) => {
+      if (err) {
+        console.error('Failed to ensure liability_amortization_summary table:', err.message);
+      }
+    }
+  );
+};
+ensureLiabilityAmortizationTables();
+
+const ensureStrategySimulationTable = () => {
+  db.run(
+    `CREATE TABLE IF NOT EXISTS strategy_simulations (
+      id TEXT PRIMARY KEY,
+      strategy TEXT,
+      monthly_budget REAL,
+      timeline TEXT,
+      total_interest REAL,
+      months INTEGER,
+      household_id TEXT,
+      user_id INTEGER,
+      updated_at TEXT
+    )`,
+    (err) => {
+      if (err) {
+        console.error('Failed to ensure strategy_simulations table:', err.message);
+      }
+    }
+  );
+};
+ensureStrategySimulationTable();
+
 // Allow larger JSON bodies for schedule payloads
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ limit: '5mb', extended: true }));
+
+const dbGetAsync = (sql: string, params: any[] = []) =>
+  new Promise<any>((resolve, reject) => {
+    db.get(sql, params, (err, row) => {
+      if (err) reject(err);
+      else resolve(row);
+    });
+  });
+
+const dbAllAsync = (sql: string, params: any[] = []) =>
+  new Promise<any[]>((resolve, reject) => {
+    db.all(sql, params, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows || []);
+    });
+  });
+
+const dbRunAsync = (sql: string, params: any[] = []) =>
+  new Promise<void>((resolve, reject) => {
+    db.run(sql, params, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+
+const parseLocalDate = (value?: string | null) => {
+  if (!value) return null;
+  const d = value.includes('T') ? new Date(value) : new Date(`${value}T12:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+const normalizeLiabilityForStorage = (liability: Liability) => {
+  const normalized: Liability = { ...liability };
+  if (!Number.isFinite(normalized.startingBalance) || normalized.startingBalance <= 0) {
+    if (Number.isFinite(normalized.balance) && normalized.balance > 0) {
+      normalized.startingBalance = normalized.balance;
+    }
+  }
+  const stored = { ...normalized } as any;
+  delete stored.balance;
+  return { normalized, stored };
+};
+
+const addDays = (date: Date, days: number) => {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+};
+
+const getDueDayForMonth = (year: number, monthIndex: number, dueDay: number) => {
+  const lastDay = new Date(year, monthIndex + 1, 0).getDate();
+  if (dueDay === 30) return lastDay;
+  return Math.min(Math.max(1, dueDay), lastDay);
+};
+
+const getPaymentAnchorDate = (liability: Liability) => {
+  const parsed = parseLocalDate(liability.nextDueDate);
+  if (parsed) {
+    parsed.setHours(0, 0, 0, 0);
+    return parsed;
+  }
+  const start = parseLocalDate(liability.startDate);
+  const base = start || new Date();
+  const dueDay = getDueDayForMonth(base.getFullYear(), base.getMonth(), liability.dueDate || 1);
+  const anchor = new Date(base.getFullYear(), base.getMonth(), dueDay);
+  anchor.setHours(0, 0, 0, 0);
+  return anchor;
+};
+
+const getPeriodIndexFromDate = (liability: Liability, checkDate?: string | null) => {
+  const target = parseLocalDate(checkDate);
+  if (!target) return null;
+  target.setHours(0, 0, 0, 0);
+  let anchor = getPaymentAnchorDate(liability);
+  const freq = liability.paymentFrequency || 'MONTHLY';
+
+  if (freq === 'WEEKLY' || freq === 'BI_WEEKLY') {
+    const intervalDays = freq === 'WEEKLY' ? 7 : 14;
+    const start = parseLocalDate(liability.startDate);
+    if (start && anchor < start) {
+      let guard = 0;
+      while (anchor < start && guard < 500) {
+        anchor = addDays(anchor, intervalDays);
+        guard++;
+      }
+    }
+    const previousAnchor = addDays(anchor, -intervalDays);
+    if (target >= previousAnchor && target < anchor) {
+      return target.getTime() === previousAnchor.getTime() ? 0 : 1;
+    }
+    let period = 1;
+    let cursor = new Date(anchor);
+    let guard = 0;
+    while (cursor < target && guard < 500) {
+      cursor = addDays(cursor, intervalDays);
+      period += 1;
+      guard++;
+    }
+    while (cursor > target && guard < 1000) {
+      cursor = addDays(cursor, -intervalDays);
+      period -= 1;
+      guard++;
+    }
+    return period;
+  }
+
+  const start = parseLocalDate(liability.startDate);
+  if (start && anchor < start) {
+    let guard = 0;
+    while (anchor < start && guard < 120) {
+      anchor = new Date(anchor.getFullYear(), anchor.getMonth() + 1, anchor.getDate());
+      guard++;
+    }
+  }
+  const previousAnchor = new Date(anchor.getFullYear(), anchor.getMonth() - 1, anchor.getDate());
+  if (target >= previousAnchor && target < anchor) {
+    return target.getTime() === previousAnchor.getTime() ? 0 : 1;
+  }
+  let period = 1;
+  let cursor = new Date(anchor);
+  let guard = 0;
+  while (cursor < target && guard < 1200) {
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, cursor.getDate());
+    period += 1;
+    guard++;
+  }
+  while (cursor > target && guard < 2400) {
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() - 1, cursor.getDate());
+    period -= 1;
+    guard++;
+  }
+  return period;
+};
+
+const getScheduleMonthIndex = (savedAt?: string) => {
+  if (!savedAt) return 1;
+  const savedDate = new Date(savedAt);
+  if (Number.isNaN(savedDate.getTime())) return 1;
+  const today = new Date();
+  const savedMonthCount = savedDate.getFullYear() * 12 + savedDate.getMonth();
+  const currentMonthCount = today.getFullYear() * 12 + today.getMonth();
+  return Math.max(1, currentMonthCount - savedMonthCount + 1);
+};
+
+const getPeriodsPerYear = (liability: Liability) => {
+  const isBiWeekly = liability.paymentFrequency === 'BI_WEEKLY';
+  const isWeekly = liability.paymentFrequency === 'WEEKLY';
+  return isBiWeekly ? 26 : isWeekly ? 52 : 12;
+};
+
+const isMinimumPaymentId = (id: string) => id.startsWith('min-');
+
+const fetchLiabilityById = async (liabilityId: string, scopeId: string | number, userId: number) => {
+  const row = await dbGetAsync(
+    'SELECT content FROM liabilities WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+    [liabilityId, scopeId, userId]
+  );
+  if (!row) return null;
+  try {
+    return JSON.parse((row as any).content) as Liability;
+  } catch {
+    return null;
+  }
+};
+
+const getBalanceFromTimeline = (timeline: AmortizationRow[]) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let latestDate: Date | null = null;
+  let latestBalance: number | null = null;
+
+  timeline.forEach((row) => {
+    const parsed = parseLocalDate(row.actualDate ?? null);
+    if (!parsed || parsed > today) return;
+    if (!latestDate || parsed > latestDate) {
+      latestDate = parsed;
+      latestBalance = row.remainingBalance;
+    }
+  });
+
+  if (latestBalance !== null) return latestBalance;
+
+  const historicalRows = timeline.filter((row) => {
+    if (!(row.isHistorical || row.month <= 0)) return false;
+    const parsed = parseLocalDate(row.actualDate ?? null);
+    return !parsed || parsed <= today;
+  });
+  if (!historicalRows.length) return null;
+  const latestHistorical = historicalRows.reduce((acc, cur) =>
+    cur.month > acc.month ? cur : acc
+  );
+  return latestHistorical.remainingBalance;
+};
+
+const buildAmortizationInputsForLiability = async (
+  liability: Liability,
+  scopeId: string | number,
+  userId: number
+) => {
+  const overridesRows = await dbAllAsync(
+    'SELECT liability_id, period, payment, purchase, interest, check_date FROM budget_amortization_overrides WHERE liability_id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+    [liability.id, scopeId, userId]
+  );
+
+  const overridesByPeriod = overridesRows.reduce<Record<number, { payment: number; interest: number; purchase?: number; checkDate?: string | null }>>(
+    (acc, row: any) => {
+      const period = Number(row.period);
+      if (!Number.isFinite(period) || period <= 0) return acc;
+      acc[period] = {
+        payment: row.payment,
+        interest: row.interest,
+        purchase: row.purchase ?? 0,
+        checkDate: row.check_date || null,
+      };
+      return acc;
+    },
+    {}
+  );
+
+  const extrasMap = Object.entries(overridesByPeriod).reduce<Record<number, { amount: number; checkDate?: string | null; forceHistorical?: boolean; interest?: number }>>(
+    (acc, [periodKey, override]) => {
+      const period = Number(periodKey);
+      if (!Number.isFinite(period)) return acc;
+      const amount = (override.payment || 0) - (override.purchase || 0);
+      acc[period] = {
+        amount,
+        checkDate: override.checkDate || null,
+        interest: override.interest,
+      };
+      return acc;
+    },
+    {}
+  );
+
+  const extraRows = await dbAllAsync(
+    'SELECT id, amount, check_date FROM budget_extra_payments WHERE liability_id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+    [liability.id, scopeId, userId]
+  );
+
+  const mergedExtras = extraRows.reduce<Record<number, { amount: number; checkDate?: string | null; forceHistorical?: boolean; interest?: number }>>(
+    (acc, row: any) => {
+      if (row.id && isMinimumPaymentId(row.id)) return acc;
+      const rawPeriod = getPeriodIndexFromDate(liability, row.check_date);
+      if (rawPeriod === null || rawPeriod === undefined || rawPeriod <= 0) return acc;
+      const period = rawPeriod;
+      const override = overridesByPeriod[period];
+
+      acc[period] = {
+        amount: (acc[period]?.amount || 0) + row.amount,
+        checkDate: row.check_date || acc[period]?.checkDate,
+        interest: override?.interest,
+      };
+      return acc;
+    },
+    {}
+  );
+
+  const extrasMapMerged = { ...extrasMap, ...mergedExtras };
+
+  const scheduleRow = await dbGetAsync(
+    `SELECT strategy, strategy_label, saved_at, monthly_budget, timeline
+     FROM budget_schedule
+     WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    [scopeId, userId]
+  );
+
+  const planPaymentsMap: Record<number, number> = {};
+  if (scheduleRow) {
+    let schedule: BudgetSchedule | null = null;
+    try {
+      schedule = {
+        strategy: scheduleRow.strategy,
+        strategyLabel: scheduleRow.strategy_label,
+        savedAt: scheduleRow.saved_at,
+        monthlyBudget: scheduleRow.monthly_budget,
+        timeline: JSON.parse(scheduleRow.timeline || '[]'),
+      };
+    } catch {
+      schedule = null;
+    }
+    if (schedule?.timeline?.length) {
+      const scheduleMonthIndex = getScheduleMonthIndex(schedule.savedAt);
+      const offset = scheduleMonthIndex - 1;
+      schedule.timeline.forEach((row: any) => {
+        const period = row.month - offset;
+        if (period < 1) return;
+        const paymentEntry = row.breakdown?.find((b: any) => b.liabilityId === liability.id);
+        const pay = paymentEntry?.payment || 0;
+        if (pay > 0) {
+          planPaymentsMap[period] = pay;
+        }
+      });
+    }
+  }
+
+  return { extrasMapMerged, planPaymentsMap };
+};
+
+const persistAmortizationSchedule = async (
+  liability: Liability,
+  scopeId: string | number,
+  userId: number
+) => {
+  const { extrasMapMerged, planPaymentsMap } = await buildAmortizationInputsForLiability(
+    liability,
+    scopeId,
+    userId
+  );
+  const data = calculateIndividualAmortization(liability, extrasMapMerged, planPaymentsMap);
+  const updatedAt = new Date().toISOString();
+
+  const derivedBalance = getBalanceFromTimeline(data.timeline);
+
+  await dbRunAsync(
+    'DELETE FROM liability_amortization WHERE liability_id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+    [liability.id, scopeId, userId]
+  );
+  await dbRunAsync(
+    'DELETE FROM liability_amortization_summary WHERE liability_id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+    [liability.id, scopeId, userId]
+  );
+
+  await dbRunAsync('BEGIN');
+  try {
+    for (const row of data.timeline) {
+      const entryId = `${liability.id}:${row.month}`;
+      await dbRunAsync(
+        `INSERT OR REPLACE INTO liability_amortization
+         (id, liability_id, period, payment, interest, principal, fees, remaining_balance, extra_payment, actual_date, is_historical, household_id, user_id, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          entryId,
+          liability.id,
+          row.month,
+          row.payment,
+          row.interest,
+          row.principal,
+          row.fees,
+          row.remainingBalance,
+          row.extraPayment || 0,
+          row.actualDate || null,
+          row.isHistorical ? 1 : 0,
+          scopeId,
+          userId,
+          updatedAt,
+        ]
+      );
+    }
+
+    await dbRunAsync(
+      `INSERT OR REPLACE INTO liability_amortization_summary
+       (id, liability_id, is_infinite, total_interest, total_fees, months, household_id, user_id, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        `${liability.id}:summary`,
+        liability.id,
+        data.isInfinite ? 1 : 0,
+        data.totalInterest,
+        data.totalFees,
+        data.months,
+        scopeId,
+        userId,
+        updatedAt,
+      ]
+    );
+
+    await dbRunAsync('COMMIT');
+  } catch (err) {
+    await dbRunAsync('ROLLBACK');
+    throw err;
+  }
+
+  if (Number.isFinite(derivedBalance ?? NaN)) {
+    const { stored } = normalizeLiabilityForStorage({
+      ...liability,
+      balance: derivedBalance as number,
+    });
+    await dbRunAsync(
+      'UPDATE liabilities SET content = ? WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+      [JSON.stringify(stored), liability.id, scopeId, userId]
+    );
+  }
+
+  return { ...data, derivedBalance };
+};
+
+const persistAllLiabilitySchedules = async (scopeId: string | number, userId: number) => {
+  const rows = await dbAllAsync(
+    'SELECT content FROM liabilities WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
+    [scopeId, userId]
+  );
+  for (const row of rows) {
+    try {
+      const liability = JSON.parse((row as any).content) as Liability;
+      await persistAmortizationSchedule(liability, scopeId, userId);
+    } catch {
+      /* ignore bad rows */
+    }
+  }
+};
+
+const fetchScopeLiabilities = async (scopeId: string | number, userId: number) => {
+  const rows = await dbAllAsync(
+    'SELECT content FROM liabilities WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
+    [scopeId, userId]
+  );
+  const liabilities: Liability[] = [];
+  rows.forEach((row) => {
+    try {
+      liabilities.push(JSON.parse((row as any).content) as Liability);
+    } catch {
+      /* ignore bad rows */
+    }
+  });
+  return liabilities;
+};
+
+const persistStrategySimulation = async (
+  strategy: StrategyType,
+  monthlyBudget: number,
+  scopeId: string | number,
+  userId: number
+) => {
+  const liabilities = await fetchScopeLiabilities(scopeId, userId);
+  const normalizedLiabilities = await Promise.all(
+    liabilities.map(async (liability) => {
+      const schedule = await fetchStoredAmortization(liability, scopeId, userId);
+      if (schedule) {
+        const derivedBalance = getBalanceFromSchedule(schedule, liability);
+        if (Number.isFinite(derivedBalance ?? NaN)) {
+          return { ...liability, balance: derivedBalance as number };
+        }
+      }
+      const fallbackBalance =
+        (Number.isFinite(liability.balance ?? NaN) ? liability.balance : null) ??
+        (Number.isFinite(liability.startingBalance ?? NaN) ? liability.startingBalance : null) ??
+        0;
+      return { ...liability, balance: fallbackBalance as number };
+    })
+  );
+  const result: PayoffResult = calculatePayoff(
+    normalizedLiabilities,
+    monthlyBudget,
+    strategy
+  );
+  const id = `${scopeId}_${strategy}_${monthlyBudget}`;
+  const updatedAt = new Date().toISOString();
+
+  await dbRunAsync(
+    `INSERT OR REPLACE INTO strategy_simulations
+     (id, strategy, monthly_budget, timeline, total_interest, months, household_id, user_id, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      strategy,
+      monthlyBudget,
+      JSON.stringify(result.timeline || []),
+      result.totalInterestPaid,
+      result.monthsToFreedom,
+      scopeId,
+      userId,
+      updatedAt,
+    ]
+  );
+
+  return result;
+};
+
+const fetchStoredAmortization = async (
+  liability: Liability,
+  scopeId: string | number,
+  userId: number
+) => {
+  const summaryRow = await dbGetAsync(
+    'SELECT is_infinite, total_interest, total_fees, months FROM liability_amortization_summary WHERE liability_id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+    [liability.id, scopeId, userId]
+  );
+
+  if (!summaryRow) return null;
+
+  const rows = await dbAllAsync(
+    `SELECT period, payment, interest, principal, fees, remaining_balance, extra_payment, actual_date, is_historical
+     FROM liability_amortization
+     WHERE liability_id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)
+     ORDER BY period ASC`,
+    [liability.id, scopeId, userId]
+  );
+
+  const timeline: AmortizationRow[] = rows.map((row: any) => ({
+    month: row.period,
+    payment: row.payment,
+    interest: row.interest,
+    principal: row.principal,
+    fees: row.fees,
+    remainingBalance: row.remaining_balance,
+    extraPayment: row.extra_payment || undefined,
+    actualDate: row.actual_date || undefined,
+    isHistorical: row.is_historical ? true : undefined,
+  }));
+
+  const periodsPerYear = getPeriodsPerYear(liability);
+  const maxPeriod = timeline.reduce((max, row) => (row.month > max ? row.month : max), 0);
+  const computedMonths = maxPeriod > 0 ? Math.ceil((maxPeriod / periodsPerYear) * 12) : 0;
+
+  const isInfinite = Number(summaryRow.is_infinite) === 1;
+  const totalInterest = Number(summaryRow.total_interest) || 0;
+  const totalFees = Number(summaryRow.total_fees) || 0;
+  const months = Number(summaryRow.months);
+
+  return {
+    isInfinite,
+    timeline,
+    totalInterest,
+    totalFees,
+    months: Number.isFinite(months) && months > 0 ? months : computedMonths,
+  };
+};
+
+const getBalanceFromSchedule = (
+  schedule: { timeline: AmortizationRow[] },
+  liability?: Liability
+) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let latestDate: Date | null = null;
+  let latestBalance: number | null = null;
+
+  schedule.timeline.forEach((row) => {
+    const parsed = parseLocalDate(row.actualDate ?? null);
+    if (!parsed || parsed > today) return;
+    if (!latestDate || parsed > latestDate) {
+      latestDate = parsed;
+      latestBalance = row.remainingBalance;
+    }
+  });
+
+  if (latestBalance !== null) return latestBalance;
+
+  const historicalRows = schedule.timeline.filter((row) => {
+    if (!(row.isHistorical || row.month <= 0)) return false;
+    const parsed = parseLocalDate(row.actualDate ?? null);
+    return !parsed || parsed <= today;
+  });
+  if (!historicalRows.length) {
+    if (!liability) return null;
+    const startDate = parseLocalDate(liability.startDate ?? null);
+    const nextDueDate = parseLocalDate(liability.nextDueDate ?? null);
+    const anchor = startDate || nextDueDate;
+    if (!anchor) return null;
+    anchor.setHours(0, 0, 0, 0);
+
+    const firstRow = schedule.timeline.reduce<AmortizationRow | null>(
+      (acc, cur) => {
+        if (cur.month <= 0) return acc;
+        if (!acc || cur.month < acc.month) return cur;
+        return acc;
+      },
+      null
+    );
+
+    // If the liability hasn't started yet, infer the starting balance.
+    if (anchor > today) {
+      if (!firstRow) {
+        if (Number.isFinite(liability.startingBalance ?? NaN)) {
+          return liability.startingBalance as number;
+        }
+        return null;
+      }
+      const inferredStartingBalance =
+        firstRow.remainingBalance + firstRow.principal - (firstRow.fees || 0);
+      if (Number.isFinite(inferredStartingBalance) && inferredStartingBalance > 0) {
+        return inferredStartingBalance;
+      }
+      if (Number.isFinite(liability.startingBalance ?? NaN)) {
+        return liability.startingBalance as number;
+      }
+      return null;
+    }
+
+    // Liability is active; use the current period from the schedule even if actualDate is absent.
+    const period = getPeriodIndexFromDate(liability, toLocalDateString(today));
+    if (period !== null && period !== undefined) {
+      const matchingRow = schedule.timeline.find((row) => row.month === period);
+      if (matchingRow) return matchingRow.remainingBalance;
+      const priorRow = schedule.timeline
+        .filter((row) => row.month <= period && row.month > 0)
+        .reduce<AmortizationRow | null>((acc, cur) => (!acc || cur.month > acc.month ? cur : acc), null);
+      if (priorRow) return priorRow.remainingBalance;
+    }
+
+    if (firstRow) return firstRow.remainingBalance;
+    return null;
+  }
+  const latestHistorical = historicalRows.reduce((acc, cur) =>
+    cur.month > acc.month ? cur : acc
+  );
+  return latestHistorical.remainingBalance;
+};
 
 type AuthedUser = { id: number; email: string; householdId?: string | null };
 type AuthedRequest = express.Request & { user?: AuthedUser };
@@ -332,31 +1001,99 @@ app.put('/api/profile/password', authenticateToken, async (req, res) => {
 
 
 // --- Liabilities ---
-app.get('/api/liabilities', authenticateToken, (req: AuthedRequest, res) => {
+app.get('/api/liabilities', authenticateToken, async (req: AuthedRequest, res) => {
   const user = req.user!;
   const scopeId = user.householdId || user.id;
-  db.all('SELECT content FROM liabilities WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)', [scopeId, user.id], (err, rows) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    const liabilities = rows.map(row => JSON.parse((row as any).content));
-    res.json(liabilities);
-  });
+
+  try {
+    const rows = await dbAllAsync(
+      'SELECT content FROM liabilities WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
+      [scopeId, user.id]
+    );
+    const liabilities: Liability[] = [];
+    rows.forEach((row) => {
+      try {
+        liabilities.push(JSON.parse((row as any).content) as Liability);
+      } catch {
+        /* ignore bad rows */
+      }
+    });
+
+    const withDerivedBalances = await Promise.all(
+      liabilities.map(async (liability) => {
+        const hasStoredBalance = Object.prototype.hasOwnProperty.call(
+          liability as any,
+          'balance'
+        );
+        const { normalized, stored } = normalizeLiabilityForStorage(liability);
+
+        if (hasStoredBalance || normalized.startingBalance !== liability.startingBalance) {
+          await dbRunAsync(
+            'UPDATE liabilities SET content = ? WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+            [JSON.stringify(stored), normalized.id, scopeId, user.id]
+          );
+        }
+
+        let schedule = await fetchStoredAmortization(normalized, scopeId, user.id);
+        if (!schedule) {
+          try {
+            const rebuilt = await persistAmortizationSchedule(normalized, scopeId, user.id);
+            schedule = {
+              isInfinite: rebuilt.isInfinite,
+              timeline: rebuilt.timeline,
+              totalInterest: rebuilt.totalInterest,
+              totalFees: rebuilt.totalFees,
+              months: rebuilt.months,
+            };
+          } catch {
+            /* ignore rebuild errors */
+          }
+        }
+
+        const derivedBalance = schedule ? getBalanceFromSchedule(schedule, normalized) : null;
+        if (Number.isFinite(derivedBalance ?? NaN)) {
+          return { ...normalized, balance: derivedBalance as number };
+        }
+
+        return { ...normalized, balance: normalized.balance || 0 };
+      })
+    );
+
+    res.json(withDerivedBalances);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Failed to load liabilities' });
+  }
 });
 
 app.post('/api/liabilities', authenticateToken, (req: AuthedRequest, res) => {
   const liability: Liability = req.body;
   const user = req.user!;
   const scopeId = user.householdId || user.id;
-  const payload = { ...liability, householdId: scopeId };
-  db.run('INSERT OR REPLACE INTO liabilities (id, content, user_id, household_id) VALUES (?, ?, ?, ?)', [liability.id, JSON.stringify(payload), user.id, scopeId], (err) => {
+  const scopeKey = typeof scopeId === 'number' ? String(scopeId) : scopeId;
+  const payload: Liability = { ...liability, householdId: scopeKey };
+  const { normalized, stored } = normalizeLiabilityForStorage(payload);
+  db.run(
+    'INSERT OR REPLACE INTO liabilities (id, content, user_id, household_id) VALUES (?, ?, ?, ?)',
+    [liability.id, JSON.stringify(stored), user.id, scopeKey],
+    (err) => {
     if (err) {
       res.status(500).json({ error: err.message });
       return;
     }
-    res.json(payload);
-  });
+    (async () => {
+      try {
+        const rebuilt = await persistAmortizationSchedule(normalized, scopeId, user.id);
+        const derivedBalance = rebuilt?.derivedBalance ?? getBalanceFromTimeline(rebuilt.timeline);
+        if (Number.isFinite(derivedBalance ?? NaN)) {
+          normalized.balance = derivedBalance as number;
+        }
+      } catch (calcErr: any) {
+        console.error('Failed to persist amortization schedule:', calcErr?.message || calcErr);
+      }
+      res.json(normalized);
+    })();
+    }
+  );
 });
 
 app.delete('/api/liabilities/:id', authenticateToken, (req: AuthedRequest, res) => {
@@ -368,6 +1105,14 @@ app.delete('/api/liabilities/:id', authenticateToken, (req: AuthedRequest, res) 
       res.status(500).json({ error: err.message });
       return;
     }
+    db.run(
+      'DELETE FROM liability_amortization WHERE liability_id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+      [id, scopeId, user.id]
+    );
+    db.run(
+      'DELETE FROM liability_amortization_summary WHERE liability_id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+      [id, scopeId, user.id]
+    );
     res.json({ id });
   });
 });
@@ -376,6 +1121,7 @@ app.post('/api/liabilities/:id/reset-settings', authenticateToken, (req: AuthedR
   const { id } = req.params;
   const user = req.user!;
   const scopeId = user.householdId || user.id;
+  const scopeKey = typeof scopeId === 'number' ? String(scopeId) : scopeId;
   if (!id) return res.status(400).json({ error: 'id is required' });
 
   db.get(
@@ -397,9 +1143,11 @@ app.post('/api/liabilities/:id/reset-settings', authenticateToken, (req: AuthedR
         interestRate: 0,
         startDate: todayIso,
       };
+      const payload = { ...updated, householdId: scopeKey };
+      const { normalized, stored } = normalizeLiabilityForStorage(payload);
       db.run(
         'INSERT OR REPLACE INTO liabilities (id, content, user_id, household_id) VALUES (?, ?, ?, ?)',
-        [id, JSON.stringify({ ...updated, householdId: scopeId }), user.id, scopeId],
+        [id, JSON.stringify(stored), user.id, scopeId],
         (saveErr) => {
           if (saveErr) {
             res.status(500).json({ error: saveErr.message });
@@ -413,23 +1161,65 @@ app.post('/api/liabilities/:id/reset-settings', authenticateToken, (req: AuthedR
                 res.status(500).json({ error: extrasErr.message });
                 return;
               }
-              db.run(
-                'DELETE FROM budget_amortization_overrides WHERE liability_id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
-                [id, scopeId, user.id],
-                (overridesErr) => {
-                  if (overridesErr) {
-                    res.status(500).json({ error: overridesErr.message });
-                    return;
-                  }
-                  res.json({ liability: updated });
-                }
+                  db.run(
+                    'DELETE FROM budget_amortization_overrides WHERE liability_id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+                    [id, scopeId, user.id],
+                    (overridesErr) => {
+                      if (overridesErr) {
+                        res.status(500).json({ error: overridesErr.message });
+                        return;
+                      }
+                  (async () => {
+                    try {
+                      await persistAmortizationSchedule(updated, scopeId, user.id);
+                    } catch (calcErr: any) {
+                      console.error('Failed to persist amortization schedule:', calcErr?.message || calcErr);
+                    }
+                  res.json({ liability: normalized });
+                })();
+              }
+            );
+          }
               );
-            }
-          );
         }
       );
     }
   );
+});
+
+app.get('/api/liabilities/:id/amortization', authenticateToken, async (req: AuthedRequest, res) => {
+  const { id } = req.params;
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  if (!id) return res.status(400).json({ error: 'id is required' });
+
+  try {
+    const liability = await fetchLiabilityById(id, scopeId, user.id);
+    if (!liability) {
+      return res.status(404).json({ error: 'Liability not found' });
+    }
+
+    let schedule = await fetchStoredAmortization(liability, scopeId, user.id);
+    if (!schedule) {
+      const rebuilt = await persistAmortizationSchedule(liability, scopeId, user.id);
+      schedule = {
+        isInfinite: rebuilt.isInfinite,
+        timeline: rebuilt.timeline,
+        totalInterest: rebuilt.totalInterest,
+        totalFees: rebuilt.totalFees,
+        months: rebuilt.months,
+      };
+    }
+
+    res.json({
+      schedule: {
+        liabilityId: liability.id,
+        ...schedule,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Failed to fetch amortization schedule' });
+  }
 });
 
 // --- Expenses ---
@@ -650,15 +1440,22 @@ app.post('/api/budget/schedule', authenticateToken, (req: AuthedRequest, res) =>
             if (err) {
                 return res.status(500).json({ error: err.message });
             }
-            res.json({
-                schedule: {
-                    strategy: strategy as string,
-                    strategyLabel: strategyLabel as string,
-                    savedAt: savedAt as string,
-                    monthlyBudget: (monthlyBudget ?? 0) as number,
-                    timeline: timeline as any[],
-                },
-            });
+            (async () => {
+                try {
+                    await persistAllLiabilitySchedules(scopeId, user.id);
+                } catch (calcErr: any) {
+                    console.error('Failed to persist amortization schedules:', calcErr?.message || calcErr);
+                }
+                res.json({
+                    schedule: {
+                        strategy: strategy as string,
+                        strategyLabel: strategyLabel as string,
+                        savedAt: savedAt as string,
+                        monthlyBudget: (monthlyBudget ?? 0) as number,
+                        timeline: timeline as any[],
+                    },
+                });
+            })();
         }
     );
 });
@@ -673,9 +1470,35 @@ app.delete('/api/budget/schedule', authenticateToken, (req: AuthedRequest, res) 
             if (err) {
                 return res.status(500).json({ error: err.message });
             }
-            res.json({ success: true });
+            (async () => {
+                try {
+                    await persistAllLiabilitySchedules(scopeId, user.id);
+                } catch (calcErr: any) {
+                    console.error('Failed to persist amortization schedules:', calcErr?.message || calcErr);
+                }
+                res.json({ success: true });
+            })();
         }
     );
+});
+
+app.post('/api/strategy/simulations', authenticateToken, async (req: AuthedRequest, res) => {
+    const user = req.user!;
+    const scopeId = user.householdId || user.id;
+    const { strategy, monthlyBudget } = req.body as { strategy?: StrategyType; monthlyBudget?: number };
+
+    if (!strategy) {
+        return res.status(400).json({ error: 'strategy is required' });
+    }
+
+    const parsedBudget = Number.isFinite(monthlyBudget) ? (monthlyBudget as number) : 0;
+
+    try {
+        const result = await persistStrategySimulation(strategy, parsedBudget, scopeId, user.id);
+        res.json({ simulation: result });
+    } catch (err: any) {
+        res.status(500).json({ error: err?.message || 'Failed to build strategy simulation' });
+    }
 });
 
 app.get('/api/budget/extra-payments', authenticateToken, (req: AuthedRequest, res) => {
@@ -722,7 +1545,17 @@ app.post('/api/budget/extra-payments', authenticateToken, (req: AuthedRequest, r
             if (err) {
                 return res.status(500).json({ error: err.message });
             }
-            res.json({ success: true, id });
+            (async () => {
+                try {
+                    const liability = await fetchLiabilityById(liabilityId, scopeId, user.id);
+                    if (liability) {
+                        await persistAmortizationSchedule(liability, scopeId, user.id);
+                    }
+                } catch (calcErr: any) {
+                    console.error('Failed to persist amortization schedule:', calcErr?.message || calcErr);
+                }
+                res.json({ success: true, id });
+            })();
         }
     );
 });
@@ -733,14 +1566,36 @@ app.delete('/api/budget/extra-payments/:id', authenticateToken, (req: AuthedRequ
     const { id } = req.params;
     if (!id) return res.status(400).json({ error: 'id is required' });
 
-    db.run(
-        'DELETE FROM budget_extra_payments WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+    db.get(
+        'SELECT liability_id FROM budget_extra_payments WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
         [id, scopeId, user.id],
-        (err) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
+        (fetchErr, row: any) => {
+            if (fetchErr) {
+                return res.status(500).json({ error: fetchErr.message });
             }
-            res.json({ success: true, id });
+            const liabilityId = row?.liability_id as string | undefined;
+            db.run(
+                'DELETE FROM budget_extra_payments WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+                [id, scopeId, user.id],
+                (err) => {
+                    if (err) {
+                        return res.status(500).json({ error: err.message });
+                    }
+                    (async () => {
+                        if (liabilityId) {
+                            try {
+                                const liability = await fetchLiabilityById(liabilityId, scopeId, user.id);
+                                if (liability) {
+                                    await persistAmortizationSchedule(liability, scopeId, user.id);
+                                }
+                            } catch (calcErr: any) {
+                                console.error('Failed to persist amortization schedule:', calcErr?.message || calcErr);
+                            }
+                        }
+                        res.json({ success: true, id });
+                    })();
+                }
+            );
         }
     );
 });
@@ -795,7 +1650,17 @@ app.post('/api/budget/amortization-overrides', authenticateToken, (req: AuthedRe
             if (err) {
                 return res.status(500).json({ error: err.message });
             }
-            res.json({ success: true, id });
+            (async () => {
+                try {
+                    const liability = await fetchLiabilityById(liabilityId, scopeId, user.id);
+                    if (liability) {
+                        await persistAmortizationSchedule(liability, scopeId, user.id);
+                    }
+                } catch (calcErr: any) {
+                    console.error('Failed to persist amortization schedule:', calcErr?.message || calcErr);
+                }
+                res.json({ success: true, id });
+            })();
         }
     );
 });
@@ -806,14 +1671,36 @@ app.delete('/api/budget/amortization-overrides/:id', authenticateToken, (req: Au
     const { id } = req.params;
     if (!id) return res.status(400).json({ error: 'id is required' });
 
-    db.run(
-        'DELETE FROM budget_amortization_overrides WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+    db.get(
+        'SELECT liability_id FROM budget_amortization_overrides WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
         [id, scopeId, user.id],
-        (err) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
+        (fetchErr, row: any) => {
+            if (fetchErr) {
+                return res.status(500).json({ error: fetchErr.message });
             }
-            res.json({ success: true, id });
+            const liabilityId = row?.liability_id as string | undefined;
+            db.run(
+                'DELETE FROM budget_amortization_overrides WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+                [id, scopeId, user.id],
+                (err) => {
+                    if (err) {
+                        return res.status(500).json({ error: err.message });
+                    }
+                    (async () => {
+                        if (liabilityId) {
+                            try {
+                                const liability = await fetchLiabilityById(liabilityId, scopeId, user.id);
+                                if (liability) {
+                                    await persistAmortizationSchedule(liability, scopeId, user.id);
+                                }
+                            } catch (calcErr: any) {
+                                console.error('Failed to persist amortization schedule:', calcErr?.message || calcErr);
+                            }
+                        }
+                        res.json({ success: true, id });
+                    })();
+                }
+            );
         }
     );
 });

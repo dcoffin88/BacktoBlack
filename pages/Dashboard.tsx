@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Liability, Expense, Asset, StrategyType, STRATEGY_LABELS, UserSettings, IncomeSource, BudgetSchedule } from '../types';
-import { calculatePayoff, getMinPayment, calculateMonthlyIncomeByMode } from '../server/liabilityAlgorithms';
+import { Liability, Expense, Asset, StrategyType, STRATEGY_LABELS, UserSettings, IncomeSource, BudgetSchedule, PayoffResult } from '../types';
+import { calculatePayoff, getMinPayment, calculateMonthlyIncomeByMode, AmortizationRow } from '../server/liabilityAlgorithms';
 import { Link } from 'react-router-dom';
 import { ArrowRight, TrendingUp, Calendar, Wallet, LayoutDashboard, DollarSign, Receipt, Landmark, Calculator, AlertTriangle } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
@@ -37,6 +37,34 @@ const useChartDimensions = () => {
   return { ref, size };
 };
 
+type AmortizationDataView = {
+  isInfinite: boolean;
+  timeline: AmortizationRow[];
+  totalInterest: number;
+  totalFees: number;
+  months: number;
+};
+
+type ExtraPayment = {
+  id: string;
+  liabilityId: string;
+  amount: number;
+  checkDate?: string | null;
+};
+
+type AmortizationOverride = {
+  payment: number;
+  interest: number;
+  purchase?: number;
+  checkDate?: string | null;
+};
+
+const parseLocalDate = (value?: string | null) => {
+  if (!value) return null;
+  const d = value.includes('T') ? new Date(value) : new Date(`${value}T12:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
 interface DashboardProps {
   liabilities: Liability[];
   expenses: Expense[];
@@ -49,6 +77,15 @@ interface DashboardProps {
 const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, incomes = [], monthlyBudget, userSettings }) => {
   const [chartsReady, setChartsReady] = useState(false);
   const [savedPlan, setSavedPlan] = useState<BudgetSchedule | null>(null);
+  const [projection, setProjection] = useState<PayoffResult | null>(null);
+  const [amortizationSchedules, setAmortizationSchedules] = useState<Record<string, AmortizationDataView>>({});
+  const [amortizationLoaded, setAmortizationLoaded] = useState(false);
+  const [extraPayments, setExtraPayments] = useState<ExtraPayment[]>([]);
+  const [amortizationOverrides, setAmortizationOverrides] = useState<
+    Record<string, Record<number, AmortizationOverride>>
+  >({});
+  const [extrasLoaded, setExtrasLoaded] = useState(false);
+  const [overridesLoaded, setOverridesLoaded] = useState(false);
   const { ref: payoffChartRef, size: payoffSize } = useChartDimensions();
 
   useEffect(() => {
@@ -69,6 +106,88 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
   }, []);
 
   useEffect(() => {
+    let active = true;
+    const loadAmortizations = async () => {
+      setAmortizationLoaded(liabilities.length === 0);
+      if (liabilities.length === 0) {
+        if (active) setAmortizationSchedules({});
+        return;
+      }
+      const results = await Promise.all(
+        liabilities.map(async (liability) => {
+          try {
+            const remote = await dbAPI.getLiabilityAmortization(liability.id);
+            if (remote?.schedule) {
+              return [liability.id, remote.schedule] as const;
+            }
+          } catch {
+            /* ignore fetch errors */
+          }
+          return [liability.id, null] as const;
+        })
+      );
+      if (!active) return;
+      const next: Record<string, AmortizationDataView> = {};
+      results.forEach(([id, schedule]) => {
+        if (schedule) {
+          next[id] = schedule as AmortizationDataView;
+        }
+      });
+      setAmortizationSchedules(next);
+      setAmortizationLoaded(true);
+    };
+    loadAmortizations();
+    return () => {
+      active = false;
+    };
+  }, [liabilities]);
+
+  useEffect(() => {
+    let active = true;
+    const loadExtras = async () => {
+      try {
+        const remote = await dbAPI.getExtraPayments();
+        if (!active || !remote?.extras) return;
+        setExtraPayments(remote.extras || []);
+      } catch {
+        /* ignore fetch errors */
+      } finally {
+        if (active) setExtrasLoaded(true);
+      }
+    };
+    const loadOverrides = async () => {
+      try {
+        const remote = await dbAPI.getAmortizationOverrides();
+        if (!active || !remote?.overrides) return;
+        const mapped = remote.overrides.reduce<
+          Record<string, Record<number, AmortizationOverride>>
+        >((acc, row) => {
+          if (!acc[row.liabilityId]) {
+            acc[row.liabilityId] = {};
+          }
+          acc[row.liabilityId][row.period] = {
+            payment: row.payment,
+            interest: row.interest,
+            purchase: row.purchase ?? 0,
+            checkDate: row.checkDate ?? null,
+          };
+          return acc;
+        }, {});
+        setAmortizationOverrides(mapped);
+      } catch {
+        /* ignore override fetch errors */
+      } finally {
+        if (active) setOverridesLoaded(true);
+      }
+    };
+    loadExtras();
+    loadOverrides();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
     setChartsReady(true);
   }, []);
   const simpleTerms = userSettings?.useSimpleTerms;
@@ -81,7 +200,53 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonthIndex = now.getMonth();
-  const totalLiability = liabilities.reduce((sum, d) => sum + d.balance, 0);
+  const scheduleBalanceById = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const next: Record<string, number> = {};
+    liabilities.forEach((liability) => {
+      const schedule = amortizationSchedules[liability.id];
+      if (!schedule?.timeline?.length) {
+        next[liability.id] = liability.balance;
+        return;
+      }
+      let latestDate: Date | null = null;
+      let latestBalance: number | null = null;
+      schedule.timeline.forEach((row) => {
+        const parsed = parseLocalDate(row.actualDate ?? null);
+        if (!parsed || parsed > today) return;
+        if (!latestDate || parsed > latestDate) {
+          latestDate = parsed;
+          latestBalance = row.remainingBalance;
+        }
+      });
+      if (latestBalance !== null) {
+        next[liability.id] = latestBalance;
+        return;
+      }
+      const historicalRows = schedule.timeline.filter((row) => {
+        if (!(row.isHistorical || row.month <= 0)) return false;
+        const parsed = parseLocalDate(row.actualDate ?? null);
+        return !parsed || parsed <= today;
+      });
+      if (historicalRows.length) {
+        const latestHistorical = historicalRows.reduce((acc, cur) =>
+          cur.month > acc.month ? cur : acc
+        );
+        next[liability.id] = latestHistorical.remainingBalance;
+        return;
+      }
+      next[liability.id] = liability.balance;
+    });
+    return next;
+  }, [amortizationSchedules, liabilities]);
+
+  const totalLiability = liabilities.reduce(
+    (sum, d) => sum + (scheduleBalanceById[d.id] ?? d.balance),
+    0
+  );
+  const balancesReady =
+    liabilities.length === 0 || (amortizationLoaded && extrasLoaded && overridesLoaded);
   const creditLimitLiabilities = liabilities.filter(
     (liability) => (liability.creditLimit || 0) > 0
   );
@@ -89,15 +254,54 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
     (sum, liability) => sum + (liability.creditLimit || 0),
     0
   );
+  const isMinimumPaymentId = (id: string) => id.startsWith('min-');
+  const getHistoricalPaidAmount = (liability: Liability) => {
+    return extraPayments
+      .filter(
+        (p) =>
+          p.liabilityId === liability.id &&
+          !isMinimumPaymentId(p.id) &&
+          (p.amount || 0) !== 0
+      )
+      .reduce((sum, p) => sum + (p.amount || 0), 0);
+  };
+  const getDisplayBalance = (liability: Liability) => {
+    const scheduleBalance = scheduleBalanceById[liability.id];
+    if (Number.isFinite(scheduleBalance ?? NaN)) {
+      return Math.max(0, scheduleBalance as number);
+    }
+    return Math.max(0, liability.balance || 0);
+  };
   const totalCreditBalance = creditLimitLiabilities.reduce(
-    (sum, liability) => sum + liability.balance,
+    (sum, liability) =>
+      sum + (balancesReady ? getDisplayBalance(liability) : liability.balance),
     0
   );
   const creditAvailable = totalCreditLimit - totalCreditBalance;
+  const getMonthlyPaymentFromSchedule = (liability: Liability) => {
+    const schedule = amortizationSchedules[liability.id];
+    if (!schedule?.timeline?.length) return null;
+    const isBiWeekly = liability.paymentFrequency === 'BI_WEEKLY';
+    const isWeekly = liability.paymentFrequency === 'WEEKLY';
+    const periodsPerYear = isBiWeekly ? 26 : isWeekly ? 52 : 12;
+    const periodsPerMonth = periodsPerYear / 12;
+    let total = 0;
+    schedule.timeline.forEach((row) => {
+      if (row.month <= 0) return;
+      const monthIndex = Math.max(1, Math.ceil(row.month / periodsPerMonth));
+      if (monthIndex === 1) {
+        total += row.payment;
+      }
+    });
+    return total;
+  };
   const totalMinPayment = liabilities.reduce((sum, d) => {
-    const monthlyInterest = d.balance * (d.interestRate / 100 / 12);
+    const scheduled = getMonthlyPaymentFromSchedule(d);
+    if (scheduled !== null) return sum + scheduled;
+    const currentBalance = getDisplayBalance(d);
+    const monthlyInterest = currentBalance * (d.interestRate / 100 / 12);
     const estFee = d.isFeeMonthly ? (d.annualFee / 12) : 0;
-    return sum + getMinPayment(d, d.balance, monthlyInterest, estFee);
+    return sum + getMinPayment(d, currentBalance, monthlyInterest, estFee);
   }, 0);
   const avgInterest = liabilities.length > 0 
     ? liabilities.reduce((sum, d) => sum + d.interestRate, 0) / liabilities.length 
@@ -141,11 +345,14 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
   }, [liabilities]);
   const currentMonthLiabilityMins = useMemo(() => {
     return activeLiabilities.reduce((sum, l) => {
-      const monthlyInterest = l.balance * (l.interestRate / 100 / 12);
+      const scheduled = getMonthlyPaymentFromSchedule(l);
+      if (scheduled !== null) return sum + scheduled;
+      const currentBalance = getDisplayBalance(l);
+      const monthlyInterest = currentBalance * (l.interestRate / 100 / 12);
       const estFee = l.isFeeMonthly ? l.annualFee / 12 : 0;
-      return sum + getMinPayment(l, l.balance, monthlyInterest, estFee);
+      return sum + getMinPayment(l, currentBalance, monthlyInterest, estFee);
     }, 0);
-  }, [activeLiabilities]);
+  }, [activeLiabilities, amortizationSchedules]);
   const currentMonthIncome = useMemo(() => {
     if (budgetedIncomes.length === 0) return 0;
     const periodStart = new Date(currentYear, currentMonthIndex, 1);
@@ -155,11 +362,47 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
         ? budgetStartDate
         : periodStart;
 
+    const getSemiMonthlyDates = (
+      anchorDay: number,
+      startDate: Date,
+      endDate: Date
+    ): Date[] => {
+      const dates: Date[] = [];
+      const day1Base = anchorDay <= 15 ? anchorDay : anchorDay - 15;
+      const day2Base = anchorDay <= 15 ? anchorDay + 15 : anchorDay;
+      const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+      const endCursor = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+
+      while (cursor <= endCursor) {
+        const year = cursor.getFullYear();
+        const month = cursor.getMonth();
+        const lastDay = new Date(year, month + 1, 0).getDate();
+        const day1 = Math.min(Math.max(day1Base, 1), lastDay);
+        const day2 = Math.min(Math.max(day2Base, 1), lastDay);
+        const first = new Date(year, month, day1);
+        const second = new Date(year, month, day2);
+
+        if (first >= startDate && first <= endDate) {
+          dates.push(first);
+        }
+        if (second.getTime() !== first.getTime() && second >= startDate && second <= endDate) {
+          dates.push(second);
+        }
+
+        cursor.setMonth(cursor.getMonth() + 1);
+      }
+
+      return dates.sort((a, b) => a.getTime() - b.getTime());
+    };
+
     const getPayDates = (source: IncomeSource, startDate: Date, endDate: Date): Date[] => {
       if (!source.nextPayDate) return [];
       const [y, m, d] = source.nextPayDate.split('-').map(Number);
       const seed = new Date(y, m - 1, d);
       if (Number.isNaN(seed.getTime())) return [];
+      if (source.frequency === 'SEMI_MONTHLY') {
+        return getSemiMonthlyDates(seed.getDate(), startDate, endDate);
+      }
 
       let current = new Date(seed);
       const dates: Date[] = [];
@@ -172,9 +415,6 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
             break;
           case 'BI_WEEKLY':
             prev.setDate(prev.getDate() - 14);
-            break;
-          case 'SEMI_MONTHLY':
-            prev.setDate(prev.getDate() - 15);
             break;
           case 'MONTHLY':
             prev.setMonth(prev.getMonth() - 1);
@@ -202,9 +442,6 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
             break;
           case 'BI_WEEKLY':
             current.setDate(current.getDate() + 14);
-            break;
-          case 'SEMI_MONTHLY':
-            current.setDate(current.getDate() + 15);
             break;
           case 'MONTHLY':
             current.setMonth(current.getMonth() + 1);
@@ -237,18 +474,152 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
   const freeCashFlow = currentMonthIncome - totalMonthlyExpenses - currentMonthLiabilityMins;
   const isDeficit = freeCashFlow < 0;
 
-  const projection = useMemo(() => {
-    if (savedPlan?.timeline?.length) {
-      const last = savedPlan.timeline[savedPlan.timeline.length - 1];
-      return {
-        strategy: savedPlan.strategy as StrategyType,
-        monthsToFreedom: last?.month ?? savedPlan.timeline.length,
-        totalInterestPaid: last?.totalInterestPaid ?? 0,
-        timeline: savedPlan.timeline,
-      };
+  useEffect(() => {
+    let active = true;
+    const loadProjection = async () => {
+      if (savedPlan?.timeline?.length) {
+        const last = savedPlan.timeline[savedPlan.timeline.length - 1];
+        const planned = {
+          strategy: savedPlan.strategy as StrategyType,
+          monthsToFreedom: last?.month ?? savedPlan.timeline.length,
+          totalInterestPaid: last?.totalInterestPaid ?? 0,
+          timeline: savedPlan.timeline,
+        };
+        if (active) setProjection(planned);
+        return;
+      }
+      try {
+        const remote = await dbAPI.getStrategySimulation(StrategyType.AVALANCHE, monthlyBudget);
+        if (active) setProjection(remote.simulation);
+      } catch {
+        if (active) {
+          setProjection({
+            strategy: StrategyType.AVALANCHE,
+            monthsToFreedom: 0,
+            totalInterestPaid: 0,
+            timeline: [],
+          });
+        }
+      }
+    };
+    loadProjection();
+    return () => {
+      active = false;
+    };
+  }, [monthlyBudget, savedPlan]);
+
+  const safeProjection = projection || {
+    strategy: StrategyType.AVALANCHE,
+    monthsToFreedom: 0,
+    totalInterestPaid: 0,
+    timeline: [],
+  };
+  const scheduleMonths = useMemo(() => {
+    if (!savedPlan?.timeline?.length) return null;
+    const last = savedPlan.timeline[savedPlan.timeline.length - 1];
+    return last?.month ?? savedPlan.timeline.length;
+  }, [savedPlan]);
+  const minOnlyMonths = useMemo(() => {
+    if (!liabilities.length) return 0;
+    let maxMonths = 0;
+    liabilities.forEach((liability) => {
+      const isZeroMin =
+        (liability.minPaymentAmount || 0) <= 0 &&
+        (liability.minPaymentPercentage || 0) <= 0 &&
+        (liability.minPaymentFloor || 0) <= 0 &&
+        !liability.minPaymentPlusInterest &&
+        !liability.minPaymentPlusFees;
+      if (isZeroMin) return;
+      const schedule = amortizationSchedules[liability.id];
+      if (!schedule?.timeline?.length) return;
+      const lastMonth = schedule.timeline.reduce((acc, row) => {
+        if (row.remainingBalance > 0.01 && row.month > acc) return row.month;
+        return acc;
+      }, 0);
+      if (lastMonth > maxMonths) maxMonths = lastMonth;
+    });
+    return maxMonths;
+  }, [amortizationSchedules, liabilities]);
+  const minOnlyProjection = useMemo<PayoffResult | null>(() => {
+    if (!liabilities.length) return null;
+    const scheduleEntries = liabilities.map((liability) => ({
+      id: liability.id,
+      name: liability.name,
+      timeline: amortizationSchedules[liability.id]?.timeline || [],
+      isZeroMin:
+        (liability.minPaymentAmount || 0) <= 0 &&
+        (liability.minPaymentPercentage || 0) <= 0 &&
+        (liability.minPaymentFloor || 0) <= 0 &&
+        !liability.minPaymentPlusInterest &&
+        !liability.minPaymentPlusFees,
+    }));
+    const maxMonth = scheduleEntries.reduce((max, entry) => {
+      if (entry.isZeroMin) return max;
+      return entry.timeline.reduce((innerMax, row) => (row.month > innerMax ? row.month : innerMax), max);
+    }, 0);
+    if (!maxMonth) return null;
+
+    const prevRemaining: Record<string, number> = {};
+    liabilities.forEach((liability) => {
+      prevRemaining[liability.id] = scheduleBalanceById[liability.id] ?? liability.balance;
+    });
+
+    let totalInterestPaid = 0;
+    const timeline = [];
+    for (let month = 1; month <= maxMonth; month += 1) {
+      let totalBalance = 0;
+      let liabilitiesRemaining = 0;
+      let nonZeroMinRemaining = 0;
+      const paidOffNames: string[] = [];
+      const breakdown = scheduleEntries.map((entry) => {
+        const row = entry.timeline.find((item) => item.month === month);
+        const remaining = Math.max(0, row?.remainingBalance ?? prevRemaining[entry.id] ?? 0);
+        const interest = row?.interest || 0;
+        const payment = row?.payment || 0;
+
+        totalBalance += remaining;
+        totalInterestPaid += interest;
+
+        const previous = prevRemaining[entry.id] ?? remaining;
+        if (previous > 0.01 && remaining <= 0.01) {
+          paidOffNames.push(entry.name);
+        }
+        prevRemaining[entry.id] = remaining;
+        if (remaining > 0.01) {
+          liabilitiesRemaining += 1;
+          if (!entry.isZeroMin) nonZeroMinRemaining += 1;
+        }
+
+        return {
+          liabilityId: entry.id,
+          name: entry.name,
+          interest,
+          payment,
+          balance: remaining,
+        };
+      });
+
+      timeline.push({
+        month,
+        totalBalance,
+        totalInterestPaid,
+        liabilitiesRemaining,
+        paidOffNames,
+        breakdown,
+      });
+
+      if (nonZeroMinRemaining === 0) break;
     }
-    return calculatePayoff(liabilities, monthlyBudget, StrategyType.AVALANCHE);
-  }, [liabilities, monthlyBudget, savedPlan]);
+
+    return {
+      strategy: StrategyType.CUSTOM,
+      monthsToFreedom: timeline.length,
+      totalInterestPaid,
+      timeline,
+    };
+  }, [amortizationSchedules, liabilities, scheduleBalanceById]);
+  const displayProjection =
+    savedPlan?.timeline?.length ? safeProjection : (minOnlyProjection || safeProjection);
 
   const defaultPlanLabel = STRATEGY_LABELS[StrategyType.AVALANCHE];
   const planLabel = useMemo(() => {
@@ -263,11 +634,15 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
   };
   const currentMonthLabel = now.toLocaleDateString(undefined, { month: 'long' });
 
-  const StatCard = ({ title, value, subValue }: any) => (
+  const StatCard = ({ title, value, subValue, loading }: any) => (
     <div>
       <div>
         <p className="text-sm font-semibold text-slate-500 uppercase tracking-wide">{title}</p>
-        <h3 className="text-3xl font-bold text-slate-900 mt-2">{value}</h3>
+        {loading ? (
+          <div className="mt-3 h-8 w-32 rounded bg-slate-100 animate-pulse" />
+        ) : (
+          <h3 className="text-3xl font-bold text-slate-900 mt-2">{value}</h3>
+        )}
         {subValue && <p className="text-xs text-slate-400 mt-1">{subValue}</p>}
       </div>
     </div>
@@ -317,24 +692,32 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
           <StatCard 
             title="Net Worth"
             value={`${currencySymbol}${netWorth.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`} 
+            loading={!balancesReady}
           />
         </Link>
         <Link to="/liabilities" className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
           <StatCard 
             title={`Total ${liabilityLabel}`}
             value={`${currencySymbol}${totalLiability.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} 
+            loading={!balancesReady}
           />
         </Link>
         <Link to="/liabilities" className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
           <StatCard 
             title="Credit Available"
             value={formatCurrency(creditAvailable, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            loading={!balancesReady}
           />
         </Link>
         <Link to="/strategy" className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
           <StatCard 
             title={`${liabilityLabel} Free Date`}
-            value={projection.monthsToFreedom === 0 ? `${liabilityLabel} Free!` : `${Math.floor(projection.monthsToFreedom / 12)}y ${projection.monthsToFreedom % 12}m`} 
+            value={
+              (savedPlan?.timeline?.length ? scheduleMonths : (minOnlyMonths || safeProjection.monthsToFreedom)) === 0
+                ? `${liabilityLabel} Free!`
+                : `${Math.floor((savedPlan?.timeline?.length ? scheduleMonths : (minOnlyMonths || safeProjection.monthsToFreedom)) / 12)}y ${(savedPlan?.timeline?.length ? scheduleMonths : (minOnlyMonths || safeProjection.monthsToFreedom)) % 12}m`
+            }
+            loading={!balancesReady}
           />
         </Link>
       </div>
@@ -354,11 +737,14 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
             <Link to="/strategy" className="text-indigo-600 text-sm font-medium hover:text-indigo-800">Compare Strategies &rarr;</Link>
           </div>
           <div className="h-72 w-full min-w-[240px]" ref={payoffChartRef}>
-            {chartsReady && payoffSize.width > 0 && payoffSize.height > 0 && (
+            {!balancesReady && (
+              <div className="h-72 w-full rounded-lg bg-slate-100 animate-pulse" />
+            )}
+            {balancesReady && chartsReady && payoffSize.width > 0 && payoffSize.height > 0 && (
               <AreaChart
                 width={Math.max(200, payoffSize.width)}
                 height={Math.max(200, payoffSize.height)}
-                data={projection.timeline}
+                data={displayProjection.timeline}
               >
                 <defs>
                   <linearGradient id="colorBalance" x1="0" y1="0" x2="0" y2="1">
@@ -409,75 +795,118 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
               </div>
               </Link>
             </div>
-            <div className="space-y-3">
-              <div className="flex justify-between items-center text-sm">
-                <Link to="/income">
-                  <span className="text-slate-500 flex items-center">
-                    Income <p className="ml-1 text-xs text-indigo-400 hover:text-indigo-600"><ArrowRight size={10}/></p>
-                  </span>
-                </Link>
-                <span className="font-bold text-emerald-600">+{formatCurrency(currentMonthIncome, { maximumFractionDigits: 0 })}</span>
-              </div>
-              <div className="flex justify-between items-center text-sm">
-                <Link to="/expenses">
-                  <span className="text-slate-500 flex items-center">
-                    {expensePlural} <p className="ml-1 text-xs text-indigo-400 hover:text-indigo-600"><ArrowRight size={10}/></p>
-                  </span>
-                </Link>
-                <span className="font-medium text-slate-700">-{formatCurrency(totalMonthlyExpenses)}</span>
-              </div>
-              <div className="flex justify-between items-center text-sm pb-3 border-b border-slate-100">
-                <Link to="/liabilities">
-                  <span className="text-slate-500 flex items-center">
-                    {liabilityLabel} Minimums <p className="ml-1 text-xs text-indigo-400 hover:text-indigo-600"><ArrowRight size={10}/></p>
-                  </span>
-                </Link>
-                <span className="font-medium text-slate-700">-{formatCurrency(currentMonthLiabilityMins)}</span>
-              </div>
-            </div>
-            <div className="pt-1">
-              <div className="flex justify-between items-end mb-1">
-                <span className="text-sm font-bold text-slate-800">Leftover ({currentMonthLabel})</span>
-                <span className={`text-2xl font-bold ${isDeficit ? 'text-red-600' : 'text-indigo-600'}`}>
-                  {freeCashFlow >= 0 ? '+' : ''}{formatCurrency(freeCashFlow)}
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 text-right">Available for {availableForLabel}</p>
-              {isDeficit && (
-                <div className="mt-3 bg-red-50 p-3 rounded-lg flex items-start space-x-2 border border-red-100">
-                  <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
-                  <p className="text-xs text-red-700 leading-tight">
-                    Income is lower than expenses and minimums. Reduce spending or increase income.
-                  </p>
+            {!balancesReady ? (
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <div className="h-4 w-24 rounded bg-slate-100 animate-pulse" />
+                  <div className="h-4 w-20 rounded bg-slate-100 animate-pulse" />
                 </div>
-              )}
-            </div>
+                <div className="flex justify-between items-center">
+                  <div className="h-4 w-28 rounded bg-slate-100 animate-pulse" />
+                  <div className="h-4 w-20 rounded bg-slate-100 animate-pulse" />
+                </div>
+                <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+                  <div className="h-4 w-36 rounded bg-slate-100 animate-pulse" />
+                  <div className="h-4 w-20 rounded bg-slate-100 animate-pulse" />
+                </div>
+                <div className="pt-1">
+                  <div className="flex justify-between items-end mb-1">
+                    <div className="h-4 w-32 rounded bg-slate-100 animate-pulse" />
+                    <div className="h-6 w-24 rounded bg-slate-100 animate-pulse" />
+                  </div>
+                  <div className="h-3 w-32 rounded bg-slate-100 animate-pulse ml-auto" />
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center text-sm">
+                    <Link to="/income">
+                      <span className="text-slate-500 flex items-center">
+                        Income <p className="ml-1 text-xs text-indigo-400 hover:text-indigo-600"><ArrowRight size={10}/></p>
+                      </span>
+                    </Link>
+                    <span className="font-bold text-emerald-600">+{formatCurrency(currentMonthIncome, { maximumFractionDigits: 0 })}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <Link to="/expenses">
+                      <span className="text-slate-500 flex items-center">
+                        {expensePlural} <p className="ml-1 text-xs text-indigo-400 hover:text-indigo-600"><ArrowRight size={10}/></p>
+                      </span>
+                    </Link>
+                    <span className="font-medium text-slate-700">-{formatCurrency(totalMonthlyExpenses)}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm pb-3 border-b border-slate-100">
+                    <Link to="/liabilities">
+                      <span className="text-slate-500 flex items-center">
+                        {liabilityLabel} Minimums <p className="ml-1 text-xs text-indigo-400 hover:text-indigo-600"><ArrowRight size={10}/></p>
+                      </span>
+                    </Link>
+                    <span className="font-medium text-slate-700">-{formatCurrency(currentMonthLiabilityMins)}</span>
+                  </div>
+                </div>
+                <div className="pt-1">
+                  <div className="flex justify-between items-end mb-1">
+                    <span className="text-sm font-bold text-slate-800">Leftover ({currentMonthLabel})</span>
+                    <span className={`text-2xl font-bold ${isDeficit ? 'text-red-600' : 'text-indigo-600'}`}>
+                      {freeCashFlow >= 0 ? '+' : ''}{formatCurrency(freeCashFlow)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 text-right">Available for {availableForLabel}</p>
+                  {isDeficit && (
+                    <div className="mt-3 bg-red-50 p-3 rounded-lg flex items-start space-x-2 border border-red-100">
+                      <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
+                      <p className="text-xs text-red-700 leading-tight">
+                        Income is lower than expenses and minimums. Reduce spending or increase income.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
             
             
             {/* Quick Stats: Assets vs Liabilities */}
             {assets.length > 0 && liabilities.length > 0 && (
                <div className="mt-8 pt-6 border-t border-slate-100">
                   <h4 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Health Check</h4>
-                  <div className="flex items-center space-x-2 text-sm">
-                      <span className="w-16 text-slate-500">Assets</span>
-                      <div className="flex-1 bg-slate-100 rounded-full h-2">
-                          <div 
-                            className="bg-green-500 h-2 rounded-full" 
-                            style={{ width: `${Math.min(100, (totalAssets / (totalAssets + totalLiability)) * 100)}%` }}
-                          ></div>
+                  {!balancesReady ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center space-x-2 text-sm">
+                        <div className="h-4 w-16 rounded bg-slate-100 animate-pulse" />
+                        <div className="flex-1 h-2 rounded bg-slate-100 animate-pulse" />
+                        <div className="h-4 w-16 rounded bg-slate-100 animate-pulse" />
                       </div>
-                      <span className="text-xs font-bold text-slate-900">{currencySymbol}{totalAssets.toLocaleString(undefined, {notation: 'compact'})}</span>
-                  </div>
-                   <div className="flex items-center space-x-2 text-sm mt-2">
-                      <span className="w-16 text-slate-500">{liabilityPlural}</span>
-                      <div className="flex-1 bg-slate-100 rounded-full h-2">
-                          <div 
-                            className="bg-red-500 h-2 rounded-full" 
-                            style={{ width: `${Math.min(100, (totalLiability / (totalAssets + totalLiability)) * 100)}%` }}
-                          ></div>
+                      <div className="flex items-center space-x-2 text-sm">
+                        <div className="h-4 w-20 rounded bg-slate-100 animate-pulse" />
+                        <div className="flex-1 h-2 rounded bg-slate-100 animate-pulse" />
+                        <div className="h-4 w-16 rounded bg-slate-100 animate-pulse" />
                       </div>
-                      <span className="text-xs font-bold text-slate-900">{currencySymbol}{totalLiability.toLocaleString(undefined, {notation: 'compact'})}</span>
-                  </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center space-x-2 text-sm">
+                          <span className="w-16 text-slate-500">Assets</span>
+                          <div className="flex-1 bg-slate-100 rounded-full h-2">
+                              <div 
+                                className="bg-green-500 h-2 rounded-full" 
+                                style={{ width: `${Math.min(100, (totalAssets / (totalAssets + totalLiability)) * 100)}%` }}
+                              ></div>
+                          </div>
+                          <span className="text-xs font-bold text-slate-900">{currencySymbol}{totalAssets.toLocaleString(undefined, {notation: 'compact'})}</span>
+                      </div>
+                       <div className="flex items-center space-x-2 text-sm mt-2">
+                          <span className="w-16 text-slate-500">{liabilityPlural}</span>
+                          <div className="flex-1 bg-slate-100 rounded-full h-2">
+                              <div 
+                                className="bg-red-500 h-2 rounded-full" 
+                                style={{ width: `${Math.min(100, (totalLiability / (totalAssets + totalLiability)) * 100)}%` }}
+                              ></div>
+                          </div>
+                          <span className="text-xs font-bold text-slate-900">{currencySymbol}{totalLiability.toLocaleString(undefined, {notation: 'compact'})}</span>
+                      </div>
+                    </>
+                  )}
                </div>
             )}
           </div>

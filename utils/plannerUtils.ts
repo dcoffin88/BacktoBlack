@@ -5,6 +5,7 @@ import {
     UserSettings,
     ExpenseSplitMethod,
     Ownership,
+    PayFrequency,
 } from "../types";
 import {
     getMinPayment,
@@ -21,7 +22,7 @@ export interface ExpenseEvent {
     category: "Expense" | "Liability";
     isPaid: boolean;
     owner: Ownership;
-    frequency: "MONTHLY" | "BI_WEEKLY" | "WEEKLY" | "QUARTERLY";
+    frequency: "MONTHLY" | "BI_WEEKLY" | "WEEKLY" | "QUARTERLY" | "ANNUAL";
     splitLabel?: string;
     transferAccount?: string;
 }
@@ -45,6 +46,39 @@ const addDays = (date: Date, days: number) => {
 };
 
 // Generate specific pay dates for a source for a duration
+const getSemiMonthlyDates = (
+    anchorDay: number,
+    startDate: Date,
+    endDate: Date
+): Date[] => {
+    const dates: Date[] = [];
+    const day1Base = anchorDay <= 15 ? anchorDay : anchorDay - 15;
+    const day2Base = anchorDay <= 15 ? anchorDay + 15 : anchorDay;
+    const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+    const endCursor = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+
+    while (cursor <= endCursor) {
+        const year = cursor.getFullYear();
+        const month = cursor.getMonth();
+        const lastDay = new Date(year, month + 1, 0).getDate();
+        const day1 = Math.min(Math.max(day1Base, 1), lastDay);
+        const day2 = Math.min(Math.max(day2Base, 1), lastDay);
+        const first = new Date(year, month, day1);
+        const second = new Date(year, month, day2);
+
+        if (first >= startDate && first <= endDate) {
+            dates.push(first);
+        }
+        if (second.getTime() !== first.getTime() && second >= startDate && second <= endDate) {
+            dates.push(second);
+        }
+
+        cursor.setMonth(cursor.getMonth() + 1);
+    }
+
+    return dates.sort((a, b) => a.getTime() - b.getTime());
+};
+
 const getPayDates = (
     source: IncomeSource,
     startDate: Date,
@@ -54,7 +88,12 @@ const getPayDates = (
 
     // Ensure nextPayDate is treated as local date
     const [y, m, d] = source.nextPayDate.split("-").map(Number);
-    let current = new Date(y, m - 1, d);
+    const seed = new Date(y, m - 1, d);
+    if (Number.isNaN(seed.getTime())) return dates;
+    if (source.frequency === "SEMI_MONTHLY") {
+        return getSemiMonthlyDates(seed.getDate(), startDate, endDate);
+    }
+    let current = new Date(seed);
 
     // Backtrack logic to find relevant past paycheques if needed for current month's expenses
     let iterations = 0;
@@ -67,9 +106,6 @@ const getPayDates = (
             case "BI_WEEKLY":
                 prev.setDate(prev.getDate() - 14);
                 break;
-            case "SEMI_MONTHLY":
-                prev.setDate(prev.getDate() - 15);
-                break; // Approx
             case "MONTHLY":
                 prev.setMonth(prev.getMonth() - 1);
                 break;
@@ -99,9 +135,6 @@ const getPayDates = (
                 break;
             case "BI_WEEKLY":
                 current = addDays(current, 14);
-                break;
-            case "SEMI_MONTHLY":
-                current = addDays(current, 15);
                 break;
             case "MONTHLY":
                 current = new Date(current.setMonth(current.getMonth() + 1));
@@ -134,6 +167,180 @@ const calculateShares = (
         return { myShare, partnerShare: amount - myShare };
     }
 };
+
+interface IncomeDetails {
+    percentages: Map<string, number>;
+    totalAnnualIncome: number;
+    monthlyIncomePercentage: number;
+}
+
+export const calculateIncomeDetails = (incomes: IncomeSource[]): IncomeDetails => {
+    const includedIncomes = incomes.filter(i => i.includeInPlanner !== false);
+
+    const getAnnualizedIncome = (income: IncomeSource): number => {
+        switch (income.frequency) {
+            case "WEEKLY":
+                return income.amount * 52;
+            case "BI_WEEKLY":
+                return income.amount * 26;
+            case "SEMI_MONTHLY":
+                return income.amount * 24;
+            case "MONTHLY":
+                return income.amount * 12;
+            case "ANNUAL":
+                return income.amount;
+            default:
+                return 0;
+        }
+    };
+
+    const totalAnnualIncome = includedIncomes.reduce((total, income) => total + getAnnualizedIncome(income), 0);
+
+    const percentages = new Map<string, number>();
+    let monthlyIncomePercentage = 0;
+
+    for (const income of includedIncomes) {
+        const annualized = getAnnualizedIncome(income);
+        const percentage = totalAnnualIncome > 0 ? annualized / totalAnnualIncome : 0;
+        percentages.set(income.id, percentage);
+        if (income.frequency === 'MONTHLY') {
+            monthlyIncomePercentage += percentage;
+        }
+    }
+
+    return { percentages, totalAnnualIncome, monthlyIncomePercentage };
+};
+
+type ExpenseItem = (Expense | Liability) & { itemType: 'Expense' | 'Liability' };
+
+export const generateAllocationPlan = (
+    incomes: IncomeSource[],
+    expenses: Expense[],
+    liabilities: Liability[],
+    settings: UserSettings,
+    daysToProject: number = 45
+): PaychequeAllocation[] => {
+    const plannerIncomes = incomes.filter(src => src.includeInPlanner !== false);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const endDate = addDays(today, daysToProject);
+
+    const { percentages, monthlyIncomePercentage } = calculateIncomeDetails(plannerIncomes);
+
+    const allItems: ExpenseItem[] = [
+        ...expenses.map(e => ({ ...e, itemType: 'Expense' as 'Expense' })),
+        ...liabilities.map(l => ({ ...l, itemType: 'Liability' as 'Liability' }))
+    ];
+
+    const allocations: PaychequeAllocation[] = [];
+    plannerIncomes.forEach((source) => {
+        const payDates = getPayDates(source, today, endDate);
+        payDates.forEach((date) => {
+            allocations.push({
+                date: date,
+                sourceId: source.id,
+                sourceName: source.name,
+                totalAmount: source.amount,
+                isPartner: source.isPartner,
+                assignedExpenses: [],
+                totalAllocated: 0,
+                remaining: source.amount,
+            });
+        });
+    });
+
+    allocations.sort((a, b) => a.date.getTime() - b.getTime());
+
+    const biWeeklyCounters = new Map<string, number>();
+
+    allocations.forEach(alloc => {
+        const incomeSource = plannerIncomes.find(i => i.id === alloc.sourceId);
+        if (!incomeSource) return;
+
+        const incomePercentage = percentages.get(incomeSource.id) || 0;
+
+        allItems.forEach((item, index) => {
+            let amountToAllocate = 0;
+            const frequency: PayFrequency | Expense['frequency'] | undefined = item.itemType === 'Expense' ? (item as Expense).frequency : (item as Liability).paymentFrequency;
+            
+            let amount = 0;
+            if (item.itemType === 'Expense') {
+                amount = (item as Expense).amount;
+            } else {
+                const liability = item as Liability;
+                const monthlyInt = liability.balance * (liability.interestRate / 100 / 12);
+                const estFee = liability.isFeeMonthly ? liability.annualFee / 12 : 0;
+                amount = getMinPayment(
+                    liability,
+                    liability.balance,
+                    monthlyInt,
+                    estFee
+                );
+            }
+
+            switch (frequency) {
+                case 'WEEKLY': {
+                    let paychequeFrequencyMultiplier = 0;
+                    switch(incomeSource.frequency) {
+                        case 'WEEKLY': paychequeFrequencyMultiplier = 52; break;
+                        case 'BI_WEEKLY': paychequeFrequencyMultiplier = 26; break;
+                        case 'SEMI_MONTHLY': paychequeFrequencyMultiplier = 24; break;
+                        case 'MONTHLY': paychequeFrequencyMultiplier = 12; break;
+                        case 'ANNUAL': paychequeFrequencyMultiplier = 1; break;
+                    }
+                    if (paychequeFrequencyMultiplier > 0) {
+                        amountToAllocate = amount * 52 / paychequeFrequencyMultiplier;
+                    }
+                    break;
+                }
+                case 'BI_WEEKLY':
+                    amountToAllocate = amount * (incomePercentage + (monthlyIncomePercentage / 2));
+                    break;
+                case 'MONTHLY': {
+                    let isApplicable = false;
+                    if (incomeSource.frequency === 'MONTHLY') {
+                        isApplicable = true;
+                    } else if (incomeSource.frequency === 'BI_WEEKLY') {
+                        const monthKey = `${alloc.date.getFullYear()}-${alloc.date.getMonth() + 1}`;
+                        const count = biWeeklyCounters.get(monthKey) || 0;
+                        if (count < 4) {
+                            isApplicable = true;
+                            biWeeklyCounters.set(monthKey, count + 1);
+                        }
+                    }
+                    if (isApplicable) {
+                        amountToAllocate = amount * (incomePercentage / 2);
+                    }
+                    break;
+                }
+                case 'ANNUAL':
+                    amountToAllocate = (amount / 12) * (incomePercentage / 2);
+                    break;
+            }
+
+            if (amountToAllocate > 0) {
+                const expenseEvent: ExpenseEvent = {
+                    id: `${item.id}-${alloc.date.getTime()}-${index}`,
+                    name: item.name,
+                    totalAmount: amountToAllocate,
+                    myShare: amountToAllocate, // Assuming all allocations are for the user for now
+                    partnerShare: 0,
+                    dueDate: alloc.date,
+                    category: item.itemType,
+                    isPaid: false,
+                    owner: 'owner' in item && item.owner ? item.owner : "JOINT",
+                    frequency: frequency as ExpenseEvent['frequency'],
+                };
+                alloc.assignedExpenses.push(expenseEvent);
+                alloc.totalAllocated += amountToAllocate;
+                alloc.remaining -= amountToAllocate;
+            }
+        });
+    });
+
+    return allocations;
+};
+
 
 export const generatePaychequePlan = (
     incomes: IncomeSource[],

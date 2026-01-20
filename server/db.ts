@@ -1,4 +1,5 @@
-import { Liability, Expense, Asset, UserSettings, IncomeSource, UserProfile, BudgetSchedule, AmortizationOverride } from '../types';
+import { Liability, Expense, Asset, UserSettings, IncomeSource, UserProfile, BudgetSchedule, AmortizationOverride, StrategyType, PayoffResult } from '../types';
+import { AmortizationRow } from './liabilityAlgorithms';
 
 const API_BASE_URL = '/api';
 type ApiPayload = { error?: string; [key: string]: any };
@@ -107,6 +108,18 @@ export const dbAPI = {
       headers: getAuthHeaders(),
     });
   },
+  getLiabilityAmortization: async (id: string): Promise<{
+    schedule: {
+      liabilityId: string;
+      isInfinite: boolean;
+      timeline: AmortizationRow[];
+      totalInterest: number;
+      totalFees: number;
+      months: number;
+    } | null;
+  }> => {
+    return await fetchJson(`${API_BASE_URL}/liabilities/${id}/amortization`, { headers: getAuthHeaders() });
+  },
 
   // BILLS
   getExpenses: async (): Promise<Expense[]> => {
@@ -195,6 +208,14 @@ export const dbAPI = {
     await fetchJson(`${API_BASE_URL}/budget/amortization-overrides/${id}`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
+    });
+  },
+
+  getStrategySimulation: async (strategy: StrategyType, monthlyBudget: number): Promise<{ simulation: PayoffResult }> => {
+    return await fetchJson(`${API_BASE_URL}/strategy/simulations`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ strategy, monthlyBudget }),
     });
   },
 

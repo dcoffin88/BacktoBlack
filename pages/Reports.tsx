@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Asset, Expense, IncomeSource, Liability, UserSettings } from '../types';
-import { calculateMonthlyIncome, getMinPayment } from '../server/liabilityAlgorithms';
+import { calculateMonthlyIncome, getMinPayment, AmortizationRow } from '../server/liabilityAlgorithms';
+import { dbAPI } from '../server/db';
 import { CalendarRange, ChevronDown, ChevronUp, Calculator, ArrowRightLeft, Receipt, FileText, Wallet } from 'lucide-react';
 
 interface ReportsProps {
@@ -19,44 +20,27 @@ const getMonthlyExpenseAmount = (expense: Expense) => {
   return expense.amount;
 };
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-const countIntervalsByDays = (start: Date, end: Date, intervalDays: number) => {
-  const startMidnight = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-  const endMidnight = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-  if (endMidnight < startMidnight) return 0;
-  const diffDays = Math.floor((endMidnight.getTime() - startMidnight.getTime()) / MS_PER_DAY);
-  return Math.floor(diffDays / intervalDays) + 1;
+const parseLocalDate = (value?: string | null) => {
+  if (!value) return null;
+  const d = value.includes('T') ? new Date(value) : new Date(`${value}T12:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
 };
 
-const countAnchoredOccurrences = (
-  start: Date,
-  end: Date,
-  anchor: Date,
-  intervalMonths: number
-) => {
-  const startDate = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-  const endDate = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-  let current = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
-  if (endDate < startDate) return 0;
+const getMonthKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}`;
 
-  const monthDiff =
-    (startDate.getFullYear() - current.getFullYear()) * 12 +
-    (startDate.getMonth() - current.getMonth());
-  if (monthDiff > 0) {
-    const stepCount = Math.floor(monthDiff / intervalMonths);
-    current.setMonth(current.getMonth() + stepCount * intervalMonths);
-  }
-  while (current < startDate) {
-    current.setMonth(current.getMonth() + intervalMonths);
-  }
+type AmortizationDataView = {
+  isInfinite: boolean;
+  timeline: AmortizationRow[];
+  totalInterest: number;
+  totalFees: number;
+  months: number;
+};
 
-  let count = 0;
-  while (current <= endDate) {
-    count += 1;
-    current.setMonth(current.getMonth() + intervalMonths);
-  }
-  return count;
+type PaycheckOccurrence = {
+  date: Date;
+  source: IncomeSource;
+  eligibleMonthly: boolean;
+  eligibleBiWeekly: boolean;
 };
 
 const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, incomes, settings }) => {
@@ -71,6 +55,8 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
   const monthlyIncomeMode = settings.monthlyIncomeMode || 'ANNUALIZED';
   const [expandedReport, setExpandedReport] = useState<string | null>(null);
   const [selectedCheckKey, setSelectedCheckKey] = useState<string | null>(null);
+  const [amortizationSchedules, setAmortizationSchedules] = useState<Record<string, AmortizationDataView>>({});
+  const [amortizationLoaded, setAmortizationLoaded] = useState(false);
   const budgetStartDate = useMemo(() => {
     if (!settings.startDate) return null;
     const parsed = new Date(settings.startDate);
@@ -83,30 +69,107 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     [incomes]
   );
 
-  const activeLiabilities = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return liabilities.filter((liability) => {
-      if (!liability.startDate) return true;
-      const start = new Date(`${liability.startDate}T12:00:00`);
-      if (Number.isNaN(start.getTime())) return true;
-      start.setHours(0, 0, 0, 0);
-      return start <= today;
-    });
+  useEffect(() => {
+    let active = true;
+    const loadAmortizations = async () => {
+      setAmortizationLoaded(liabilities.length === 0);
+      if (liabilities.length === 0) {
+        if (active) setAmortizationSchedules({});
+        return;
+      }
+      const results = await Promise.all(
+        liabilities.map(async (liability) => {
+          try {
+            const remote = await dbAPI.getLiabilityAmortization(liability.id);
+            if (remote?.schedule) {
+              return [liability.id, remote.schedule] as const;
+            }
+          } catch {
+            /* ignore fetch errors */
+          }
+          return [liability.id, null] as const;
+        })
+      );
+      if (!active) return;
+      const next: Record<string, AmortizationDataView> = {};
+      results.forEach(([id, schedule]) => {
+        if (schedule) {
+          next[id] = schedule as AmortizationDataView;
+        }
+      });
+      setAmortizationSchedules(next);
+      setAmortizationLoaded(true);
+    };
+    loadAmortizations();
+    return () => {
+      active = false;
+    };
   }, [liabilities]);
 
-  const monthlyLiabilityMins = useMemo(() => {
-    return activeLiabilities.reduce((sum, l) => {
-      const monthlyInterest = l.balance * (l.interestRate / 100 / 12);
-      const estFee = l.isFeeMonthly ? l.annualFee / 12 : 0;
-      return sum + getMinPayment(l, l.balance, monthlyInterest, estFee);
-    }, 0);
-  }, [activeLiabilities]);
+  const scheduleBalanceById = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const next: Record<string, number> = {};
+    liabilities.forEach((liability) => {
+      const schedule = amortizationSchedules[liability.id];
+      if (!schedule?.timeline?.length) {
+        next[liability.id] = liability.balance;
+        return;
+      }
+      let latestDate: Date | null = null;
+      let latestBalance: number | null = null;
+      schedule.timeline.forEach((row) => {
+        const parsed = parseLocalDate(row.actualDate ?? null);
+        if (!parsed || parsed > today) return;
+        if (!latestDate || parsed > latestDate) {
+          latestDate = parsed;
+          latestBalance = row.remainingBalance;
+        }
+      });
+      if (latestBalance !== null) {
+        next[liability.id] = latestBalance;
+        return;
+      }
+      const historicalRows = schedule.timeline.filter(
+        (row) => row.isHistorical || row.month <= 0
+      );
+      if (historicalRows.length) {
+        const latestHistorical = historicalRows.reduce((acc, cur) =>
+          cur.month > acc.month ? cur : acc
+        );
+        next[liability.id] = latestHistorical.remainingBalance;
+        return;
+      }
+      next[liability.id] = liability.balance;
+    });
+    return next;
+  }, [amortizationSchedules, liabilities]);
+
+  const getMonthlyPaymentFromSchedule = (liability: Liability) => {
+    const schedule = amortizationSchedules[liability.id];
+    if (!schedule?.timeline?.length) return null;
+    const isBiWeekly = liability.paymentFrequency === 'BI_WEEKLY';
+    const isWeekly = liability.paymentFrequency === 'WEEKLY';
+    const periodsPerYear = isBiWeekly ? 26 : isWeekly ? 52 : 12;
+    const periodsPerMonth = periodsPerYear / 12;
+    let total = 0;
+    schedule.timeline.forEach((row) => {
+      if (row.month <= 0) return;
+      const monthIndex = Math.max(1, Math.ceil(row.month / periodsPerMonth));
+      if (monthIndex === 1) {
+        total += row.payment;
+      }
+    });
+    return total;
+  };
 
   const monthlyBudget = settings.monthlyBudget || 0;
 
   const totalAssets = assets.reduce((sum, a) => sum + a.value, 0);
-  const totalLiabilities = liabilities.reduce((sum, l) => sum + l.balance, 0);
+  const totalLiabilities = liabilities.reduce(
+    (sum, l) => sum + (scheduleBalanceById[l.id] ?? l.balance),
+    0
+  );
   const netWorth = totalAssets - totalLiabilities;
 
   const toMonthIndex = (value: string) => {
@@ -130,83 +193,57 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     };
   }, [currentYear, currentMonthIndex, endMonth, startMonth]);
 
-  const getExpensePeriodAmount = useCallback(
-    (expense: Expense) => {
-      if (expense.frequency === 'WEEKLY') {
-        const weeks = countIntervalsByDays(periodRange.start, periodRange.end, 7);
-        return expense.amount * weeks;
-      }
-      if (expense.frequency === 'BI_WEEKLY') {
-        const periods = countIntervalsByDays(periodRange.start, periodRange.end, 14);
-        return expense.amount * periods;
-      }
-      if (expense.frequency === 'QUARTERLY') {
-        const anchor = expense.quarterlyAnchor
-          ? new Date(expense.quarterlyAnchor)
-          : null;
-        if (anchor && !Number.isNaN(anchor.getTime())) {
-          const occurrences = countAnchoredOccurrences(
-            periodRange.start,
-            periodRange.end,
-            anchor,
-            3
-          );
-          return expense.amount * occurrences;
-        }
-      }
-      return getMonthlyExpenseAmount(expense) * monthCount;
+  const activeLiabilities = useMemo(() => {
+    const rangeEnd = new Date(periodRange.end);
+    rangeEnd.setHours(0, 0, 0, 0);
+    return liabilities.filter((liability) => {
+      if (!liability.startDate) return true;
+      const start = new Date(`${liability.startDate}T12:00:00`);
+      if (Number.isNaN(start.getTime())) return true;
+      start.setHours(0, 0, 0, 0);
+      return start <= rangeEnd;
+    });
+  }, [liabilities, periodRange.end]);
+
+  const getActiveMonthsForLiability = useCallback(
+    (liability: Liability) => {
+      if (!liability.startDate) return monthCount;
+      const start = new Date(`${liability.startDate}T12:00:00`);
+      if (Number.isNaN(start.getTime())) return monthCount;
+      const rangeStart = new Date(periodRange.start);
+      const rangeEnd = new Date(periodRange.end);
+      const effectiveStart = start > rangeStart ? start : rangeStart;
+      if (effectiveStart > rangeEnd) return 0;
+      const startIndex = effectiveStart.getFullYear() * 12 + effectiveStart.getMonth();
+      const endIndex = rangeEnd.getFullYear() * 12 + rangeEnd.getMonth();
+      return Math.max(1, endIndex - startIndex + 1);
     },
     [monthCount, periodRange.end, periodRange.start]
   );
 
-  const periodExpenseTotal = useMemo(
-    () => expenses.reduce((sum, expense) => sum + getExpensePeriodAmount(expense), 0),
-    [expenses, getExpensePeriodAmount]
-  );
+  const userSplitRatio = useMemo(() => {
+    if (!settings.enablePartner) return 1;
+    if (settings.expenseSplitMethod === 'PERCENTAGE') {
+      return (settings.userSplitPercentage || 50) / 100;
+    }
+    if (settings.expenseSplitMethod === 'INCOME') {
+      const mine = calculateMonthlyIncome(
+        budgetedIncomes.filter((i) => !i.isPartner)
+      );
+      const partner = calculateMonthlyIncome(
+        budgetedIncomes.filter((i) => i.isPartner)
+      );
+      const total = mine + partner;
+      if (total <= 0) return 0.5;
+      return mine / total;
+    }
+    return 0.5;
+  }, [budgetedIncomes, monthlyIncomeMode, settings]);
 
-  const scale = (value: number) => value * monthCount;
   const formatCurrency = (value: number) =>
     `${currencySymbol}${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const formatCurrencyPrecise = formatCurrency;
-
-  const expenseCategoryRows = useMemo(() => {
-    const buckets = new Map<string, { items: Expense[]; total: number }>();
-    expenses.forEach((expense) => {
-      const key = expense.category?.trim() || 'Uncategorized';
-      const existing = buckets.get(key) || { items: [], total: 0 };
-      existing.items.push(expense);
-      existing.total += getExpensePeriodAmount(expense);
-      buckets.set(key, existing);
-    });
-    return Array.from(buckets.entries())
-      .map(([category, data]) => ({
-        category,
-        items: data.items.slice().sort((a, b) => a.name.localeCompare(b.name)),
-        total: data.total,
-      }))
-      .sort((a, b) => a.category.localeCompare(b.category));
-  }, [expenses, getExpensePeriodAmount]);
-
-  const liabilityCategoryRows = useMemo(() => {
-    const buckets = new Map<string, { items: Liability[]; total: number }>();
-    activeLiabilities.forEach((liability) => {
-      const key = liability.category?.trim() || 'Uncategorized';
-      const existing = buckets.get(key) || { items: [], total: 0 };
-      const monthlyInterest = liability.balance * (liability.interestRate / 100 / 12);
-      const estFee = liability.isFeeMonthly ? liability.annualFee / 12 : 0;
-      const minPayment = getMinPayment(liability, liability.balance, monthlyInterest, estFee);
-      existing.items.push(liability);
-      existing.total += minPayment;
-      buckets.set(key, existing);
-    });
-    return Array.from(buckets.entries())
-      .map(([category, data]) => ({
-        category,
-        items: data.items.slice().sort((a, b) => a.name.localeCompare(b.name)),
-        total: data.total,
-      }))
-      .sort((a, b) => a.category.localeCompare(b.category));
-  }, [activeLiabilities]);
+  const balancesReady = liabilities.length === 0 || amortizationLoaded;
 
   const toggleReport = (key: string) => {
     setExpandedReport((current) => (current === key ? null : key));
@@ -222,6 +259,39 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
         ? budgetStartDate
         : start;
 
+    const getSemiMonthlyDates = (
+      anchorDay: number,
+      startDate: Date,
+      endDate: Date
+    ): Date[] => {
+      const dates: Date[] = [];
+      const day1Base = anchorDay <= 15 ? anchorDay : anchorDay - 15;
+      const day2Base = anchorDay <= 15 ? anchorDay + 15 : anchorDay;
+      const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+      const endCursor = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+
+      while (cursor <= endCursor) {
+        const year = cursor.getFullYear();
+        const month = cursor.getMonth();
+        const lastDay = new Date(year, month + 1, 0).getDate();
+        const day1 = Math.min(Math.max(day1Base, 1), lastDay);
+        const day2 = Math.min(Math.max(day2Base, 1), lastDay);
+        const first = new Date(year, month, day1);
+        const second = new Date(year, month, day2);
+
+        if (first >= startDate && first <= endDate) {
+          dates.push(first);
+        }
+        if (second.getTime() !== first.getTime() && second >= startDate && second <= endDate) {
+          dates.push(second);
+        }
+
+        cursor.setMonth(cursor.getMonth() + 1);
+      }
+
+      return dates.sort((a, b) => a.getTime() - b.getTime());
+    };
+
     const getPayDates = (
       source: IncomeSource,
       startDate: Date,
@@ -229,7 +299,12 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     ): Date[] => {
       const dates: Date[] = [];
       const [y, m, d] = source.nextPayDate.split('-').map(Number);
-      let current = new Date(y, m - 1, d);
+      const seed = new Date(y, m - 1, d);
+      if (Number.isNaN(seed.getTime())) return [];
+      if (source.frequency === 'SEMI_MONTHLY') {
+        return getSemiMonthlyDates(seed.getDate(), startDate, endDate);
+      }
+      let current = new Date(seed);
 
       let iterations = 0;
       while (current > startDate && iterations < 5000) {
@@ -240,9 +315,6 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
             break;
           case 'BI_WEEKLY':
             prev.setDate(prev.getDate() - 14);
-            break;
-          case 'SEMI_MONTHLY':
-            prev.setDate(prev.getDate() - 15);
             break;
           case 'MONTHLY':
             prev.setMonth(prev.getMonth() - 1);
@@ -270,9 +342,6 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
             break;
           case 'BI_WEEKLY':
             current.setDate(current.getDate() + 14);
-            break;
-          case 'SEMI_MONTHLY':
-            current.setDate(current.getDate() + 15);
             break;
           case 'MONTHLY':
             current.setMonth(current.getMonth() + 1);
@@ -341,12 +410,6 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     [paychecksInPeriod]
   );
 
-  const periodCashOut = useMemo(
-    () => periodExpenseTotal + (monthlyLiabilityMins + monthlyBudget) * monthCount,
-    [monthlyBudget, monthlyLiabilityMins, monthCount, periodExpenseTotal]
-  );
-  const periodNet = useMemo(() => periodIncomeTotal - periodCashOut, [periodCashOut, periodIncomeTotal]);
-
   const transferChecks = useMemo(() => {
     return paychecks.map((paycheck) => {
       const dateKey = paycheck.date.toISOString().split('T')[0];
@@ -378,120 +441,122 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
 
   const selectedTransfer = transferChecks.find((check) => check.key === selectedCheckKey) || null;
 
-  const userSplitRatio = useMemo(() => {
-    if (!settings.enablePartner) return 1;
-    if (settings.expenseSplitMethod === 'PERCENTAGE') {
-      return (settings.userSplitPercentage || 50) / 100;
-    }
-    if (settings.expenseSplitMethod === 'INCOME') {
-      const mine = calculateMonthlyIncome(
-        budgetedIncomes.filter((i) => !i.isPartner)
-      );
-      const partner = calculateMonthlyIncome(
-        budgetedIncomes.filter((i) => i.isPartner)
-      );
-      const total = mine + partner;
-      if (total <= 0) return 0.5;
-      return mine / total;
-    }
-    return 0.5;
-  }, [budgetedIncomes, monthlyIncomeMode, settings]);
-
-  const getExpenseShare = (expense: Expense) => {
-    if (!settings.enablePartner) return 1;
-    const owner = expense.owner || 'JOINT';
-    if (owner === 'USER') return 1;
-    if (owner === 'PARTNER') return 0;
-    return userSplitRatio;
-  };
-
   const liabilityWithMins = useMemo(() => {
     return activeLiabilities.map((liability) => {
-      const monthlyInterest = liability.balance * (liability.interestRate / 100 / 12);
+      const currentBalance = scheduleBalanceById[liability.id] ?? liability.balance;
+      const monthlyInterest = currentBalance * (liability.interestRate / 100 / 12);
       const estFee = liability.isFeeMonthly ? liability.annualFee / 12 : 0;
       return {
         ...liability,
-        plannedPayment: getMinPayment(liability, liability.balance, monthlyInterest, estFee),
+        plannedPayment: getMinPayment(liability, currentBalance, monthlyInterest, estFee),
         scheduledFrequency: liability.paymentFrequency || 'MONTHLY',
       };
     });
-  }, [activeLiabilities]);
+  }, [activeLiabilities, scheduleBalanceById]);
+
+  const monthPaychecksByKey = useMemo(() => {
+    const buckets = new Map<string, PaycheckOccurrence[]>();
+    paychecks.forEach((paycheck) => {
+      const key = getMonthKey(paycheck.date);
+      const existing = buckets.get(key);
+      if (existing) {
+        existing.push(paycheck);
+        return;
+      }
+      buckets.set(key, [paycheck]);
+    });
+    return buckets;
+  }, [paychecks]);
+
+  const getMonthPaychecksFor = useCallback(
+    (date: Date) => monthPaychecksByKey.get(getMonthKey(date)) || [],
+    [monthPaychecksByKey]
+  );
 
   const monthPaychecks = useMemo(() => {
     if (!selectedTransfer) return paychecks;
-    const y = selectedTransfer.date.getFullYear();
-    const m = selectedTransfer.date.getMonth();
-    const filtered = paychecks.filter(
-      (paycheck) => paycheck.date.getFullYear() === y && paycheck.date.getMonth() === m
-    );
-    return filtered.length > 0 ? filtered : paychecks;
-  }, [paychecks, selectedTransfer]);
+    const key = getMonthKey(selectedTransfer.date);
+    return monthPaychecksByKey.get(key) || paychecks;
+  }, [monthPaychecksByKey, paychecks, selectedTransfer]);
 
-  const totalMonthlyIncomeIncluded = monthPaychecks
-    .filter((paycheck) => paycheck.eligibleMonthly !== false)
-    .reduce((sum, paycheck) => sum + paycheck.source.amount, 0);
-  const totalBiWeeklyIncomeIncluded = monthPaychecks
-    .filter((paycheck) => paycheck.eligibleBiWeekly !== false)
-    .reduce((sum, paycheck) => sum + paycheck.source.amount, 0);
-  const totalAnyIncomeIncluded = monthPaychecks.reduce(
-    (sum, paycheck) => sum + paycheck.source.amount,
-    0
+  const getRatiosForPaycheck = useCallback(
+    (currentPaycheck: PaycheckOccurrence | null, monthPaychecksForCheck: PaycheckOccurrence[]) => {
+      if (!currentPaycheck) {
+        return {
+          monthlyRatio: 0,
+          biWeeklyRatio: 0,
+          monthlyRatioOwner: 0,
+          biWeeklyRatioOwner: 0,
+        };
+      }
+      const totalMonthlyIncomeIncluded = monthPaychecksForCheck
+        .filter((paycheck) => paycheck.eligibleMonthly !== false)
+        .reduce((sum, paycheck) => sum + paycheck.source.amount, 0);
+      const totalBiWeeklyIncomeIncluded = monthPaychecksForCheck
+        .filter((paycheck) => paycheck.eligibleBiWeekly !== false)
+        .reduce((sum, paycheck) => sum + paycheck.source.amount, 0);
+      const totalAnyIncomeIncluded = monthPaychecksForCheck.reduce(
+        (sum, paycheck) => sum + paycheck.source.amount,
+        0
+      );
+      const monthlyPool =
+        totalMonthlyIncomeIncluded > 0 ? totalMonthlyIncomeIncluded : totalAnyIncomeIncluded;
+      const biWeeklyPool =
+        totalBiWeeklyIncomeIncluded > 0 ? totalBiWeeklyIncomeIncluded : totalAnyIncomeIncluded;
+
+      const monthlyPoolUser = monthPaychecksForCheck
+        .filter((paycheck) => paycheck.eligibleMonthly !== false && !paycheck.source.isPartner)
+        .reduce((sum, paycheck) => sum + paycheck.source.amount, 0);
+      const monthlyPoolPartner = monthPaychecksForCheck
+        .filter((paycheck) => paycheck.eligibleMonthly !== false && paycheck.source.isPartner)
+        .reduce((sum, paycheck) => sum + paycheck.source.amount, 0);
+      const biWeeklyPoolUser = monthPaychecksForCheck
+        .filter((paycheck) => paycheck.eligibleBiWeekly !== false && !paycheck.source.isPartner)
+        .reduce((sum, paycheck) => sum + paycheck.source.amount, 0);
+      const biWeeklyPoolPartner = monthPaychecksForCheck
+        .filter((paycheck) => paycheck.eligibleBiWeekly !== false && paycheck.source.isPartner)
+        .reduce((sum, paycheck) => sum + paycheck.source.amount, 0);
+
+      const monthlyRatio =
+        currentPaycheck.eligibleMonthly !== false && monthlyPool > 0
+          ? (currentPaycheck.source.amount || 0) / monthlyPool
+          : 0;
+      const biWeeklyRatio =
+        currentPaycheck.eligibleBiWeekly !== false && biWeeklyPool > 0
+          ? (currentPaycheck.source.amount || 0) / biWeeklyPool
+          : 0;
+
+      const monthlyRatioOwner =
+        currentPaycheck.eligibleMonthly === false
+          ? 0
+          : currentPaycheck.source.isPartner
+          ? monthlyPoolPartner > 0
+            ? (currentPaycheck.source.amount || 0) / monthlyPoolPartner
+            : monthlyRatio
+          : monthlyPoolUser > 0
+          ? (currentPaycheck.source.amount || 0) / monthlyPoolUser
+          : monthlyRatio;
+
+      const biWeeklyRatioOwner =
+        currentPaycheck.eligibleBiWeekly === false
+          ? 0
+          : currentPaycheck.source.isPartner
+          ? biWeeklyPoolPartner > 0
+            ? (currentPaycheck.source.amount || 0) / biWeeklyPoolPartner
+            : biWeeklyRatio
+          : biWeeklyPoolUser > 0
+          ? (currentPaycheck.source.amount || 0) / biWeeklyPoolUser
+          : biWeeklyRatio;
+
+      return { monthlyRatio, biWeeklyRatio, monthlyRatioOwner, biWeeklyRatioOwner };
+    },
+    []
   );
-  const monthlyPool =
-    totalMonthlyIncomeIncluded > 0 ? totalMonthlyIncomeIncluded : totalAnyIncomeIncluded;
-  const biWeeklyPool =
-    totalBiWeeklyIncomeIncluded > 0 ? totalBiWeeklyIncomeIncluded : totalAnyIncomeIncluded;
 
-  const monthlyPoolUser = monthPaychecks
-    .filter((paycheck) => paycheck.eligibleMonthly !== false && !paycheck.source.isPartner)
-    .reduce((sum, paycheck) => sum + paycheck.source.amount, 0);
-  const monthlyPoolPartner = monthPaychecks
-    .filter((paycheck) => paycheck.eligibleMonthly !== false && paycheck.source.isPartner)
-    .reduce((sum, paycheck) => sum + paycheck.source.amount, 0);
-  const biWeeklyPoolUser = monthPaychecks
-    .filter((paycheck) => paycheck.eligibleBiWeekly !== false && !paycheck.source.isPartner)
-    .reduce((sum, paycheck) => sum + paycheck.source.amount, 0);
-  const biWeeklyPoolPartner = monthPaychecks
-    .filter((paycheck) => paycheck.eligibleBiWeekly !== false && paycheck.source.isPartner)
-    .reduce((sum, paycheck) => sum + paycheck.source.amount, 0);
-
-  const monthlyRatio =
-    selectedTransfer?.paycheck.eligibleMonthly !== false && monthlyPool > 0
-      ? (selectedTransfer?.paycheck.source.amount || 0) / monthlyPool
-      : 0;
-  const biWeeklyRatio =
-    selectedTransfer?.paycheck.eligibleBiWeekly !== false && biWeeklyPool > 0
-      ? (selectedTransfer?.paycheck.source.amount || 0) / biWeeklyPool
-      : 0;
-
-  const monthlyRatioOwner =
-    selectedTransfer?.paycheck.eligibleMonthly === false
-      ? 0
-      : selectedTransfer?.paycheck.source.isPartner
-      ? monthlyPoolPartner > 0
-        ? (selectedTransfer?.paycheck.source.amount || 0) / monthlyPoolPartner
-        : monthlyRatio
-      : monthlyPoolUser > 0
-      ? (selectedTransfer?.paycheck.source.amount || 0) / monthlyPoolUser
-      : monthlyRatio;
-
-  const biWeeklyRatioOwner =
-    selectedTransfer?.paycheck.eligibleBiWeekly === false
-      ? 0
-      : selectedTransfer?.paycheck.source.isPartner
-      ? biWeeklyPoolPartner > 0
-        ? (selectedTransfer?.paycheck.source.amount || 0) / biWeeklyPoolPartner
-        : biWeeklyRatio
-      : biWeeklyPoolUser > 0
-      ? (selectedTransfer?.paycheck.source.amount || 0) / biWeeklyPoolUser
-      : biWeeklyRatio;
-
-  const getPerCheckExpense = (expense: Expense) => {
+  const getPerCheckExpenseFor = useCallback((expense: Expense, currentPaycheck: PaycheckOccurrence | null, monthPaychecksForCheck: PaycheckOccurrence[]) => {
+    if (!currentPaycheck) return 0;
     const excluded = new Set(expense.excludedIncomeSourceIds || []);
-    const currentPaycheck = selectedTransfer?.paycheck;
-    if (currentPaycheck && excluded.has(currentPaycheck.source.id)) {
-      return 0;
-    }
+    if (excluded.has(currentPaycheck.source.id)) return 0;
 
     const useBiWeekly =
       expense.frequency === 'BI_WEEKLY' || expense.frequency === 'WEEKLY';
@@ -508,7 +573,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
 
     if (expense.excludeFromSplitting) {
       const owner = expense.owner || 'JOINT';
-      const eligiblePool = monthPaychecks.filter((paycheck) => {
+      const eligiblePool = monthPaychecksForCheck.filter((paycheck) => {
         const passesFrequency = useBiWeekly
           ? paycheck.eligibleBiWeekly !== false
           : paycheck.eligibleMonthly !== false;
@@ -532,25 +597,25 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
       return monthlyEquivalent / count;
     }
 
-    const eligibleMonthlyUser = monthPaychecks.filter(
+    const eligibleMonthlyUser = monthPaychecksForCheck.filter(
       (paycheck) =>
         paycheck.eligibleMonthly !== false &&
         !paycheck.source.isPartner &&
         !excluded.has(paycheck.source.id)
     );
-    const eligibleMonthlyPartner = monthPaychecks.filter(
+    const eligibleMonthlyPartner = monthPaychecksForCheck.filter(
       (paycheck) =>
         paycheck.eligibleMonthly !== false &&
         paycheck.source.isPartner &&
         !excluded.has(paycheck.source.id)
     );
-    const eligibleBiWeeklyUser = monthPaychecks.filter(
+    const eligibleBiWeeklyUser = monthPaychecksForCheck.filter(
       (paycheck) =>
         paycheck.eligibleBiWeekly !== false &&
         !paycheck.source.isPartner &&
         !excluded.has(paycheck.source.id)
     );
-    const eligibleBiWeeklyPartner = monthPaychecks.filter(
+    const eligibleBiWeeklyPartner = monthPaychecksForCheck.filter(
       (paycheck) =>
         paycheck.eligibleBiWeekly !== false &&
         paycheck.source.isPartner &&
@@ -619,21 +684,59 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
         : biWeeklyRatioEff;
 
     const owner = expense.owner || 'JOINT';
+    const perCheckBase = expense.amount;
+
+    if (useBiWeekly) {
+      const monthSources = Array.from(
+        new Map(monthPaychecksForCheck.map((p) => [p.source.id, p.source])).values()
+      ).filter((source) => !excluded.has(source.id));
+      const totalMonthlyEquivalent = monthSources.reduce(
+        (sum, source) => sum + calculateMonthlyIncome([source]),
+        0
+      );
+      const biWeeklySources = monthSources.filter(
+        (source) =>
+          source.frequency === 'BI_WEEKLY' || source.frequency === 'WEEKLY'
+      );
+      const isBiWeeklySource = biWeeklySources.some(
+        (source) => source.id === currentPaycheck?.source.id
+      );
+      if (!isBiWeeklySource) return 0;
+      if (totalMonthlyEquivalent > 0) {
+        const biWeeklyCount = biWeeklySources.length || 1;
+        const monthlyOnlyShare = monthSources
+          .filter(
+            (source) =>
+              source.frequency !== 'BI_WEEKLY' && source.frequency !== 'WEEKLY'
+          )
+          .reduce(
+            (sum, source) =>
+              sum + calculateMonthlyIncome([source]) / totalMonthlyEquivalent,
+            0
+          );
+        const sourceShare =
+          calculateMonthlyIncome([currentPaycheck.source]) / totalMonthlyEquivalent;
+        const baseShare = sourceShare + monthlyOnlyShare / biWeeklyCount;
+        if (owner === 'PARTNER' && !currentPaycheck?.source.isPartner) return 0;
+        if (owner === 'USER' && currentPaycheck?.source.isPartner) return 0;
+        return perCheckBase * baseShare;
+      }
+    }
     if (owner === 'PARTNER') {
       if (!currentPaycheck?.source.isPartner) return 0;
       return useBiWeekly
-        ? monthlyEquivalent * biWeeklyRatioOwnerEff
+        ? perCheckBase * biWeeklyRatioOwnerEff
         : monthlyEquivalent * monthlyRatioOwnerEff;
     }
     if (owner === 'USER') {
       if (currentPaycheck?.source.isPartner) return 0;
       return useBiWeekly
-        ? monthlyEquivalent * biWeeklyRatioOwnerEff
+        ? perCheckBase * biWeeklyRatioOwnerEff
         : monthlyEquivalent * monthlyRatioOwnerEff;
     }
 
-    const userPortion = monthlyEquivalent * userSplitRatio;
-    const partnerPortion = monthlyEquivalent - userPortion;
+    const userPortion = perCheckBase * userSplitRatio;
+    const partnerPortion = perCheckBase - userPortion;
     if (currentPaycheck?.source.isPartner) {
       return useBiWeekly
         ? partnerPortion * biWeeklyRatioOwnerEff
@@ -642,12 +745,19 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     return useBiWeekly
       ? userPortion * biWeeklyRatioOwnerEff
       : userPortion * monthlyRatioOwnerEff;
+  }, [userSplitRatio]);
+
+  const getPerCheckExpense = (expense: Expense) => {
+    const currentPaycheck = selectedTransfer?.paycheck || null;
+    if (!currentPaycheck) return 0;
+    const monthPaychecksForCheck = getMonthPaychecksFor(currentPaycheck.date);
+    return getPerCheckExpenseFor(expense, currentPaycheck, monthPaychecksForCheck);
   };
 
-  const getPerCheckLiability = (liability: typeof liabilityWithMins[number]) => {
-    const currentPaycheck = selectedTransfer?.paycheck;
+  const getPerCheckLiabilityFor = useCallback((liability: typeof liabilityWithMins[number], currentPaycheck: PaycheckOccurrence | null, monthPaychecksForCheck: PaycheckOccurrence[]) => {
+    if (!currentPaycheck) return 0;
     const excluded = new Set(liability.excludedIncomeSourceIds || []);
-    if (currentPaycheck && excluded.has(currentPaycheck.source.id)) return 0;
+    if (excluded.has(currentPaycheck.source.id)) return 0;
     const useBiWeekly =
       liability.scheduledFrequency === 'BI_WEEKLY' ||
       liability.scheduledFrequency === 'WEEKLY';
@@ -655,6 +765,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
       liability.excludeFromSplitting ||
       (liability.excludedIncomeSourceIds || []).length > 0;
     const owner = liability.owner || 'JOINT';
+    const ratios = getRatiosForPaycheck(currentPaycheck, monthPaychecksForCheck);
 
     if (useBiWeekly) {
       if (currentPaycheck?.eligibleBiWeekly === false) return 0;
@@ -679,29 +790,29 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     }
 
     if (!hasAdvanced) {
-      if (currentPaycheck?.eligibleMonthly === false) return 0;
-      return (liability.plannedPayment || 0) * monthlyRatio;
+      if (currentPaycheck.eligibleMonthly === false) return 0;
+      return (liability.plannedPayment || 0) * ratios.monthlyRatio;
     }
 
-    const eligibleMonthlyUser = monthPaychecks.filter(
+    const eligibleMonthlyUser = monthPaychecksForCheck.filter(
       (p) =>
         p.eligibleMonthly !== false &&
         !p.source.isPartner &&
         !excluded.has(p.source.id)
     );
-    const eligibleMonthlyPartner = monthPaychecks.filter(
+    const eligibleMonthlyPartner = monthPaychecksForCheck.filter(
       (p) =>
         p.eligibleMonthly !== false &&
         p.source.isPartner &&
         !excluded.has(p.source.id)
     );
-    const eligibleBiWeeklyUser = monthPaychecks.filter(
+    const eligibleBiWeeklyUser = monthPaychecksForCheck.filter(
       (p) =>
         p.eligibleBiWeekly !== false &&
         !p.source.isPartner &&
         !excluded.has(p.source.id)
     );
-    const eligibleBiWeeklyPartner = monthPaychecks.filter(
+    const eligibleBiWeeklyPartner = monthPaychecksForCheck.filter(
       (p) =>
         p.eligibleBiWeekly !== false &&
         p.source.isPartner &&
@@ -777,7 +888,90 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     const ratio = owner === 'JOINT' ? ratioBase : ratioOwner;
     if (!useBiWeekly && currentPaycheck?.eligibleMonthly === false) return 0;
     return (liability.plannedPayment || 0) * ratio;
+  }, [getRatiosForPaycheck, userSplitRatio]);
+
+  const getPerCheckLiability = (liability: typeof liabilityWithMins[number]) => {
+    const currentPaycheck = selectedTransfer?.paycheck || null;
+    if (!currentPaycheck) return 0;
+    const monthPaychecksForCheck = getMonthPaychecksFor(currentPaycheck.date);
+    return getPerCheckLiabilityFor(liability, currentPaycheck, monthPaychecksForCheck);
   };
+
+  const getExpensePeriodTotal = useCallback(
+    (expense: Expense) => {
+      return paychecksInPeriod.reduce((sum, paycheck) => {
+        const monthPaychecksForCheck = getMonthPaychecksFor(paycheck.date);
+        return sum + getPerCheckExpenseFor(expense, paycheck, monthPaychecksForCheck);
+      }, 0);
+    },
+    [getMonthPaychecksFor, getPerCheckExpenseFor, paychecksInPeriod]
+  );
+
+  const getLiabilityPeriodTotal = useCallback(
+    (liability: typeof liabilityWithMins[number]) => {
+      return paychecksInPeriod.reduce((sum, paycheck) => {
+        const monthPaychecksForCheck = getMonthPaychecksFor(paycheck.date);
+        return sum + getPerCheckLiabilityFor(liability, paycheck, monthPaychecksForCheck);
+      }, 0);
+    },
+    [getMonthPaychecksFor, getPerCheckLiabilityFor, paychecksInPeriod]
+  );
+
+  const periodExpenseTotal = useMemo(
+    () => expenses.reduce((sum, expense) => sum + getExpensePeriodTotal(expense), 0),
+    [expenses, getExpensePeriodTotal]
+  );
+
+  const periodLiabilityTotal = useMemo(
+    () => liabilityWithMins.reduce((sum, liability) => sum + getLiabilityPeriodTotal(liability), 0),
+    [getLiabilityPeriodTotal, liabilityWithMins]
+  );
+
+  const expenseCategoryRows = useMemo(() => {
+    const buckets = new Map<string, { items: Expense[]; total: number }>();
+    expenses.forEach((expense) => {
+      const amount = getExpensePeriodTotal(expense);
+      if (amount === 0) return;
+      const key = expense.category?.trim() || 'Uncategorized';
+      const existing = buckets.get(key) || { items: [], total: 0 };
+      existing.items.push(expense);
+      existing.total += amount;
+      buckets.set(key, existing);
+    });
+    return Array.from(buckets.entries())
+      .map(([category, data]) => ({
+        category,
+        items: data.items.slice().sort((a, b) => a.name.localeCompare(b.name)),
+        total: data.total,
+      }))
+      .sort((a, b) => a.category.localeCompare(b.category));
+  }, [expenses, getExpensePeriodTotal]);
+
+  const liabilityCategoryRows = useMemo(() => {
+    const buckets = new Map<string, { items: typeof liabilityWithMins[number][]; total: number }>();
+    liabilityWithMins.forEach((liability) => {
+      const amount = getLiabilityPeriodTotal(liability);
+      if (amount === 0) return;
+      const key = liability.category?.trim() || 'Uncategorized';
+      const existing = buckets.get(key) || { items: [], total: 0 };
+      existing.items.push(liability);
+      existing.total += amount;
+      buckets.set(key, existing);
+    });
+    return Array.from(buckets.entries())
+      .map(([category, data]) => ({
+        category,
+        items: data.items.slice().sort((a, b) => a.name.localeCompare(b.name)),
+        total: data.total,
+      }))
+      .sort((a, b) => a.category.localeCompare(b.category));
+  }, [getLiabilityPeriodTotal, liabilityWithMins]);
+
+  const periodCashOut = useMemo(
+    () => periodExpenseTotal + periodLiabilityTotal + monthlyBudget * monthCount,
+    [monthCount, monthlyBudget, periodExpenseTotal, periodLiabilityTotal]
+  );
+  const periodNet = useMemo(() => periodIncomeTotal - periodCashOut, [periodCashOut, periodIncomeTotal]);
 
   const transferGroups = useMemo(() => {
     if (!selectedTransfer) return [];
@@ -910,14 +1104,18 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
                         {budgetedIncomes
                           .slice()
                           .sort((a, b) => a.name.localeCompare(b.name))
-                          .map((income) => (
-                            <div key={income.id} className="flex items-center justify-between text-slate-600 pl-3 pr-24">
-                              <span className="font-medium">{income.name}</span>
-                              <span className="font-semibold">
-                                {formatCurrency(incomeTotalsById.get(income.id) || 0)}
-                              </span>
-                            </div>
-                          ))}
+                          .map((income) => {
+                            const amount = incomeTotalsById.get(income.id) || 0;
+                            if (amount === 0) return null;
+                            return (
+                              <div key={income.id} className="flex items-center justify-between text-slate-600 pl-3 pr-24">
+                                <span className="font-medium">{income.name}</span>
+                                <span className="font-semibold">
+                                  {formatCurrency(amount)}
+                                </span>
+                              </div>
+                            );
+                          })}
                         <div className="flex items-center justify-end pt-2 text-slate-600 border-t border-slate-100">
                           <span className="font-semibold">+{formatCurrency(periodIncomeTotal)}</span>
                         </div>
@@ -927,12 +1125,16 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
                         {budgetedIncomes
                           .slice()
                           .sort((a, b) => a.name.localeCompare(b.name))
-                          .map((income) => (
-                            <div key={income.id} className="flex items-center justify-between pr-24">
-                              <span>{income.name}</span>
-                              <span>{formatCurrency(incomeTotalsById.get(income.id) || 0)}</span>
-                            </div>
-                          ))}
+                          .map((income) => {
+                            const amount = incomeTotalsById.get(income.id) || 0;
+                            if (amount === 0) return null;
+                            return (
+                              <div key={income.id} className="flex items-center justify-between pr-24">
+                                <span>{income.name}</span>
+                                <span>{formatCurrency(amount)}</span>
+                              </div>
+                            );
+                          })}
                         <div className="flex items-center justify-end border-t border-slate-100">
                           <span className="font-semibold text-slate-700">+{formatCurrency(periodIncomeTotal)}</span>
                         </div>
@@ -958,12 +1160,16 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
                       </div>
                       {expandedReport === 'budget' && (
                         <div className="space-y-1 pl-6 text-xs text-slate-400">
-                          {row.items.map((expense) => (
-                            <div key={expense.id} className="flex items-center justify-between pr-24">
-                              <span>{expense.name}</span>
-                              <span>{formatCurrency(getExpensePeriodAmount(expense))}</span>
-                            </div>
-                          ))}
+                          {row.items.map((expense) => {
+                            const amount = getExpensePeriodTotal(expense);
+                            if (amount === 0) return null;
+                            return (
+                              <div key={expense.id} className="flex items-center justify-between pr-24">
+                                <span>{expense.name}</span>
+                                <span>{formatCurrency(amount)}</span>
+                              </div>
+                            );
+                          })}
                           <div className="flex items-center justify-end pt-2 text-slate-600 border-t border-slate-100">
                             <span className="font-semibold">-{formatCurrency(row.total)}</span>
                           </div>
@@ -987,6 +1193,15 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Liability Minimums</p>
               {liabilities.length === 0 ? (
                 <p className="text-xs text-slate-400">No liabilities recorded.</p>
+              ) : !balancesReady ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 3 }).map((_, idx) => (
+                    <div key={`budget-liability-skeleton-${idx}`} className="flex items-center justify-between pl-3 pr-24">
+                      <div className="h-4 w-32 rounded bg-slate-100 animate-pulse" />
+                      <div className="h-4 w-20 rounded bg-slate-100 animate-pulse" />
+                    </div>
+                  ))}
+                </div>
               ) : (
                 <div className="space-y-2">
                   {liabilityCategoryRows.map((row) => (
@@ -994,19 +1209,23 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
                       <div className="flex items-center justify-between text-slate-600 pl-3 pr-24">
                         <span className="font-medium">{row.category}</span>
                         {expandedReport !== 'budget' && (
-                          <span className="font-semibold">-{formatCurrency(scale(row.total))}</span>
+                          <span className="font-semibold">-{formatCurrency(row.total)}</span>
                         )}
                       </div>
                     {expandedReport === 'budget' && (
                         <div className="space-y-1 pl-6 text-xs text-slate-400">
-                          {row.items.map((liability) => (
-                            <div key={liability.id} className="flex items-center justify-between pr-24">
-                              <span>{liability.name}</span>
-                              <span>{formatCurrency(scale(getMinPayment(liability, liability.balance, liability.balance * (liability.interestRate / 100 / 12), liability.isFeeMonthly ? liability.annualFee / 12 : 0)))}</span>
-                            </div>
-                          ))}
+                          {row.items.map((liability) => {
+                            const amount = getLiabilityPeriodTotal(liability);
+                            if (amount === 0) return null;
+                            return (
+                              <div key={liability.id} className="flex items-center justify-between pr-24">
+                                <span>{liability.name}</span>
+                                <span>{formatCurrency(amount)}</span>
+                              </div>
+                            );
+                          })}
                           <div className="flex items-center justify-end pt-2 text-slate-600 border-t border-slate-100">
-                            <span className="font-semibold">-{formatCurrency(scale(row.total))}</span>
+                            <span className="font-semibold">-{formatCurrency(row.total)}</span>
                           </div>
                         </div>
                       )}
@@ -1018,18 +1237,26 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
             <div>
               {expandedReport !== 'budget' ? (
                 <div className="space-y-1 flex items-center justify-end border-t border-slate-100">
-                  <span className="font-semibold">-{formatCurrency(scale(monthlyLiabilityMins))}</span>
-                </div>
-              ) : (
-                <span aria-hidden="true" />
-              )}
-            </div>
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-              <span className="font-semibold text-slate-700">Remaining</span>
+                {balancesReady ? (
+                  <span className="font-semibold">-{formatCurrency(periodLiabilityTotal)}</span>
+                ) : (
+                  <div className="h-4 w-24 rounded bg-slate-100 animate-pulse" />
+                )}
+              </div>
+            ) : (
+              <span aria-hidden="true" />
+            )}
+          </div>
+          <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+            <span className="font-semibold text-slate-700">Remaining</span>
+            {balancesReady ? (
               <span className={`font-semibold ${periodNet >= 0 ? 'text-indigo-600' : 'text-red-600'}`}>
                 {formatCurrency(periodNet)}
               </span>
-            </div>
+            ) : (
+              <div className="h-4 w-24 rounded bg-slate-100 animate-pulse" />
+            )}
+          </div>
           </div>
         </div>
 

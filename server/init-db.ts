@@ -116,6 +116,53 @@ db.serialize(() => {
     )
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS strategy_simulations (
+      id TEXT PRIMARY KEY,
+      strategy TEXT,
+      monthly_budget REAL,
+      timeline TEXT,
+      total_interest REAL,
+      months INTEGER,
+      household_id TEXT,
+      user_id INTEGER,
+      updated_at TEXT
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS liability_amortization (
+      id TEXT PRIMARY KEY,
+      liability_id TEXT,
+      period INTEGER,
+      payment REAL,
+      interest REAL,
+      principal REAL,
+      fees REAL,
+      remaining_balance REAL,
+      extra_payment REAL,
+      actual_date TEXT,
+      is_historical INTEGER,
+      household_id TEXT,
+      user_id INTEGER,
+      updated_at TEXT
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS liability_amortization_summary (
+      id TEXT PRIMARY KEY,
+      liability_id TEXT,
+      is_infinite INTEGER,
+      total_interest REAL,
+      total_fees REAL,
+      months INTEGER,
+      household_id TEXT,
+      user_id INTEGER,
+      updated_at TEXT
+    )
+  `);
+
   console.log('Database tables created successfully.');
 });
 

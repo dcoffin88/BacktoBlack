@@ -11,7 +11,7 @@ export interface AmortizationRow {
   fees: number;
   remainingBalance: number;
   extraPayment?: number;
-  actualDate?: string;
+  actualDate?: string | null;
   isHistorical?: boolean;
 }
 
@@ -41,6 +41,26 @@ export const calculateMonthlyIncome = (sources: IncomeSource[]): number => {
     return total + monthlyAmount;
   }, 0);
 };
+
+export const getAnnualizedIncomeAmount = (source: IncomeSource): number => {
+  switch (source.frequency) {
+    case 'WEEKLY':
+      return source.amount * 52;
+    case 'BI_WEEKLY':
+      return source.amount * 26;
+    case 'SEMI_MONTHLY':
+      return source.amount * 24;
+    case 'MONTHLY':
+      return source.amount * 12;
+    case 'ANNUAL':
+      return source.amount;
+    default:
+      return source.amount * 12;
+  }
+};
+
+export const getAnnualizedIncomeTotal = (sources: IncomeSource[]): number =>
+  sources.reduce((sum, source) => sum + getAnnualizedIncomeAmount(source), 0);
 
 const parseIsoDate = (value?: string): Date | null => {
   if (!value) return null;
@@ -202,7 +222,7 @@ export const getMinPayment = (liability: Liability, currentPrincipal: number, ac
 
   // 2. Calculate Components
   // Percent Component
-  const percentAmount = totalBalance * (liability.minPaymentPercentage / 100);
+  const percentAmount = currentPrincipal * (liability.minPaymentPercentage / 100);
   
   // Interest Component
   const interestAmount = liability.minPaymentPlusInterest ? accruedInterest : 0;
@@ -232,7 +252,10 @@ export const getMinPayment = (liability: Liability, currentPrincipal: number, ac
 
 export const calculateIndividualAmortization = (
   liability: Liability,
-  extraPaymentsByPeriod?: Record<number, number | { amount: number; checkDate?: string; forceHistorical?: boolean; interest?: number }>,
+  extraPaymentsByPeriod?: Record<
+    number,
+    number | { amount: number; checkDate?: string | null; forceHistorical?: boolean; interest?: number }
+  >,
   plannedPaymentsByPeriod?: Record<number, number>
 ) => {
   // Always seed from the original starting balance when provided so historical

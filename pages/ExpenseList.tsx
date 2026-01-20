@@ -6,7 +6,7 @@ import {
     IncomeSource,
     Ownership,
 } from "../types";
-import { calculateMonthlyIncome } from "../server/liabilityAlgorithms";
+import { getAnnualizedIncomeAmount } from "../server/liabilityAlgorithms";
 import {
     Plus,
     Trash2,
@@ -214,12 +214,15 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
         } else if (
             userSettings.expenseSplitMethod === ExpenseSplitMethod.INCOME
         ) {
-            const u = calculateMonthlyIncome(
-                incomes.filter((s) => !s.isPartner)
+            const eligibleIncomes = incomes.filter(
+                (s) => s.includeInPlanner !== false
             );
-            const p = calculateMonthlyIncome(
-                incomes.filter((s) => s.isPartner)
-            );
+            const u = eligibleIncomes
+                .filter((s) => !s.isPartner)
+                .reduce((sum, source) => sum + getAnnualizedIncomeAmount(source), 0);
+            const p = eligibleIncomes
+                .filter((s) => s.isPartner)
+                .reduce((sum, source) => sum + getAnnualizedIncomeAmount(source), 0);
 
             const total = u + p;
             if (total > 0) userRatio = u / total;

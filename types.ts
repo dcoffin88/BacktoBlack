@@ -142,6 +142,7 @@ export interface IncomeSource {
     ownerId?: number; // User id of the income owner (helps keep partner income separate across accounts)
     includeInPlanner?: boolean; // If false, excluded from Paycheque Planner math
     includeFirstTwoChecks?: boolean; // If true, only first 2 checks per month counted in budget
+    splitIncomeAsJoint?: boolean;
 }
 
 export interface UserSettings {

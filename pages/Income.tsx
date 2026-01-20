@@ -22,6 +22,7 @@ const Income: React.FC<IncomeProps> = ({ incomes, onSaveIncome, onDeleteIncome, 
     ownerId: undefined,
     includeInPlanner: true,
     includeFirstTwoChecks: false,
+    splitIncomeAsJoint: false,
   });
 
   const isHouseholdMember = Boolean(settings.householdId);
@@ -34,7 +35,7 @@ const Income: React.FC<IncomeProps> = ({ incomes, onSaveIncome, onDeleteIncome, 
   const openModal = (income?: IncomeSource, isPartnerAdd: boolean = false) => {
     if (income) {
       setEditingId(income.id);
-      setFormData({ includeInPlanner: income.includeInPlanner ?? true, includeFirstTwoChecks: income.includeFirstTwoChecks ?? false, ...income });
+      setFormData({ includeInPlanner: income.includeInPlanner ?? true, includeFirstTwoChecks: income.includeFirstTwoChecks ?? false, ...income, splitIncomeAsJoint: income.splitIncomeAsJoint ?? false });
     } else {
       setEditingId(null);
       setFormData({
@@ -46,6 +47,7 @@ const Income: React.FC<IncomeProps> = ({ incomes, onSaveIncome, onDeleteIncome, 
         ownerId: undefined,
         includeInPlanner: true,
         includeFirstTwoChecks: false,
+        splitIncomeAsJoint: false,
       });
     }
     setIsModalOpen(true);
@@ -397,6 +399,21 @@ const Income: React.FC<IncomeProps> = ({ incomes, onSaveIncome, onDeleteIncome, 
                   Only include first two paychecks each month in budget
                 </label>
               </div>
+
+              {(settings.enablePartner || isHouseholdMember) && (
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="splitIncomeAsJoint"
+                    checked={!!formData.splitIncomeAsJoint}
+                    onChange={e => setFormData({ ...formData, splitIncomeAsJoint: e.target.checked })}
+                    className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                  />
+                  <label htmlFor="splitIncomeAsJoint" className="text-sm text-slate-700">
+                    Split 50/50 for expense splitting
+                  </label>
+                </div>
+              )}
 
               <div className="pt-2 flex justify-end space-x-3">
                 <button

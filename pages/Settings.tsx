@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { UserSettings, ExpenseSplitMethod, Liability, Expense, Asset, IncomeSource, PayFrequency, MonthlyIncomeMode } from '../types';
-import { getMinPayment, calculateMonthlyIncome } from '../server/liabilityAlgorithms';
+import { getAnnualizedIncomeAmount, getMinPayment, calculateMonthlyIncome } from '../server/liabilityAlgorithms';
 import { Save, Mail, DollarSign, Send, Users, PieChart, Settings, AlertTriangle, ArrowRight, CheckCircle, Plus, Trash2, Edit2, X, Calendar, Lock } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { dbAPI } from '../server/db';
@@ -92,12 +92,13 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
 
   // Helper for split ratio display
   const getIncomeRatio = () => {
-      const userSources = incomes.filter(s => !s.isPartner);
-      const partnerSources = incomes.filter(s => s.isPartner);
-      
-      const u = calculateMonthlyIncome(userSources);
-      const p = calculateMonthlyIncome(partnerSources);
-      
+      const eligibleIncomes = incomes.filter((s) => s.includeInPlanner !== false);
+      const userSources = eligibleIncomes.filter(s => !s.isPartner);
+      const partnerSources = eligibleIncomes.filter(s => s.isPartner);
+
+      const u = userSources.reduce((sum, source) => sum + getAnnualizedIncomeAmount(source), 0);
+      const p = partnerSources.reduce((sum, source) => sum + getAnnualizedIncomeAmount(source), 0);
+
       const total = u + p;
       if (total === 0) return { u: 50, p: 50 };
       return { u: (u / total) * 100, p: (p / total) * 100 };
