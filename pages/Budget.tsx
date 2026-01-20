@@ -237,36 +237,8 @@ const Budget: React.FC<BudgetProps> = ({
         );
     }, [activeScheduleRow]);
 
-    const liabilityWithMins = liabilities.map((d) => {
-        const monthlyInterest = d.balance * (d.interestRate / 100 / 12);
-        const estFee = d.isFeeMonthly ? d.annualFee / 12 : 0;
-        const rawMin = getMinPayment(d, d.balance, monthlyInterest, estFee);
-        const minPayment = d.balance > 0 && Number.isFinite(rawMin) ? rawMin : 0;
-        return { ...d, minPayment };
-    });
-
-    const liabilityWithPlan = liabilityWithMins.map((d) => ({
-        ...d,
-        scheduledFrequency: getLiabilityFrequency(d),
-        plannedPayment:
-            plannedPaymentsByLiability[d.id] !== undefined
-                ? plannedPaymentsByLiability[d.id]
-                : d.minPayment,
-    }));
-
-    const totalLiabilityPayments = liabilityWithPlan.reduce(
-        (sum, d) => sum + d.plannedPayment,
-        0
-    );
-
-    const totalNeeded = totalExpenses + totalLiabilityPayments;
-    const currencySymbol = userSettings?.currencySymbol || "$";
-
     const hasBiWeeklyExpense = expenses.some(
         (e) => e.frequency === "BI_WEEKLY" || e.frequency === "WEEKLY"
-    );
-    const hasBiWeeklyLiability = liabilityWithPlan.some(
-        (l) => l.scheduledFrequency === "BI_WEEKLY" || l.scheduledFrequency === "WEEKLY"
     );
 
     // Generate paychecks over a wide window (history + future), respecting optional start date
@@ -414,7 +386,7 @@ const Budget: React.FC<BudgetProps> = ({
         });
 
         return occurrences.sort((a, b) => a.date.getTime() - b.date.getTime());
-    }, [budgetedIncomes, hasBiWeeklyExpense, hasBiWeeklyLiability, budgetStartDate]);
+    }, [budgetedIncomes, hasBiWeeklyExpense, budgetStartDate]);
 
     const paycheckCount = currentMonthPaychecks.length || 1;
     useEffect(() => {
@@ -433,6 +405,52 @@ const Budget: React.FC<BudgetProps> = ({
 
     const currentPaycheck =
         currentMonthPaychecks[currentPaycheckIndex] || null;
+
+    const activeLiabilities = useMemo(() => {
+        if (!currentPaycheck) return [];
+        const a = new Date(currentPaycheck.date);
+        a.setHours(0, 0, 0, 0);
+        const y = a.getFullYear();
+        const m = a.getMonth();
+        const lastDay = new Date(y, m + 1, 0);
+    
+        return liabilities.filter((liability) => {
+            if (!liability.startDate) return true;
+            const start = new Date(`${liability.startDate}T12:00:00`);
+            if (Number.isNaN(start.getTime())) return true;
+            start.setHours(0, 0, 0, 0);
+            return start <= lastDay;
+        });
+    }, [liabilities, currentPaycheck]);
+
+    const liabilityWithMins = activeLiabilities.map((d) => {
+        const monthlyInterest = d.balance * (d.interestRate / 100 / 12);
+        const estFee = d.isFeeMonthly ? d.annualFee / 12 : 0;
+        const rawMin = getMinPayment(d, d.balance, monthlyInterest, estFee);
+        const minPayment = d.balance > 0 && Number.isFinite(rawMin) ? rawMin : 0;
+        return { ...d, minPayment };
+    });
+
+    const liabilityWithPlan = liabilityWithMins.map((d) => ({
+        ...d,
+        scheduledFrequency: getLiabilityFrequency(d),
+        plannedPayment:
+            plannedPaymentsByLiability[d.id] !== undefined
+                ? plannedPaymentsByLiability[d.id]
+                : d.minPayment,
+    }));
+
+    const hasBiWeeklyLiability = liabilityWithPlan.some(
+        (l) => l.scheduledFrequency === "BI_WEEKLY" || l.scheduledFrequency === "WEEKLY"
+    );
+
+    const totalLiabilityPayments = liabilityWithPlan.reduce(
+        (sum, d) => sum + d.plannedPayment,
+        0
+    );
+
+    const totalNeeded = totalExpenses + totalLiabilityPayments;
+    const currencySymbol = userSettings?.currencySymbol || "$";
     const currentCheckKey =
         currentPaycheck?.date.toISOString().split("T")[0] || "default-check";
     const expenseChecks = expenseChecksByCheck[currentCheckKey] || {};
