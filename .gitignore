@@ -27,3 +27,6 @@ dist-ssr
 *.sw?
 ~$Budget.xlsx
 Budget.xlsx
+GEMINI.md
+Schedule.xlsx
+~$Schedule.xlsx

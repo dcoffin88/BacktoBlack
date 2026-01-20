@@ -172,6 +172,29 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
   );
   const netWorth = totalAssets - totalLiabilities;
 
+  const liabilityCostRatings = useMemo(() => {
+    return liabilities
+      .map(liability => {
+        const balance = scheduleBalanceById[liability.id] ?? liability.balance;
+        if (balance <= 0) {
+          return null;
+        }
+        const monthlyInterest = balance * (liability.interestRate / 100 / 12);
+        const estFee = liability.isFeeMonthly ? liability.annualFee / 12 : 0;
+        const minPayment = getMinPayment(liability, balance, monthlyInterest, estFee);
+        const rating = minPayment / balance;
+        return {
+          id: liability.id,
+          name: liability.name,
+          rating: rating,
+          balance: balance,
+          minPayment: minPayment
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null)
+      .sort((a, b) => b.rating - a.rating);
+  }, [liabilities, scheduleBalanceById]);
+
   const toMonthIndex = (value: string) => {
     const month = Number(value) || 1;
     return month - 1;
@@ -1329,6 +1352,50 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
               ))}
             </div>
           )}
+        </div>
+
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex-1 space-y-1">
+              <button
+                type="button"
+                onClick={() => toggleReport('costRating')}
+                className="flex items-center justify-between w-full text-left"
+                aria-expanded={expandedReport === 'costRating'}
+              >
+                <span className="flex items-center space-x-2">
+                  <span className="p-2 bg-indigo-100 text-indigo-600 rounded-lg">
+                    <Wallet size={18} />
+                  </span>
+                  <span className="text-lg font-bold text-slate-900 hover:text-indigo-600 transition-colors">
+                    Liability Cost Rating
+                  </span>
+                </span>
+                <span className="text-slate-500">
+                  {expandedReport === 'costRating' ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                </span>
+              </button>
+            </div>
+          </div>
+          <div className="border-t border-slate-100 pt-4 space-y-4 text-sm">
+            {liabilityCostRatings.length === 0 ? (
+              <p className="text-xs text-slate-400">No liabilities with a balance to rate.</p>
+            ) : (
+              liabilityCostRatings.map(item => (
+                <div key={item.id}>
+                  <div className="flex justify-between items-center font-medium text-slate-700">
+                    <span>{item.name}</span>
+                    <span className="font-mono font-semibold">{(item.rating * 100).toFixed(2)}%</span>
+                  </div>
+                  {expandedReport === 'costRating' && (
+                    <div className="text-xs text-slate-500 pl-4 mt-1">
+                      Min. payment of {formatCurrency(item.minPayment)} on a {formatCurrency(item.balance)} balance.
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
     </div>
