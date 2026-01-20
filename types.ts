@@ -143,6 +143,7 @@ export interface IncomeSource {
     includeInPlanner?: boolean; // If false, excluded from Paycheque Planner math
     includeFirstTwoChecks?: boolean; // If true, only first 2 checks per month counted in budget
     splitIncomeAsJoint?: boolean;
+    excludeFromSplitting?: boolean;
 }
 
 export interface UserSettings {

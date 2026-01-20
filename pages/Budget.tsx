@@ -183,10 +183,10 @@ const Budget: React.FC<BudgetProps> = ({
         }
         if (userSettings.expenseSplitMethod === ExpenseSplitMethod.INCOME) {
             const mine = budgetedIncomes
-                .filter((i) => !i.isPartner)
+                .filter((i) => !i.isPartner && !i.excludeFromSplitting)
                 .reduce((sum, source) => sum + getAnnualizedIncomeAmount(source), 0);
             const partner = budgetedIncomes
-                .filter((i) => i.isPartner)
+                .filter((i) => i.isPartner && !i.excludeFromSplitting)
                 .reduce((sum, source) => sum + getAnnualizedIncomeAmount(source), 0);
             const total = mine + partner;
             if (total <= 0) return 0.5;

@@ -23,6 +23,7 @@ const Income: React.FC<IncomeProps> = ({ incomes, onSaveIncome, onDeleteIncome, 
     includeInPlanner: true,
     includeFirstTwoChecks: false,
     splitIncomeAsJoint: false,
+    excludeFromSplitting: false,
   });
 
   const isHouseholdMember = Boolean(settings.householdId);
@@ -35,7 +36,7 @@ const Income: React.FC<IncomeProps> = ({ incomes, onSaveIncome, onDeleteIncome, 
   const openModal = (income?: IncomeSource, isPartnerAdd: boolean = false) => {
     if (income) {
       setEditingId(income.id);
-      setFormData({ includeInPlanner: income.includeInPlanner ?? true, includeFirstTwoChecks: income.includeFirstTwoChecks ?? false, ...income, splitIncomeAsJoint: income.splitIncomeAsJoint ?? false });
+      setFormData({ includeInPlanner: income.includeInPlanner ?? true, includeFirstTwoChecks: income.includeFirstTwoChecks ?? false, ...income, splitIncomeAsJoint: income.splitIncomeAsJoint ?? false, excludeFromSplitting: income.excludeFromSplitting ?? false });
     } else {
       setEditingId(null);
       setFormData({
@@ -48,6 +49,7 @@ const Income: React.FC<IncomeProps> = ({ incomes, onSaveIncome, onDeleteIncome, 
         includeInPlanner: true,
         includeFirstTwoChecks: false,
         splitIncomeAsJoint: false,
+        excludeFromSplitting: false,
       });
     }
     setIsModalOpen(true);
@@ -414,6 +416,19 @@ const Income: React.FC<IncomeProps> = ({ incomes, onSaveIncome, onDeleteIncome, 
                   </label>
                 </div>
               )}
+
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="excludeFromSplitting"
+                  checked={!!formData.excludeFromSplitting}
+                  onChange={e => setFormData({ ...formData, excludeFromSplitting: e.target.checked })}
+                  className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                />
+                <label htmlFor="excludeFromSplitting" className="text-sm text-slate-700">
+                  Exclude from expense splitting
+                </label>
+              </div>
 
               <div className="pt-2 flex justify-end space-x-3">
                 <button
