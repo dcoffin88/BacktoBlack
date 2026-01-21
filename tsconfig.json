@@ -24,8 +24,13 @@
       ]
     },
     "allowImportingTsExtensions": true,
-    "noEmit": true,
-	"include": ["components", "vite.config.ts"],
-	"exclude": ["node_modules"]
-  }
+    "noEmit": true
+  },
+  "include": [
+    "components",
+    "vite.config.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }
