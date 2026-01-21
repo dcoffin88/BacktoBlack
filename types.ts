@@ -33,6 +33,7 @@ export interface Liability {
     creditLimit?: number;
     customOrder?: number; // For manual sorting
     owner?: Ownership;
+    manualPaymentRequired?: boolean;
 }
 
 export interface Expense {
@@ -50,6 +51,7 @@ export interface Expense {
     owner?: Ownership;
     excludedIncomeSourceIds?: string[]; // income sources to skip for budget check allocation
     excludeFromSplitting?: boolean; // bypass split ratios; assign to payer only
+    manualPaymentRequired?: boolean;
 }
 
 export interface Asset {
@@ -158,6 +160,12 @@ export interface UserSettings {
     smtpPass?: string;
     smtpSecure?: boolean;
 
+    // Granular Report Settings
+    enableMonthlyReport?: boolean;
+    monthlyReportRecipients?: string; // comma separated
+    enableTransferReport?: boolean;
+    transferReportRecipients?: string; // comma separated
+
     // Display / terminology preferences
     useSimpleTerms?: boolean; // Loan/Bills naming
     currencySymbol?: string;
@@ -199,3 +207,18 @@ export const STRATEGY_LABELS: Record<StrategyType, string> = {
     [StrategyType.HIGHEST_INTEREST_AMT]: "Highest Interest Paid",
     [StrategyType.CUSTOM]: "Custom Plan",
 };
+
+export interface ExtraPayment {
+    id: string;
+    liabilityId: string;
+    amount: number;
+    checkDate?: string | null;
+    isChecked?: boolean;
+}
+
+export interface PaycheckOccurrence {
+    date: Date;
+    source: IncomeSource;
+    eligibleMonthly: boolean;
+    eligibleBiWeekly: boolean;
+}

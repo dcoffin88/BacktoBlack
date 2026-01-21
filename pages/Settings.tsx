@@ -23,6 +23,56 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
   const [linkingHousehold, setLinkingHousehold] = useState(false);
   const [leavingHousehold, setLeavingHousehold] = useState(false);
   const [invites, setInvites] = useState<Array<{ token: string; status: string; inviterEmail: string; inviteeEmail: string; householdId: string; isIncoming: boolean }>>([]);
+  const [sendingMonthly, setSendingMonthly] = useState(false);
+  const [sendingTransfer, setSendingTransfer] = useState(false);
+  const [availableChecks, setAvailableChecks] = useState<string[]>([]);
+  const [showCheckSelection, setShowCheckSelection] = useState(false);
+
+  const triggerMonthlyReport = async () => {
+    setSendingMonthly(true);
+    try {
+      const res = await dbAPI.triggerMonthlyReport();
+      if (res.success) {
+        alert(res.message);
+      }
+    } catch (e: any) {
+      alert(`Failed to trigger report: ${e.message}`);
+    } finally {
+      setSendingMonthly(false);
+    }
+  };
+
+  const handleTriggerTransfer = async (date?: string) => {
+    setSendingTransfer(true);
+    setShowCheckSelection(false);
+    try {
+      const res = await dbAPI.triggerTransferReport(date);
+      if (res.success) {
+        alert(res.message);
+      }
+    } catch (e: any) {
+      alert(`Failed to trigger report: ${e.message}`);
+    } finally {
+      setSendingTransfer(false);
+    }
+  };
+
+  const triggerTransferReport = async () => {
+    setSendingTransfer(true);
+    try {
+      const checks = await dbAPI.getAvailableChecks();
+      if (checks.length === 0) {
+        alert('No upcoming paychecks found to send alerts for.');
+        setSendingTransfer(false);
+        return;
+      }
+      setAvailableChecks(checks);
+      setShowCheckSelection(true);
+    } catch (e: any) {
+      alert(`Failed to fetch available checks: ${e.message}`);
+      setSendingTransfer(false);
+    }
+  };
 
   // Income Source Modal State
   const [isIncomeModalOpen, setIsIncomeModalOpen] = useState(false);
@@ -657,9 +707,88 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
                 </div>
 
                 {tempSettings.emailReports && (
-                  <div className="animate-fade-in space-y-4 pt-2">
-                    <div className="space-y-1">
-                      <label className="block text-xs font-medium text-slate-500">Recipient Email</label>
+                  <div className="animate-fade-in space-y-6 pt-2">
+                    {/* Monthly Budget Settings */}
+                    <div className="pl-6 border-l-2 border-indigo-100 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <input
+                            type="checkbox"
+                            checked={tempSettings.enableMonthlyReport !== false}
+                            onChange={e => setTempSettings({ ...tempSettings, enableMonthlyReport: e.target.checked })}
+                            className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                          />
+                          <span className="text-sm font-medium text-slate-700">Monthly Budget & Net Worth Summary</span>
+                        </div>
+                        {(tempSettings.enableMonthlyReport !== false) && (
+                          <button
+                            type="button"
+                            onClick={triggerMonthlyReport}
+                            disabled={sendingMonthly}
+                            className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 hover:text-indigo-800 flex items-center bg-indigo-50 px-2 py-1 rounded disabled:opacity-50"
+                          >
+                            <Send size={10} className="mr-1" />
+                            {sendingMonthly ? 'Sending...' : 'Send Now'}
+                          </button>
+                        )}
+                      </div>
+
+                      {(tempSettings.enableMonthlyReport !== false) && (
+                        <div className="pl-7 space-y-1">
+                          <label className="block text-xs font-medium text-slate-500">Recipients (Optional override)</label>
+                          <input
+                            type="text"
+                            value={tempSettings.monthlyReportRecipients || ''}
+                            onChange={e => setTempSettings({ ...tempSettings, monthlyReportRecipients: e.target.value })}
+                            placeholder={tempSettings.email}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                          />
+                          <p className="text-xs text-slate-400">Values: {tempSettings.email} (default)</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Transfer Report Settings */}
+                    <div className="pl-6 border-l-2 border-indigo-100 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <input
+                            type="checkbox"
+                            checked={tempSettings.enableTransferReport !== false}
+                            onChange={e => setTempSettings({ ...tempSettings, enableTransferReport: e.target.checked })}
+                            className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                          />
+                          <span className="text-sm font-medium text-slate-700">Daily "Money on the Move" Alerts</span>
+                        </div>
+                        {(tempSettings.enableTransferReport !== false) && (
+                          <button
+                            type="button"
+                            onClick={triggerTransferReport}
+                            disabled={sendingTransfer}
+                            className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 hover:text-indigo-800 flex items-center bg-indigo-50 px-2 py-1 rounded disabled:opacity-50"
+                          >
+                            <Send size={10} className="mr-1" />
+                            {sendingTransfer ? 'Sending...' : 'Send Now'}
+                          </button>
+                        )}
+                      </div>
+                      {(tempSettings.enableTransferReport !== false) && (
+                        <div className="pl-7 space-y-1">
+                          <label className="block text-xs font-medium text-slate-500">Recipients (Optional override)</label>
+                          <input
+                            type="text"
+                            value={tempSettings.transferReportRecipients || ''}
+                            onChange={e => setTempSettings({ ...tempSettings, transferReportRecipients: e.target.value })}
+                            placeholder={tempSettings.email}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                          />
+                          <p className="text-xs text-slate-400">Values: {tempSettings.email} (default)</p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-1 pt-2 border-t border-slate-100">
+                      <label className="block text-xs font-medium text-slate-500">Account Email (Used for login & defaults)</label>
                       <input
                         required
                         type="email"
@@ -853,6 +982,53 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
                   Save
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Check Selection Modal */}
+      {showCheckSelection && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="bg-indigo-600 px-6 py-4 flex items-center justify-between">
+              <h3 className="text-white font-bold text-lg">Select Check Date</h3>
+              <button
+                onClick={() => setShowCheckSelection(false)}
+                className="text-white/80 hover:text-white"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6">
+              <p className="text-slate-500 text-sm mb-4">
+                Choose which paycheck's "Money on the Move" report you'd like to send.
+              </p>
+              <div className="space-y-2 max-h-60 overflow-y-auto pr-1 custom-scrollbar">
+                {availableChecks.map(date => (
+                  <button
+                    key={date}
+                    onClick={() => handleTriggerTransfer(date)}
+                    className="w-full text-left px-4 py-3 rounded-xl border border-slate-100 hover:border-indigo-300 hover:bg-indigo-50 transition-all flex items-center justify-between group"
+                  >
+                    <span className="font-medium text-slate-700">
+                      {new Date(date + 'T12:00:00').toLocaleDateString(undefined, {
+                        weekday: 'short',
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric'
+                      })}
+                    </span>
+                    <ArrowRight size={16} className="text-slate-300 group-hover:text-indigo-500 transition-colors" />
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => setShowCheckSelection(false)}
+                className="w-full mt-6 py-3 text-slate-600 font-bold hover:bg-slate-50 rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
             </div>
           </div>
         </div>

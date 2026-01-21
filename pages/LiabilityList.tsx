@@ -85,7 +85,7 @@ const AmortizationTable = React.memo(
         prev.viewingLiability === next.viewingLiability &&
         prev.paymentsByCheckDate === next.paymentsByCheckDate &&
         prev.amortizationOverridesForViewing ===
-            next.amortizationOverridesForViewing &&
+        next.amortizationOverridesForViewing &&
         prev.minimumPaidByPeriod === next.minimumPaidByPeriod &&
         prev.editingAmortizationRow === next.editingAmortizationRow &&
         prev.amortizationEdit === next.amortizationEdit &&
@@ -509,9 +509,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                     interest?: number;
                 }
             >
-        >((acc, [periodKey, override]) => {
+        >((acc, [periodKey, overrideValue]) => {
             const period = Number(periodKey);
             if (!Number.isFinite(period)) return acc;
+            const override = overrideValue as { payment: number; interest: number; purchase?: number; checkDate?: string | null };
             const amount = (override.payment || 0) - (override.purchase || 0);
             acc[period] = {
                 amount,
@@ -769,9 +770,9 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                 return parsed ? { row, date: parsed } : null;
             })
             .filter(Boolean) as {
-            row: (typeof amortizationData.timeline)[0];
-            date: Date;
-        }[];
+                row: (typeof amortizationData.timeline)[0];
+                date: Date;
+            }[];
 
         if (!rowsWithDates.length) return null;
 
@@ -848,8 +849,8 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             const date = row.actualDate
                 ? parseLocalDate(row.actualDate)
                 : (viewingLiability.startingBalance || 0) > 0
-                ? getProjectedRowDate(viewingLiability, row.month, today)
-                : null;
+                    ? getProjectedRowDate(viewingLiability, row.month, today)
+                    : null;
             if (date && date > today) return;
             if (!date && !row.isHistorical) return;
             const override = amortizationOverridesForViewing[row.month];
@@ -874,8 +875,8 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             const date = row.actualDate
                 ? parseLocalDate(row.actualDate)
                 : (viewingLiability.startingBalance || 0) > 0
-                ? getProjectedRowDate(viewingLiability, row.month, today)
-                : null;
+                    ? getProjectedRowDate(viewingLiability, row.month, today)
+                    : null;
             if (date && date > today) {
                 remainingPeriods += 1;
             } else if (!date && !row.isHistorical) {
@@ -1202,11 +1203,11 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                 ((res as any)?.liability as Liability | undefined) ||
                 (fallback
                     ? {
-                          ...fallback,
-                          balance: 0,
-                          interestRate: 0,
-                          startDate: todayStr,
-                      }
+                        ...fallback,
+                        balance: 0,
+                        interestRate: 0,
+                        startDate: todayStr,
+                    }
                     : undefined);
             if (updated) {
                 handleOpenFormModal(updated);
@@ -1372,7 +1373,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             });
             setEditPaymentPurchase(
                 override?.purchase ??
-                    (payment.amount < 0 ? Math.abs(payment.amount) : 0)
+                (payment.amount < 0 ? Math.abs(payment.amount) : 0)
             );
             setEditPaymentInterest(override?.interest ?? 0);
         } else {
@@ -1423,7 +1424,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         const oldInterest =
             oldPeriod !== null && oldPeriod !== undefined
                 ? amortizationOverrides[viewingLiability.id]?.[oldPeriod]
-                      ?.interest ?? 0
+                    ?.interest ?? 0
                 : 0;
         const safeInterest = Math.max(0, editPaymentInterest);
         reconcileHistoricalBalanceChange(
@@ -1485,7 +1486,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             const oldInterest =
                 oldPeriod !== null && oldPeriod !== undefined
                     ? amortizationOverrides[viewingLiability.id]?.[oldPeriod]
-                          ?.interest ?? 0
+                        ?.interest ?? 0
                     : 0;
             reconcileHistoricalBalanceChange(
                 viewingLiability,
@@ -1543,8 +1544,8 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             override?.purchase !== undefined
                 ? Math.max(0, payment)
                 : payment > 0
-                ? payment
-                : 0;
+                    ? payment
+                    : 0;
         setEditingAmortizationRow(row.month);
         setAmortizationEdit({
             payment: displayPayment.toFixed(2),
@@ -1695,9 +1696,9 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         const adjustedLiability =
             liability.paymentFrequency === "BI_WEEKLY"
                 ? {
-                      ...liability,
-                      minPaymentAmount: liability.minPaymentAmount * (24 / 26),
-                  }
+                    ...liability,
+                    minPaymentAmount: liability.minPaymentAmount * (24 / 26),
+                }
                 : liability;
         const val = getMinPayment(
             adjustedLiability,
@@ -1982,7 +1983,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                         setSortBy("interestRate");
                                         setSortDir((d) =>
                                             sortBy === "interestRate" &&
-                                            d === "asc"
+                                                d === "asc"
                                                 ? "desc"
                                                 : "asc"
                                         );
@@ -2053,7 +2054,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                     .map((liability) => {
                                         const autoSummary =
                                             autoMarkedSummaryById[
-                                                liability.id
+                                            liability.id
                                             ];
                                         const displayBalance =
                                             getListBalance(liability);
@@ -2062,14 +2063,14 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                         const totalPaid =
                                             startingBalance > 0
                                                 ? Math.max(
-                                                      0,
-                                                      startingBalance -
-                                                          displayBalance
-                                                  )
+                                                    0,
+                                                    startingBalance -
+                                                    displayBalance
+                                                )
                                                 : autoSummary?.totalPaidToDate ??
-                                                  getTotalPaidAmount(
-                                                      liability
-                                                  );
+                                                getTotalPaidAmount(
+                                                    liability
+                                                );
                                         const maxBalance = Math.max(
                                             startingBalance,
                                             displayBalance + totalPaid
@@ -2077,15 +2078,15 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                         const percentPaid =
                                             maxBalance > 0
                                                 ? Math.max(
-                                                      0,
-                                                      Math.min(
-                                                          100,
-                                                          ((maxBalance -
-                                                              displayBalance) /
-                                                              maxBalance) *
-                                                              100
-                                                      )
-                                                  )
+                                                    0,
+                                                    Math.min(
+                                                        100,
+                                                        ((maxBalance -
+                                                            displayBalance) /
+                                                            maxBalance) *
+                                                        100
+                                                    )
+                                                )
                                                 : 0;
 
                                         return (
@@ -2136,23 +2137,23 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                             </div>
                                                             {maxBalance >
                                                                 displayBalance && (
-                                                                <div className="flex flex-col items-end mt-1">
-                                                                    <div className="w-24 bg-slate-100 rounded-full h-1.5 mb-1">
-                                                                        <div
-                                                                            className="bg-green-500 h-1.5 rounded-full"
-                                                                            style={{
-                                                                                width: `${percentPaid}%`,
-                                                                            }}
-                                                                        ></div>
+                                                                    <div className="flex flex-col items-end mt-1">
+                                                                        <div className="w-24 bg-slate-100 rounded-full h-1.5 mb-1">
+                                                                            <div
+                                                                                className="bg-green-500 h-1.5 rounded-full"
+                                                                                style={{
+                                                                                    width: `${percentPaid}%`,
+                                                                                }}
+                                                                            ></div>
+                                                                        </div>
+                                                                        <span className="text-[10px] text-slate-400">
+                                                                            {Math.round(
+                                                                                percentPaid
+                                                                            )}
+                                                                            % Paid
+                                                                        </span>
                                                                     </div>
-                                                                    <span className="text-[10px] text-slate-400">
-                                                                        {Math.round(
-                                                                            percentPaid
-                                                                        )}
-                                                                        % Paid
-                                                                    </span>
-                                                                </div>
-                                                            )}
+                                                                )}
                                                         </>
                                                     ) : (
                                                         <div className="ml-auto h-5 w-24 rounded bg-slate-100 animate-pulse" />
@@ -2524,16 +2525,16 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                             {(formData.paymentFrequency ===
                                                 "BI_WEEKLY" ||
                                                 formData.paymentFrequency ===
-                                                    "WEEKLY") && (
-                                                <p className="text-xs text-slate-500 mt-1">
-                                                    We'll repeat every{" "}
-                                                    {formData.paymentFrequency ===
-                                                    "BI_WEEKLY"
-                                                        ? "14"
-                                                        : "7"}{" "}
-                                                    days from this date.
-                                                </p>
-                                            )}
+                                                "WEEKLY") && (
+                                                    <p className="text-xs text-slate-500 mt-1">
+                                                        We'll repeat every{" "}
+                                                        {formData.paymentFrequency ===
+                                                            "BI_WEEKLY"
+                                                            ? "14"
+                                                            : "7"}{" "}
+                                                        days from this date.
+                                                    </p>
+                                                )}
                                         </div>
                                     </div>
                                 )}
@@ -2603,11 +2604,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
 
                                         {/* 1. Percentage Component */}
                                         <div
-                                            className={`flex items-center space-x-3 p-2 rounded border border-slate-200 transition-colors ${
-                                                enablePercent
-                                                    ? "bg-white"
-                                                    : "bg-slate-50"
-                                            }`}
+                                            className={`flex items-center space-x-3 p-2 rounded border border-slate-200 transition-colors ${enablePercent
+                                                ? "bg-white"
+                                                : "bg-slate-50"
+                                                }`}
                                         >
                                             <input
                                                 type="checkbox"
@@ -2619,7 +2619,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                     if (
                                                         checked &&
                                                         formData.minPaymentPercentage ===
-                                                            0
+                                                        0
                                                     ) {
                                                         setFormData((prev) => ({
                                                             ...prev,
@@ -2635,11 +2635,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 border-gray-300 cursor-pointer"
                                             />
                                             <div
-                                                className={`flex items-center space-x-3 flex-1 ${
-                                                    !enablePercent
-                                                        ? "opacity-40 pointer-events-none"
-                                                        : ""
-                                                }`}
+                                                className={`flex items-center space-x-3 flex-1 ${!enablePercent
+                                                    ? "opacity-40 pointer-events-none"
+                                                    : ""
+                                                    }`}
                                             >
                                                 <span className="text-sm text-slate-500 font-bold mr-1">
                                                     +
@@ -2676,11 +2675,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
 
                                         {/* 2. Interest Toggle */}
                                         <div
-                                            className={`flex items-center space-x-3 p-2 rounded border border-slate-200 transition-colors ${
-                                                formData.minPaymentPlusInterest
-                                                    ? "bg-white"
-                                                    : "bg-slate-50"
-                                            }`}
+                                            className={`flex items-center space-x-3 p-2 rounded border border-slate-200 transition-colors ${formData.minPaymentPlusInterest
+                                                ? "bg-white"
+                                                : "bg-slate-50"
+                                                }`}
                                         >
                                             <input
                                                 type="checkbox"
@@ -2698,11 +2696,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 border-gray-300 cursor-pointer"
                                             />
                                             <div
-                                                className={`flex items-center space-x-3 flex-1 ${
-                                                    !formData.minPaymentPlusInterest
-                                                        ? "opacity-40 pointer-events-none"
-                                                        : ""
-                                                }`}
+                                                className={`flex items-center space-x-3 flex-1 ${!formData.minPaymentPlusInterest
+                                                    ? "opacity-40 pointer-events-none"
+                                                    : ""
+                                                    }`}
                                             >
                                                 <span className="text-sm text-slate-500 font-bold mr-1">
                                                     +
@@ -2722,11 +2719,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
 
                                         {/* 3. Fee Toggle */}
                                         <div
-                                            className={`flex items-center space-x-3 p-2 rounded border border-slate-200 transition-colors ${
-                                                formData.minPaymentPlusFees
-                                                    ? "bg-white"
-                                                    : "bg-slate-50"
-                                            }`}
+                                            className={`flex items-center space-x-3 p-2 rounded border border-slate-200 transition-colors ${formData.minPaymentPlusFees
+                                                ? "bg-white"
+                                                : "bg-slate-50"
+                                                }`}
                                         >
                                             <input
                                                 type="checkbox"
@@ -2744,11 +2740,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 border-gray-300 cursor-pointer"
                                             />
                                             <div
-                                                className={`flex items-center space-x-3 flex-1 ${
-                                                    !formData.minPaymentPlusFees
-                                                        ? "opacity-40 pointer-events-none"
-                                                        : ""
-                                                }`}
+                                                className={`flex items-center space-x-3 flex-1 ${!formData.minPaymentPlusFees
+                                                    ? "opacity-40 pointer-events-none"
+                                                    : ""
+                                                    }`}
                                             >
                                                 <span className="text-sm text-slate-500 font-bold mr-1">
                                                     +
@@ -2768,11 +2763,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
 
                                         {/* 4. Fixed Amount */}
                                         <div
-                                            className={`flex items-center space-x-3 p-2 rounded border border-slate-200 transition-colors ${
-                                                enableFixed
-                                                    ? "bg-white"
-                                                    : "bg-slate-50"
-                                            }`}
+                                            className={`flex items-center space-x-3 p-2 rounded border border-slate-200 transition-colors ${enableFixed
+                                                ? "bg-white"
+                                                : "bg-slate-50"
+                                                }`}
                                         >
                                             <input
                                                 type="checkbox"
@@ -2784,7 +2778,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                     if (
                                                         checked &&
                                                         formData.minPaymentAmount ===
-                                                            0
+                                                        0
                                                     ) {
                                                         setFormData((prev) => ({
                                                             ...prev,
@@ -2800,11 +2794,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 border-gray-300 cursor-pointer"
                                             />
                                             <div
-                                                className={`flex items-center space-x-2 flex-1 ${
-                                                    !enableFixed
-                                                        ? "opacity-40 pointer-events-none"
-                                                        : ""
-                                                }`}
+                                                className={`flex items-center space-x-2 flex-1 ${!enableFixed
+                                                    ? "opacity-40 pointer-events-none"
+                                                    : ""
+                                                    }`}
                                             >
                                                 <span className="text-sm text-slate-500 font-bold mr-1">
                                                     +
@@ -2861,11 +2854,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
 
                                         {/* 5. Floor */}
                                         <div
-                                            className={`flex items-center space-x-3 p-2 rounded border border-slate-200 transition-colors ${
-                                                enableFloor
-                                                    ? "bg-white"
-                                                    : "bg-slate-50"
-                                            }`}
+                                            className={`flex items-center space-x-3 p-2 rounded border border-slate-200 transition-colors ${enableFloor
+                                                ? "bg-white"
+                                                : "bg-slate-50"
+                                                }`}
                                         >
                                             <input
                                                 type="checkbox"
@@ -2877,7 +2869,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                     if (
                                                         checked &&
                                                         formData.minPaymentFloor ===
-                                                            0
+                                                        0
                                                     ) {
                                                         setFormData((prev) => ({
                                                             ...prev,
@@ -2893,11 +2885,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 border-gray-300 cursor-pointer"
                                             />
                                             <div
-                                                className={`flex items-center space-x-3 flex-1  ${
-                                                    !enableFloor
-                                                        ? "opacity-40 pointer-events-none"
-                                                        : ""
-                                                }`}
+                                                className={`flex items-center space-x-3 flex-1  ${!enableFloor
+                                                    ? "opacity-40 pointer-events-none"
+                                                    : ""
+                                                    }`}
                                             >
                                                 <span className="text-sm text-slate-500 font-bold mr-1">
                                                     +
@@ -2976,11 +2967,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                 {expandAnnualFee && (
                                     <div className="p-4 pt-0 border-t border-slate-200 space-y-4 bg-slate-50 mt-2">
                                         <div
-                                            className={`flex flex-col space-y-3 p-2 rounded border border-slate-200 transition-colors mt-2 ${
-                                                enableAnnualFee
-                                                    ? "bg-white"
-                                                    : "bg-slate-50"
-                                            }`}
+                                            className={`flex flex-col space-y-3 p-2 rounded border border-slate-200 transition-colors mt-2 ${enableAnnualFee
+                                                ? "bg-white"
+                                                : "bg-slate-50"
+                                                }`}
                                         >
                                             <div className="flex items-center space-x-3">
                                                 <input
@@ -2996,7 +2986,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                         if (
                                                             checked &&
                                                             formData.annualFee ===
-                                                                0
+                                                            0
                                                         ) {
                                                             setFormData(
                                                                 (prev) => ({
@@ -3021,11 +3011,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                             </div>
 
                                             <div
-                                                className={`pl-7 grid grid-cols-2 gap-4 ${
-                                                    !enableAnnualFee
-                                                        ? "opacity-40 pointer-events-none"
-                                                        : ""
-                                                }`}
+                                                className={`pl-7 grid grid-cols-2 gap-4 ${!enableAnnualFee
+                                                    ? "opacity-40 pointer-events-none"
+                                                    : ""
+                                                    }`}
                                             >
                                                 <div>
                                                     <label className="block text-xs text-slate-500 mb-1">
@@ -3134,7 +3123,33 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                     {showAdvanced ? "Hide" : "Show"} Advanced
                                 </button>
                                 {showAdvanced && (
-                                    <div className="mt-3 space-y-2">
+                                    <div className="mt-3 space-y-4">
+                                        {/* Manual Payment Alert */}
+                                        <div className="bg-amber-50 rounded-lg p-3 border border-amber-100">
+                                            <div className="flex items-start space-x-3">
+                                                <input
+                                                    type="checkbox"
+                                                    id="manualLiabilityPayment"
+                                                    className="mt-1 w-4 h-4 text-indigo-600 rounded border-slate-300"
+                                                    checked={formData.manualPaymentRequired || false}
+                                                    onChange={(e) =>
+                                                        setFormData({
+                                                            ...formData,
+                                                            manualPaymentRequired: e.target.checked,
+                                                        })
+                                                    }
+                                                />
+                                                <div>
+                                                    <label htmlFor="manualLiabilityPayment" className="block text-sm font-medium text-slate-800">
+                                                        Manual Payment Required
+                                                    </label>
+                                                    <p className="text-xs text-slate-600 mt-1">
+                                                        Flag this item in the daily "Money on the Move" email as requiring manual action.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+
                                         <p className="text-xs text-slate-500">
                                             Exclude this liability from specific
                                             income sources when splitting
@@ -3174,11 +3189,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 return (
                                                     <label
                                                         key={inc.id}
-                                                        className={`flex items-center justify-between px-3 py-2 rounded-lg border ${
-                                                            checked
-                                                                ? "border-indigo-200 bg-indigo-50"
-                                                                : "border-slate-200 bg-white"
-                                                        }`}
+                                                        className={`flex items-center justify-between px-3 py-2 rounded-lg border ${checked
+                                                            ? "border-indigo-200 bg-indigo-50"
+                                                            : "border-slate-200 bg-white"
+                                                            }`}
                                                     >
                                                         <div>
                                                             <p className="text-sm font-medium text-slate-800">
@@ -3201,7 +3215,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                                 const next =
                                                                     new Set(
                                                                         formData.excludedIncomeSourceIds ||
-                                                                            []
+                                                                        []
                                                                     );
                                                                 if (
                                                                     e.target
@@ -3253,11 +3267,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 owner: "USER",
                                             })
                                         }
-                                        className={`flex-1 py-2 text-xs font-medium rounded-md flex items-center justify-center space-x-1 transition-all ${
-                                            formData.owner === "USER"
-                                                ? "bg-white shadow text-indigo-700"
-                                                : "text-slate-500 hover:text-slate-700"
-                                        }`}
+                                        className={`flex-1 py-2 text-xs font-medium rounded-md flex items-center justify-center space-x-1 transition-all ${formData.owner === "USER"
+                                            ? "bg-white shadow text-indigo-700"
+                                            : "text-slate-500 hover:text-slate-700"
+                                            }`}
                                     >
                                         <User size={14} /> <span>Me</span>
                                     </button>
@@ -3269,12 +3282,11 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 owner: "JOINT",
                                             })
                                         }
-                                        className={`flex-1 py-2 text-xs font-medium rounded-md flex items-center justify-center space-x-1 transition-all ${
-                                            formData.owner === "JOINT" ||
+                                        className={`flex-1 py-2 text-xs font-medium rounded-md flex items-center justify-center space-x-1 transition-all ${formData.owner === "JOINT" ||
                                             !formData.owner
-                                                ? "bg-white shadow text-purple-700"
-                                                : "text-slate-500 hover:text-slate-700"
-                                        }`}
+                                            ? "bg-white shadow text-purple-700"
+                                            : "text-slate-500 hover:text-slate-700"
+                                            }`}
                                     >
                                         <Users size={14} /> <span>Joint</span>
                                     </button>
@@ -3286,11 +3298,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 owner: "PARTNER",
                                             })
                                         }
-                                        className={`flex-1 py-2 text-xs font-medium rounded-md flex items-center justify-center space-x-1 transition-all ${
-                                            formData.owner === "PARTNER"
-                                                ? "bg-white shadow text-pink-700"
-                                                : "text-slate-500 hover:text-slate-700"
-                                        }`}
+                                        className={`flex-1 py-2 text-xs font-medium rounded-md flex items-center justify-center space-x-1 transition-all ${formData.owner === "PARTNER"
+                                            ? "bg-white shadow text-pink-700"
+                                            : "text-slate-500 hover:text-slate-700"
+                                            }`}
                                     >
                                         <User size={14} />{" "}
                                         <span>{partnerFirstWord}</span>
@@ -3681,8 +3692,8 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 const displayDate =
                                                     row.actualDate
                                                         ? parseLocalDate(
-                                                              row.actualDate
-                                                          ) || paymentDate
+                                                            row.actualDate
+                                                        ) || paymentDate
                                                         : paymentDate;
                                                 const today = new Date();
                                                 today.setHours(0, 0, 0, 0);
@@ -3691,12 +3702,12 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 const matchingPayment =
                                                     row.actualDate
                                                         ? paymentsByCheckDate.get(
-                                                              row.actualDate
-                                                          )
+                                                            row.actualDate
+                                                        )
                                                         : undefined;
                                                 const override =
                                                     amortizationOverridesForViewing[
-                                                        row.month
+                                                    row.month
                                                     ];
                                                 const rawOverridePayment =
                                                     override?.payment;
@@ -3704,18 +3715,18 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                     override?.purchase;
                                                 const displayPayment = override
                                                     ? rawOverridePayment ??
-                                                      row.payment
+                                                    row.payment
                                                     : row.payment;
                                                 const displayInterest = override
                                                     ? override.interest
                                                     : row.interest;
                                                 const hasEditableRow = Boolean(
                                                     matchingPayment ||
-                                                        override ||
-                                                        ((viewingLiability
-                                                            .startingBalance ||
-                                                            0) > 0 &&
-                                                            isPastDue)
+                                                    override ||
+                                                    ((viewingLiability
+                                                        .startingBalance ||
+                                                        0) > 0 &&
+                                                        isPastDue)
                                                 );
                                                 const isEditingRow =
                                                     editingAmortizationRow ===
@@ -3723,54 +3734,54 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 const editPaymentValue =
                                                     isEditingRow
                                                         ? parseFloat(
-                                                              amortizationEdit.payment
-                                                          )
+                                                            amortizationEdit.payment
+                                                        )
                                                         : NaN;
                                                 const editPurchaseValue =
                                                     isEditingRow
                                                         ? parseFloat(
-                                                              amortizationEditPurchase
-                                                          )
+                                                            amortizationEditPurchase
+                                                        )
                                                         : NaN;
                                                 const editInterestValue =
                                                     isEditingRow
                                                         ? parseFloat(
-                                                              amortizationEdit.interest
-                                                          )
+                                                            amortizationEdit.interest
+                                                        )
                                                         : NaN;
                                                 const basePayment =
                                                     isEditingRow &&
-                                                    Number.isFinite(
-                                                        editPaymentValue
-                                                    )
+                                                        Number.isFinite(
+                                                            editPaymentValue
+                                                        )
                                                         ? editPaymentValue
                                                         : displayPayment;
                                                 const basePurchase =
                                                     isEditingRow &&
-                                                    Number.isFinite(
-                                                        editPurchaseValue
-                                                    )
+                                                        Number.isFinite(
+                                                            editPurchaseValue
+                                                        )
                                                         ? editPurchaseValue
                                                         : override?.purchase !==
-                                                          undefined
-                                                        ? rawOverridePurchase ||
-                                                          0
-                                                        : basePayment < 0
-                                                        ? Math.abs(basePayment)
-                                                        : 0;
+                                                            undefined
+                                                            ? rawOverridePurchase ||
+                                                            0
+                                                            : basePayment < 0
+                                                                ? Math.abs(basePayment)
+                                                                : 0;
                                                 const effectivePayment =
                                                     basePayment < 0 &&
-                                                    !isEditingRow &&
-                                                    override?.purchase ===
+                                                        !isEditingRow &&
+                                                        override?.purchase ===
                                                         undefined
                                                         ? basePayment
                                                         : basePayment -
-                                                          basePurchase;
+                                                        basePurchase;
                                                 const effectiveInterest =
                                                     isEditingRow &&
-                                                    Number.isFinite(
-                                                        editInterestValue
-                                                    )
+                                                        Number.isFinite(
+                                                            editInterestValue
+                                                        )
                                                         ? editInterestValue
                                                         : displayInterest;
                                                 const displayPurchase =
@@ -3786,16 +3797,16 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 const displayPrincipal =
                                                     override || isEditingRow
                                                         ? effectivePayment -
-                                                          effectiveInterest
+                                                        effectiveInterest
                                                         : row.principal;
                                                 const requiredDue = Math.max(
                                                     0,
                                                     row.payment -
-                                                        (row.extraPayment || 0)
+                                                    (row.extraPayment || 0)
                                                 );
                                                 const paidForPeriod =
                                                     minimumPaidByPeriod[
-                                                        row.month
+                                                    row.month
                                                     ] || 0;
                                                 const remainingDue = Math.max(
                                                     0,
@@ -3803,30 +3814,29 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 );
                                                 const isPaid = Boolean(
                                                     row.isHistorical ||
-                                                        matchingPayment ||
-                                                        (requiredDue > 0 &&
-                                                            paidForPeriod >=
-                                                                requiredDue) ||
-                                                        ((viewingLiability
-                                                            .startingBalance ||
-                                                            0) > 0 &&
-                                                            isPastDue)
+                                                    matchingPayment ||
+                                                    (requiredDue > 0 &&
+                                                        paidForPeriod >=
+                                                        requiredDue) ||
+                                                    ((viewingLiability
+                                                        .startingBalance ||
+                                                        0) > 0 &&
+                                                        isPastDue)
                                                 );
                                                 const showMinimumProgress =
                                                     requiredDue > 0 &&
                                                     paidForPeriod > 0 &&
                                                     paidForPeriod <
-                                                        requiredDue &&
+                                                    requiredDue &&
                                                     !isPaid;
 
                                                 return (
                                                     <tr
                                                         key={row.month}
-                                                        className={`transition-colors ${
-                                                            isPaid
-                                                                ? "bg-green-50"
-                                                                : "hover:bg-slate-50"
-                                                        }`}
+                                                        className={`transition-colors ${isPaid
+                                                            ? "bg-green-50"
+                                                            : "hover:bg-slate-50"
+                                                            }`}
                                                     >
                                                         <td className="px-6 py-3 text-sm font-mono text-slate-600 font-medium flex items-center space-x-2">
                                                             {isPaid && (
@@ -3841,7 +3851,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                         </td>
                                                         <td className="px-6 py-3 text-sm font-mono text-slate-500">
                                                             {isEditingRow &&
-                                                            matchingPayment ? (
+                                                                matchingPayment ? (
                                                                 <input
                                                                     type="date"
                                                                     className="w-32 px-2 py-1 border border-slate-300 rounded-md text-sm"
@@ -3903,13 +3913,13 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                             ) : (
                                                                 <>
                                                                     {displayPayment <
-                                                                    0
+                                                                        0
                                                                         ? "-"
                                                                         : `$${displayPayment.toFixed(
-                                                                              2
-                                                                          )}`}
+                                                                            2
+                                                                        )}`}
                                                                     {row.extraPayment &&
-                                                                    !row.isHistorical ? (
+                                                                        !row.isHistorical ? (
                                                                         <div className="text-[10px] text-emerald-600 font-semibold">
                                                                             +$
                                                                             {row.extraPayment.toFixed(
@@ -3951,7 +3961,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                                     }
                                                                 />
                                                             ) : displayPurchase >
-                                                              0 ? (
+                                                                0 ? (
                                                                 `$${displayPurchase.toFixed(
                                                                     2
                                                                 )}`
@@ -4001,16 +4011,15 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                             )}
                                                         </td>
                                                         <td
-                                                            className={`px-6 py-3 text-sm font-mono text-right ${
-                                                                row.fees > 0
-                                                                    ? "text-orange-600 font-bold"
-                                                                    : "text-slate-400"
-                                                            }`}
+                                                            className={`px-6 py-3 text-sm font-mono text-right ${row.fees > 0
+                                                                ? "text-orange-600 font-bold"
+                                                                : "text-slate-400"
+                                                                }`}
                                                         >
                                                             {row.fees > 0
                                                                 ? `$${row.fees.toFixed(
-                                                                      2
-                                                                  )}`
+                                                                    2
+                                                                )}`
                                                                 : "-"}
                                                         </td>
                                                         <td className="px-6 py-3 text-sm font-mono text-slate-700 text-right font-mono">
@@ -4066,12 +4075,12 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                                                 onClick={() =>
                                                                                     matchingPayment
                                                                                         ? deletePayment(
-                                                                                              matchingPayment.id
-                                                                                          )
+                                                                                            matchingPayment.id
+                                                                                        )
                                                                                         : deleteAmortizationOverrideRow(
-                                                                                              viewingLiability.id,
-                                                                                              row.month
-                                                                                          )
+                                                                                            viewingLiability.id,
+                                                                                            row.month
+                                                                                        )
                                                                                 }
                                                                                 className="inline-flex items-center justify-center w-8 h-8 border border-red-200 text-red-600 rounded hover:bg-red-50"
                                                                                 aria-label="Delete amortization row"

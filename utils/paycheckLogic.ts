@@ -1,20 +1,6 @@
-import { IncomeSource, Expense, Liability } from "../types";
+import { IncomeSource, Expense, Liability, ExtraPayment, PaycheckOccurrence } from "../types";
 import { getAnnualizedIncomeAmount } from "../server/liabilityAlgorithms";
 
-export type PaycheckOccurrence = {
-    date: Date;
-    source: IncomeSource;
-    eligibleMonthly: boolean;
-    eligibleBiWeekly: boolean;
-};
-
-export type ExtraPayment = {
-    id: string;
-    liabilityId: string;
-    amount: number;
-    checkDate?: string | null;
-    isChecked?: boolean;
-};
 
 // --- Date Helpers ---
 

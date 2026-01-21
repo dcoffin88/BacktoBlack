@@ -258,6 +258,25 @@ export const dbAPI = {
     });
   },
 
+  triggerMonthlyReport: async () => {
+    return await fetchJson<{ success: boolean; message: string }>(`${API_BASE_URL}/reports/trigger-monthly`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+  },
+
+  triggerTransferReport: async (date?: string) => {
+    return await fetchJson<{ success: boolean; message: string }>(`${API_BASE_URL}/reports/trigger-transfer`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ date }),
+    });
+  },
+
+  getAvailableChecks: async (): Promise<string[]> => {
+    return await fetchJson<string[]>(`${API_BASE_URL}/reports/available-checks`, { headers: getAuthHeaders() });
+  },
+
   // HOUSEHOLD
   joinHousehold: async (partnerEmail: string) => {
     const response = await fetch(`${API_BASE_URL}/household/join`, {

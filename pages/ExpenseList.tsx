@@ -143,12 +143,12 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                 anchor && !Number.isNaN(anchor.getTime())
                     ? new Date(anchor)
                     : expense.dueDate
-                    ? new Date(
-                          today.getFullYear(),
-                          today.getMonth(),
-                          expense.dueDate
-                      )
-                    : null;
+                        ? new Date(
+                            today.getFullYear(),
+                            today.getMonth(),
+                            expense.dueDate
+                        )
+                        : null;
 
             if (!next || Number.isNaN(next.getTime())) {
                 return "No anchor set";
@@ -208,9 +208,8 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
 
         if (userSettings.expenseSplitMethod === ExpenseSplitMethod.PERCENTAGE) {
             userRatio = (userSettings.userSplitPercentage || 50) / 100;
-            label = `${userSettings.userSplitPercentage || 50}% / ${
-                100 - (userSettings.userSplitPercentage || 50)
-            }% Split`;
+            label = `${userSettings.userSplitPercentage || 50}% / ${100 - (userSettings.userSplitPercentage || 50)
+                }% Split`;
         } else if (
             userSettings.expenseSplitMethod === ExpenseSplitMethod.INCOME
         ) {
@@ -329,9 +328,9 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                             $
                                             {userShare.toLocaleString(
                                                 undefined, {
-                                                    minimumFractionDigits: 2,
-                                                    maximumFractionDigits: 2,
-                                                }
+                                                minimumFractionDigits: 2,
+                                                maximumFractionDigits: 2,
+                                            }
                                             )}
                                         </p>
                                     </div>
@@ -343,9 +342,9 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                             $
                                             {partnerShare.toLocaleString(
                                                 undefined, {
-                                                    minimumFractionDigits: 2,
-                                                    maximumFractionDigits: 2,
-                                                }
+                                                minimumFractionDigits: 2,
+                                                maximumFractionDigits: 2,
+                                            }
                                             )}
                                         </p>
                                     </div>
@@ -470,11 +469,11 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                 {expenses.length === 0 ? (
                                     <tr>
                                         <td
-                                        colSpan={5}
-                                        className="px-6 py-12 text-center text-slate-400"
-                                    >
-                                        No expenses added yet.
-                                    </td>
+                                            colSpan={5}
+                                            className="px-6 py-12 text-center text-slate-400"
+                                        >
+                                            No expenses added yet.
+                                        </td>
                                     </tr>
                                 ) : (
                                     useMemo(() => {
@@ -531,33 +530,32 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                                 </td>
                                                 <td className="px-6 py-4 text-center">
                                                     <span
-                                                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                                            expense.frequency ===
-                                                            "MONTHLY"
+                                                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${expense.frequency ===
+                                                                "MONTHLY"
                                                                 ? "bg-blue-100 text-blue-800"
                                                                 : expense.frequency ===
-                                                                  "ANNUAL"
-                                                                ? "bg-orange-100 text-orange-800"
-                                                                : "bg-purple-100 text-purple-800"
-                                                        }`}
+                                                                    "ANNUAL"
+                                                                    ? "bg-orange-100 text-orange-800"
+                                                                    : "bg-purple-100 text-purple-800"
+                                                            }`}
                                                     >
-                                                    {expense.frequency ===
-                                                    "MONTHLY"
-                                                        ? "Monthly"
-                                                        : expense.frequency ===
-                                                          "QUARTERLY"
-                                                        ? "Quarterly"
-                                                        : expense.frequency ===
-                                                          "WEEKLY"
-                                                        ? "Weekly"
-                                                        : expense.frequency ===
-                                                          "BI_WEEKLY"
-                                                        ? "Bi-Weekly"
-                                                        : "Annual"}
+                                                        {expense.frequency ===
+                                                            "MONTHLY"
+                                                            ? "Monthly"
+                                                            : expense.frequency ===
+                                                                "QUARTERLY"
+                                                                ? "Quarterly"
+                                                                : expense.frequency ===
+                                                                    "WEEKLY"
+                                                                    ? "Weekly"
+                                                                    : expense.frequency ===
+                                                                        "BI_WEEKLY"
+                                                                        ? "Bi-Weekly"
+                                                                        : "Annual"}
                                                     </span>
                                                 </td>
                                                 <td className="px-6 py-4 text-right text-slate-600 font-medium">
-                                                {getNextDueDate(expense)}
+                                                    {getNextDueDate(expense)}
                                                 </td>
                                                 <td className="px-6 py-4 text-center">
                                                     <div className="flex items-center justify-center space-x-2">
@@ -609,41 +607,41 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                             </button>
                         </div>
                         <form onSubmit={handleSave} className="p-6 space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">
-                                        Expense Name
-                                    </label>
-                                    <input
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">
+                                    Expense Name
+                                </label>
+                                <input
                                     required
                                     type="text"
                                     className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
                                     placeholder="e.g. Rent, Netflix"
                                     value={formData.name}
                                     onChange={(e) =>
-                                            setFormData({
-                                                ...formData,
-                                                name: e.target.value,
-                                            })
-                                        }
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">
-                                        Subtitle (Opt)
-                                    </label>
-                                    <input
-                                        type="text"
-                                        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                                        placeholder="e.g. Electricity"
-                                        value={formData.subtitle || ""}
-                                        onChange={(e) =>
-                                            setFormData({
-                                                ...formData,
-                                                subtitle: e.target.value,
-                                            })
-                                        }
-                                    />
-                                </div>
+                                        setFormData({
+                                            ...formData,
+                                            name: e.target.value,
+                                        })
+                                    }
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">
+                                    Subtitle (Opt)
+                                </label>
+                                <input
+                                    type="text"
+                                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                                    placeholder="e.g. Electricity"
+                                    value={formData.subtitle || ""}
+                                    onChange={(e) =>
+                                        setFormData({
+                                            ...formData,
+                                            subtitle: e.target.value,
+                                        })
+                                    }
+                                />
+                            </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 mb-1">
@@ -684,8 +682,8 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                                         e.target.value === ""
                                                             ? undefined
                                                             : parseInt(
-                                                                  e.target.value
-                                                              ),
+                                                                e.target.value
+                                                            ),
                                                 })
                                             }
                                         />
@@ -790,7 +788,33 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                     {showAdvanced ? "Hide" : "Show"} Advanced
                                 </button>
                                 {showAdvanced && (
-                                    <div className="mt-3 space-y-2">
+                                    <div className="mt-3 space-y-4">
+                                        {/* Manual Payment Alert */}
+                                        <div className="bg-amber-50 rounded-lg p-3 border border-amber-100">
+                                            <div className="flex items-start space-x-3">
+                                                <input
+                                                    type="checkbox"
+                                                    id="manualPaymentRequired"
+                                                    className="mt-1 w-4 h-4 text-indigo-600 rounded border-slate-300"
+                                                    checked={formData.manualPaymentRequired || false}
+                                                    onChange={(e) =>
+                                                        setFormData({
+                                                            ...formData,
+                                                            manualPaymentRequired: e.target.checked,
+                                                        })
+                                                    }
+                                                />
+                                                <div>
+                                                    <label htmlFor="manualPaymentRequired" className="block text-sm font-medium text-slate-800">
+                                                        Manual Payment Required
+                                                    </label>
+                                                    <p className="text-xs text-slate-600 mt-1">
+                                                        Flag this item in the daily "Money on the Move" email as requiring manual action.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+
                                         <p className="text-xs text-slate-500">
                                             Exclude this expense from specific income sources when splitting per-check on the Budget page.
                                         </p>
@@ -822,11 +846,10 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                                 return (
                                                     <label
                                                         key={inc.id}
-                                                        className={`flex items-center justify-between px-3 py-2 rounded-lg border ${
-                                                            checked
+                                                        className={`flex items-center justify-between px-3 py-2 rounded-lg border ${checked
                                                                 ? "border-indigo-200 bg-indigo-50"
                                                                 : "border-slate-200 bg-white"
-                                                        }`}
+                                                            }`}
                                                     >
                                                         <div>
                                                             <p className="text-sm font-medium text-slate-800">
@@ -847,7 +870,7 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                                                 const next =
                                                                     new Set(
                                                                         formData.excludedIncomeSourceIds ||
-                                                                            []
+                                                                        []
                                                                     );
                                                                 if (e.target.checked) {
                                                                     next.add(inc.id);
@@ -888,11 +911,10 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                                 owner: "USER",
                                             })
                                         }
-                                        className={`flex-1 py-2 text-xs font-medium rounded-md flex items-center justify-center space-x-1 transition-all ${
-                                            formData.owner === "USER"
+                                        className={`flex-1 py-2 text-xs font-medium rounded-md flex items-center justify-center space-x-1 transition-all ${formData.owner === "USER"
                                                 ? "bg-white shadow text-indigo-700"
                                                 : "text-slate-500 hover:text-slate-700"
-                                        }`}
+                                            }`}
                                     >
                                         <User size={14} /> <span>Me</span>
                                     </button>
@@ -904,12 +926,11 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                                 owner: "JOINT",
                                             })
                                         }
-                                        className={`flex-1 py-2 text-xs font-medium rounded-md flex items-center justify-center space-x-1 transition-all ${
-                                            formData.owner === "JOINT" ||
-                                            !formData.owner
+                                        className={`flex-1 py-2 text-xs font-medium rounded-md flex items-center justify-center space-x-1 transition-all ${formData.owner === "JOINT" ||
+                                                !formData.owner
                                                 ? "bg-white shadow text-purple-700"
                                                 : "text-slate-500 hover:text-slate-700"
-                                        }`}
+                                            }`}
                                     >
                                         <Users size={14} /> <span>Joint</span>
                                     </button>
@@ -921,11 +942,10 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                                 owner: "PARTNER",
                                             })
                                         }
-                                        className={`flex-1 py-2 text-xs font-medium rounded-md flex items-center justify-center space-x-1 transition-all ${
-                                            formData.owner === "PARTNER"
+                                        className={`flex-1 py-2 text-xs font-medium rounded-md flex items-center justify-center space-x-1 transition-all ${formData.owner === "PARTNER"
                                                 ? "bg-white shadow text-pink-700"
                                                 : "text-slate-500 hover:text-slate-700"
-                                        }`}
+                                            }`}
                                     >
                                         <User size={14} />{" "}
                                         <span>{partnerFirstWord}</span>

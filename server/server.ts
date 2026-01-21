@@ -8,6 +8,8 @@ import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 import { randomUUID } from 'crypto';
 
+import { startScheduler, triggerMonthlyReportForUser, triggerTransferReportForUser, getAvailableCheckDates } from './scheduler';
+
 const app = express();
 const port = 3001;
 const DB_FILE = 'backtoblack.db';
@@ -23,6 +25,7 @@ const db = new sqlite3.Database(DB_FILE, (err) => {
     console.error(err.message);
   }
   console.log('Connected to the backtoblack database.');
+  startScheduler(db);
 });
 
 // Ensure legacy databases have the name column on users (added after initial release)
@@ -1035,6 +1038,47 @@ app.put('/api/profile/password', authenticateToken, async (req, res) => {
       res.json({ success: true });
     });
   });
+});
+
+
+// --- Reports ---
+app.post('/api/reports/trigger-monthly', authenticateToken, async (req: AuthedRequest, res) => {
+  const user = req.user!;
+  try {
+    const result = await triggerMonthlyReportForUser(db, user.id);
+    if (result.success) {
+      res.json({ success: true, message: 'Monthly report sent successfully' });
+    } else {
+      res.status(400).json({ error: result.error || 'Failed to send monthly report' });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/reports/trigger-transfer', authenticateToken, async (req: AuthedRequest, res) => {
+  const user = req.user!;
+  const { date } = req.body as { date?: string };
+  try {
+    const result = await triggerTransferReportForUser(db, user.id, date);
+    if (result.success) {
+      res.json({ success: true, message: result.message || 'Transfer report sent successfully' });
+    } else {
+      res.status(400).json({ error: result.error || 'Failed to send transfer report' });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/reports/available-checks', authenticateToken, async (req: AuthedRequest, res) => {
+  const user = req.user!;
+  try {
+    const dates = await getAvailableCheckDates(db, user.id);
+    res.json(dates);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 
