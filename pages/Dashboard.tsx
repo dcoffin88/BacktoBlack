@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Liability, Expense, Asset, StrategyType, STRATEGY_LABELS, UserSettings, IncomeSource, BudgetSchedule, PayoffResult } from '../types';
 import { calculatePayoff, getMinPayment, calculateMonthlyIncomeByMode, AmortizationRow, getAnnualizedIncomeAmount } from '../server/liabilityAlgorithms';
 import { generatePaychecks, getPerCheckExpenseAmount, getPerCheckLiabilityAmount, PaycheckOccurrence } from '../utils/paycheckLogic';
+import { usePeriodTotals } from '../hooks/usePeriodTotals';
 import { Link } from 'react-router-dom';
 import { ArrowRight, TrendingUp, Calendar, Wallet, LayoutDashboard, DollarSign, Receipt, Landmark, Calculator, AlertTriangle } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
@@ -341,84 +342,41 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
     return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
   }, [userSettings?.startDate]);
 
-  const currentMonthPaychecks = useMemo(() => {
-    if (budgetedIncomes.length === 0) return [];
 
-    // Calculate periodStart and periodEnd same as before
-    const periodStart = new Date(currentYear, currentMonthIndex, 1);
-    const periodEnd = new Date(currentYear, currentMonthIndex + 1, 0);
+  const currentMonthStart = useMemo(() => new Date(currentYear, currentMonthIndex, 1), [currentYear, currentMonthIndex]);
+  const currentMonthEnd = useMemo(() => new Date(currentYear, currentMonthIndex + 1, 0), [currentYear, currentMonthIndex]);
 
-    return generatePaychecks(budgetedIncomes, periodStart, periodEnd, {
-      budgetStartDate
-    });
-  }, [budgetStartDate, budgetedIncomes, currentMonthIndex, currentYear]);
+  const {
+    periodIncomeTotal: currentMonthIncome,
+    periodExpenseTotal: totalMonthlyExpenses,
+    periodLiabilityTotal: currentMonthLiabilityMins,
+    periodNet: freeCashFlow
+  } = usePeriodTotals({
+    liabilities,
+    expenses,
+    incomes,
+    assets,
+    extraPayments: extraPayments, // Dashboard generally wants to see ALL payments, but for the "Breakdown" card which user requested to match Reports, we use the hook which defaults to checked-only or we can modify hook.
+    // Wait, the user said "Dashboard breadkdown card can just pull... directly from the budget report". 
+    // Reports strictly obeys the checkboxes. Dashboard historically didn't have checkboxes for main view but user didn't specifying adding them.
+    // The hook uses { includeUnchecked: false } by default in its internal getPerCheckLiabilityAmount call (I hardcoded it). 
+    // This will match Reports exactly.
+    periodStart: currentMonthStart,
+    periodEnd: currentMonthEnd,
+    userSettings: userSettings || {} as UserSettings,
+    monthlyBudget,
+    amortizationSchedules
+  });
 
-  const currentMonthIncome = useMemo(() => {
-    return currentMonthPaychecks.reduce((sum, p) => sum + p.source.amount, 0);
-  }, [currentMonthPaychecks]);
-
-  const getPerCheckExpenseFor = useCallback((expense: Expense, currentPaycheck: PaycheckOccurrence | null, monthPaychecksForCheck: PaycheckOccurrence[]) => {
-    return getPerCheckExpenseAmount(expense, currentPaycheck, monthPaychecksForCheck, budgetedIncomes, userSplitRatio);
-  }, [userSplitRatio, budgetedIncomes]);
-
-  const getPerCheckLiabilityFor = useCallback(
-    (
-      liability: Liability,
-      currentPaycheck: PaycheckOccurrence | null,
-      monthPaychecksForCheck: PaycheckOccurrence[]
-    ) => {
-      return getPerCheckLiabilityAmount(
-        liability,
-        currentPaycheck,
-        monthPaychecksForCheck,
-        budgetedIncomes,
-        extraPayments,
-        userSplitRatio
-      );
-    },
-    [userSplitRatio, budgetedIncomes, extraPayments]
-  );
-
-  // Expense Calculations
-  const totalMonthlyExpenses = useMemo(() => {
-    let total = 0;
-    expenses.forEach((expense) => {
-      currentMonthPaychecks.forEach((paycheck) => {
-        total += getPerCheckExpenseFor(expense, paycheck, currentMonthPaychecks);
-      });
-    });
-    return total;
-  }, [expenses, currentMonthPaychecks, getPerCheckExpenseFor]);
-
-  // Asset Calculations
-  const totalAssets = assets.reduce((sum, a) => sum + a.value, 0);
-  const netWorth = totalAssets - totalLiability;
-
-
-  const currentMonthLiabilityMins = useMemo(() => {
-    let total = 0;
-    liabilities.forEach((liability) => {
-      currentMonthPaychecks.forEach((paycheck) => {
-        total += getPerCheckLiabilityFor(liability, paycheck, currentMonthPaychecks);
-      });
-    });
-    return total;
-  }, [liabilities, currentMonthPaychecks, getPerCheckLiabilityFor]);
-
-  const totalMinPayment = currentMonthLiabilityMins; // Use the same consistency
-
-  const totalPartnerIncome = calculateMonthlyIncomeByMode(
-    budgetedIncomes.filter((i) => i.isPartner),
-    monthlyIncomeMode
-  );
-  const totalMyIncome = calculateMonthlyIncomeByMode(
-    budgetedIncomes.filter((i) => !i.isPartner),
-    monthlyIncomeMode
-  );
-  const totalIncome = totalMyIncome + totalPartnerIncome;
-  const totalCommitment = totalMinPayment + totalMonthlyExpenses + monthlyBudget;
-  const freeCashFlow = currentMonthIncome - totalMonthlyExpenses - currentMonthLiabilityMins;
   const isDeficit = freeCashFlow < 0;
+
+
+  const totalMinPayment = currentMonthLiabilityMins;
+
+  // Restored Asset Calculations
+  const totalAssets = useMemo(() => assets.reduce((sum, a) => sum + a.value, 0), [assets]);
+  const netWorth = useMemo(() => totalAssets - totalLiability, [totalAssets, totalLiability]);
+
 
   useEffect(() => {
     let active = true;
