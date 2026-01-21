@@ -229,7 +229,7 @@ const generateTransferReport = async (data: ReportData, date: Date) => {
     // We will aggregate transfers across all paychecks triggering today (usually just 1, but could be multiple)
     // 2. Calculate Transfers and Manual Payments for these paychecks
     const transferGroups = new Map<string, { total: number; items: { name: string; amount: number; type: string }[] }>();
-    const manualPayments: { name: string; amount: number; type: string; account?: string }[] = [];
+    const manualPayments: { name: string; subtitle?: string; amount: number; type: string; account?: string }[] = [];
 
     // Prepare Split Ratio
     const budgetedIncomes = incomes.filter(i => i.includeInPlanner !== false);
@@ -261,7 +261,7 @@ const generateTransferReport = async (data: ReportData, date: Date) => {
             if (amt > 0) {
                 // If manual payment required, track it
                 if (e.manualPaymentRequired) {
-                    manualPayments.push({ name: e.name, amount: amt, type: 'Expense', account: e.transferAccount });
+                    manualPayments.push({ name: e.name, subtitle: e.subtitle, amount: amt, type: 'Expense', account: e.transferAccount });
                 }
 
                 // If transfer account specified, group it
@@ -289,7 +289,7 @@ const generateTransferReport = async (data: ReportData, date: Date) => {
             if (amt > 0) {
                 // If manual payment required, track it
                 if (l.manualPaymentRequired) {
-                    manualPayments.push({ name: l.name, amount: amt, type: 'Liability', account: l.transferAccount });
+                    manualPayments.push({ name: l.name, subtitle: l.subtitle, amount: amt, type: 'Liability', account: l.transferAccount });
                 }
 
                 // If transfer account specified, group it
@@ -320,21 +320,10 @@ const generateTransferReport = async (data: ReportData, date: Date) => {
                 <h3 style="margin: 0; font-size: 14px; font-weight: 700; color: #4338ca; text-transform: uppercase; letter-spacing: 0.025em;">Automated Transfers</h3>
             </div>
             ${Array.from(transferGroups.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([account, data]) => `
-                <div style="border-bottom: 1px solid #e2e8f0;">
-                    <div style="padding: 16px; background-color: #f1f5f9; display: flex; align-items: baseline;">
-                         <span style="font-weight: 600; color: #334155;">To: ${account}</span>
-                         <div style="flex-grow: 1; margin: 0 8px; border-bottom: 1px dotted #cbd5e1; height: 14px;"></div>
-                         <span style="font-weight: 700; color: #0f172a;">${formatCurrency(data.total, currencySymbol)}</span>
-                    </div>
-                    <div style="padding: 12px 16px;">
-                        ${data.items.slice().sort((a, b) => a.name.localeCompare(b.name)).map(item => `
-                            <div style="display: flex; align-items: baseline; font-size: 14px; padding: 4px 0;">
-                                <span style="color: #64748b;">${item.name}</span>
-                                <div style="flex-grow: 1; margin: 0 8px; border-bottom: 1px dotted #e2e8f0; height: 11px;"></div>
-                                <span style="font-weight: 500;">${formatCurrency(item.amount, currencySymbol)}</span>
-                            </div>
-                        `).join('')}
-                    </div>
+                <div style="border-bottom: 1px solid #e2e8f0; padding: 16px; background-color: #f1f5f9; display: flex; align-items: baseline;">
+                     <span style="font-weight: 600; color: #334155;">To: ${account}</span>
+                     <div style="flex-grow: 1; margin: 0 8px; border-bottom: 1px dotted #cbd5e1; height: 14px;"></div>
+                     <span style="font-weight: 700; color: #0f172a;">${formatCurrency(data.total, currencySymbol)}</span>
                 </div>
             `).join('')}
         </div>
@@ -354,7 +343,7 @@ const generateTransferReport = async (data: ReportData, date: Date) => {
                             <span style="font-weight: 700; color: #b91c1c;">${formatCurrency(item.amount, currencySymbol)}</span>
                         </div>
                         <div style="font-size: 12px; color: #64748b;">
-                            ${item.type} ${item.account ? `• From: ${item.account}` : ''}
+                            ${item.subtitle ? `${item.subtitle} • ` : ''}${item.type} ${item.account ? `• From: ${item.account}` : ''}
                         </div>
                     </div>
                 `).join('')}
