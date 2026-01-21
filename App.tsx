@@ -43,7 +43,6 @@ const App: React.FC = () => {
   useEffect(() => {
     if (token) {
       loadData();
-      // Extract email from token roughly for display
       try {
         const payload = JSON.parse(atob(token.split('.')[1]));
         setUserEmail(payload.email);
@@ -115,7 +114,6 @@ const App: React.FC = () => {
     }
   };
 
-  // Data Handlers
   const saveLiability = async (liability: Liability) => {
     await dbAPI.saveLiability(liability);
     loadData();
@@ -157,7 +155,6 @@ const App: React.FC = () => {
     loadData();
   };
 
-  // Calculated Budget for Dashboard (Total Income - Expenses - Liability Mins = Snowball)
   const totalMonthlyIncome = calculateMonthlyIncome(incomes);
   const totalMonthlyExpenses = expenses.reduce((sum, b) => {
     const multiplier =

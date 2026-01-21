@@ -1,4 +1,3 @@
-
 import cron from 'node-cron';
 import nodemailer from 'nodemailer';
 import { Database } from 'sqlite3';
@@ -6,16 +5,12 @@ import { Asset, Expense, IncomeSource, Liability, UserSettings, ExtraPayment } f
 import { ReportGenerator } from './reports/reportGenerator';
 import { generatePaychecks } from '../utils/paycheckLogic';
 
-// --- Types ---
 interface UserRow {
     id: number;
     email: string;
     household_id?: string | null;
 }
 
-// --- Helpers ---
-
-// Duplicated from server.ts to avoid circular deps.
 const normalizeIncomeSources = (
     sources: IncomeSource[] = [],
     userId: number,
@@ -212,14 +207,13 @@ const getBalanceFromSchedule = (
             return null;
         }
 
-        // Liability is active; use the current period from the schedule even if actualDate is absent.
         const period = getPeriodIndexFromDate(liability, toLocalDateString(today));
         if (period !== null && period !== undefined) {
             const matchingRow = schedule.timeline.find((row) => row.month === period);
             if (matchingRow) return matchingRow.remainingBalance;
         }
 
-        return null; // Fallback
+        return null;
     }
 
     const latestHistorical = historicalRows.reduce((acc, cur) =>
@@ -231,21 +225,17 @@ const getBalanceFromSchedule = (
 const fetchUserData = async (db: Database, user: UserRow) => {
     const scopeId = user.household_id || user.id;
 
-    // 1. Settings
     let settings: UserSettings | null = null;
     let partnerId: number | null = null;
 
-    // Fetch Settings & Partner ID logic similar to server.ts
-    // We try to find settings for the household first
     const settingsRow = await dbGetAsync(
         db,
         "SELECT content, user_id FROM settings WHERE household_id = ? OR id = 'user_settings' ORDER BY household_id IS NULL LIMIT 1",
         [scopeId]
     );
 
-    if (!settingsRow && !user.household_id) return null; // No settings found
+    if (!settingsRow && !user.household_id) return null;
 
-    // Resolve Partner ID if household exists
     if (user.household_id) {
         const partnerRow = await dbGetAsync(db, 'SELECT id FROM users WHERE household_id = ? AND id != ? LIMIT 1', [user.household_id, user.id]);
         if (partnerRow) partnerId = partnerRow.id;
@@ -253,9 +243,7 @@ const fetchUserData = async (db: Database, user: UserRow) => {
 
     settings = settingsRow ? JSON.parse(settingsRow.content) : {};
 
-    // Normalize settings
     if (settings) {
-        // Defaults
         if (user.household_id) {
             settings.enablePartner = true;
             settings.householdId = user.household_id;
@@ -266,15 +254,13 @@ const fetchUserData = async (db: Database, user: UserRow) => {
         settings.incomeSources = normalizeIncomeSources(settings.incomeSources || [], user.id, partnerId, rowOwnerId);
     }
 
-    if (!settings || !settings.emailReports) return null; // Abort if reports invalid or disabled
+    if (!settings || !settings.emailReports) return null;
 
-    // Check SMTP config
     if (!settings.smtpHost || !settings.smtpUser || !settings.smtpPass) {
         console.warn(`[Scheduler] User ${user.email} has email reports enabled but missing SMTP config.`);
         return null;
     }
 
-    // 2. Fetch Data
     const liabilitiesRows = await dbAllAsync(db, 'SELECT content FROM liabilities WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)', [scopeId, user.id]);
     const expensesRows = await dbAllAsync(db, 'SELECT content FROM expenses WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)', [scopeId, user.id]);
     const assetsRows = await dbAllAsync(db, 'SELECT content FROM assets WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)', [scopeId, user.id]);
@@ -285,7 +271,6 @@ const fetchUserData = async (db: Database, user: UserRow) => {
         try { return JSON.parse(r.content) as Liability; } catch { return null; }
     }).filter((l): l is Liability => !!l);
 
-    // Patch balances for liabilities
     const liabilities = await Promise.all(liabilitiesRaw.map(async (l) => {
         const summaryRow = await dbGetAsync(db, 'SELECT is_infinite FROM liability_amortization_summary WHERE liability_id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)', [l.id, scopeId, user.id]);
         if (!summaryRow) return { ...l, balance: l.balance || l.startingBalance || 0 };
@@ -315,14 +300,10 @@ const fetchUserData = async (db: Database, user: UserRow) => {
         try { return JSON.parse(r.content) as Asset; } catch { return null; }
     }).filter((a): a is Asset => !!a);
 
-    // Re-fetch incomes from table to ensure we have all of them, normalizing carefully
     const incomesRaw = incomesRows.map(r => {
         try { return JSON.parse(r.content) as IncomeSource; } catch { return null; }
     }).filter((i): i is IncomeSource => !!i);
 
-    // Merge settings incomes with table incomes? 
-    // The app seems to source incomes from `incomes` table primarily now in server.ts GET /api/incomes.
-    // settings.incomeSources might be legacy or syncd. Let's use the table ones + `normalize`.
     const incomes = normalizeIncomeSources(incomesRaw, user.id, partnerId);
 
     const extraPayments: ExtraPayment[] = extraPaymentsRows.map(row => ({
@@ -364,12 +345,10 @@ const sendEmail = async (settings: UserSettings, recipientsStr: string | undefin
 
         await transporter.verify();
 
-        // Use custom recipients or default to account email
         const recipients = recipientsStr && recipientsStr.trim() !== ''
             ? recipientsStr
             : settings.email;
 
-        // If recipients has comma, it handles it automatically
         await transporter.sendMail({
             from: `"BacktoBlack" <${settings.smtpUser}>`,
             to: recipients,
@@ -385,9 +364,6 @@ const sendEmail = async (settings: UserSettings, recipientsStr: string | undefin
     }
 };
 
-
-// --- Jobs ---
-
 const runMonthlyBudgetJob = async (db: Database) => {
     console.log('[Scheduler] Running Monthly Budget Job...');
     const users = await dbAllAsync(db, 'SELECT id, email, household_id FROM users');
@@ -395,16 +371,13 @@ const runMonthlyBudgetJob = async (db: Database) => {
     for (const user of users) {
         try {
             const context = await fetchUserData(db, user);
-            if (!context) continue; // Skip if no settings or disabled
+            if (!context) continue;
 
             const { settings, data } = context;
 
-            // Granular Check
-            if (settings.enableMonthlyReport === false) continue; // Skip if specifically disabled
+            if (settings.enableMonthlyReport === false) continue;
 
             const today = new Date();
-
-            // Generate Report
             const html = await ReportGenerator.generateBudgetSummary(data, today);
 
             if (html) {
@@ -427,12 +400,9 @@ const runIncomeTriggerJob = async (db: Database) => {
 
             const { settings, data } = context;
 
-            // Granular Check
             if (settings.enableTransferReport === false) continue;
 
             const today = new Date();
-
-            // Generate Report
             const html = await ReportGenerator.generateTransferReport(data, today);
 
             if (html) {
@@ -448,19 +418,13 @@ const runIncomeTriggerJob = async (db: Database) => {
 export const startScheduler = (db: Database) => {
     console.log('[Scheduler] Starting Automated Report Scheduler...');
 
-    // 1. Monthly Budget: 8:00 AM on the 1st of every month
     cron.schedule('0 8 1 * *', () => {
         runMonthlyBudgetJob(db);
     });
 
-    // 2. Daily Income Check: 8:00 AM every day
     cron.schedule('0 8 * * *', () => {
         runIncomeTriggerJob(db);
     });
-
-    // Debug: Run immediately on server start if needed (commented out)
-    // runMonthlyBudgetJob(db);
-    // runIncomeTriggerJob(db);
 };
 
 export const triggerMonthlyReportForUser = async (db: Database, userId: number) => {
@@ -513,8 +477,6 @@ export const getAvailableCheckDates = async (db: Database, userId: number) => {
 
     const { settings, data } = context;
     const { incomes } = data;
-
-    // Window: 1 week ago to 3 months ahead to give plenty of selection
     const start = new Date();
     start.setDate(start.getDate() - 7);
     const end = new Date();
@@ -522,8 +484,6 @@ export const getAvailableCheckDates = async (db: Database, userId: number) => {
 
     const budgetStartDate = settings.startDate ? parseLocalDate(settings.startDate) : null;
     const paychecks = generatePaychecks(incomes, start, end, { budgetStartDate });
-
-    // Deduplicate dates
     const datesSet = new Set<string>();
     paychecks.forEach(p => datesSet.add(toLocalDateString(p.date)));
 

@@ -1,9 +1,7 @@
-
 import { Asset, Expense, IncomeSource, Liability, UserSettings, PaycheckOccurrence, ExtraPayment } from '../../types';
 import { calculateIndividualAmortization, getAnnualizedIncomeAmount, getMinPayment } from '../liabilityAlgorithms';
 import { generatePaychecks, getPerCheckExpenseAmount, getPerCheckLiabilityAmount } from '../../utils/paycheckLogic';
 
-// --- Types ---
 interface ReportData {
     liabilities: Liability[];
     expenses: Expense[];
@@ -13,7 +11,6 @@ interface ReportData {
     extraPayments: ExtraPayment[];
 }
 
-// --- Helpers ---
 const formatCurrency = (value: number, symbol: string = '$') => {
     return `${symbol}${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
@@ -25,49 +22,32 @@ const getPeriodRange = (year: number, month: number) => {
     };
 };
 
-// --- Monthly Budget Report Logic ---
-
 const generateBudgetSummary = async (data: ReportData, date: Date) => {
     const { liabilities, expenses, incomes, assets, settings, extraPayments } = data;
     const year = date.getFullYear();
     const month = date.getMonth() + 1;
     const { start, end } = getPeriodRange(year, month);
     const currencySymbol = settings.currencySymbol || '$';
-
-    // 1. Calculate Period Income
     const budgetStartDate = settings.startDate ? new Date(settings.startDate) : null;
     const paychecks = generatePaychecks(incomes, start, end, { budgetStartDate });
     const paychecksInPeriod = paychecks.filter(p => p.date >= start && p.date <= end);
     const periodIncomeTotal = paychecksInPeriod.reduce((sum, p) => sum + p.source.amount, 0);
-
-    // 2. Prepare Amortization Schedules needed for balance checks (approximated for server-side mostly to get current balances effectively)
-    // Ideally we fetch real amortization from DB, but for this summary report we might just rely on current balances
-    // or quickly recalc if needed. For simplicity and speed in this report, let's use current `liability.balance`.
-    // If exact projected balance is needed, we'd run `calculateIndividualAmortization`.
-    // Let's run it to be accurate with "Minimums" calculation which might depend on schedule context.
     const scheduleBalanceById: Record<string, number> = {};
     const liabilityWithMins = liabilities.map(l => {
-        // Quick calc for "Plan" context - we perform a lightweight simulation or simple min calc
-        // Since this is a monthly report, user likely wants to see "What is due this month".
-        // We will stick to the logic: Min Payment + Extras.
-
         const currentBalance = l.balance || 0;
         const interestRate = l.interestRate || 0;
         const annualFee = l.annualFee || 0;
         const monthlyInterest = currentBalance * (interestRate / 100 / 12);
         const estFee = l.isFeeMonthly ? annualFee / 12 : 0;
-
-        // Use server-side algo
         const plannedPayment = getMinPayment(l, currentBalance, monthlyInterest, estFee);
 
         return {
             ...l,
-            plannedPayment, // This puts it in the format expected by getPerCheckLiabilityAmount
+            plannedPayment,
             scheduledFrequency: l.paymentFrequency || 'MONTHLY'
         };
     });
 
-    // 3. User Split Ratio
     const budgetedIncomes = incomes.filter(i => i.includeInPlanner !== false);
     let userSplitRatio = 1;
     if (settings.enablePartner) {
@@ -83,8 +63,6 @@ const generateBudgetSummary = async (data: ReportData, date: Date) => {
         }
     }
 
-    // 4. Calculate Period Expenses & Liabilities
-    // Helper to get month paychecks for a specific date (needed for per-check logic)
     const getMonthPaychecksFor = (d: Date) => {
         const key = `${d.getFullYear()}-${d.getMonth()}`;
         return paychecks.filter(p => `${p.date.getFullYear()}-${p.date.getMonth()}` === key);
@@ -111,8 +89,6 @@ const generateBudgetSummary = async (data: ReportData, date: Date) => {
     const periodCashOut = periodExpenseTotal + periodLiabilityTotal + monthlyBudget;
     const periodNet = periodIncomeTotal - periodCashOut;
 
-    // 5. Generate Content
-    // Group Expenses
     const expenseGroups = new Map<string, number>();
     expenses.forEach(e => {
         const amt = getExpenseTotal(e);
@@ -122,7 +98,6 @@ const generateBudgetSummary = async (data: ReportData, date: Date) => {
         }
     });
 
-    // Group Liabilities
     const liabilityGroups = new Map<string, number>();
     liabilityWithMins.forEach(l => {
         const amt = getLiabilityTotal(l);
@@ -140,7 +115,6 @@ const generateBudgetSummary = async (data: ReportData, date: Date) => {
         </div>
 
         <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
-            <!-- Income -->
             <div style="padding: 16px; border-bottom: 1px solid #e2e8f0;">
                 <p style="margin: 0 0 8px 0; font-size: 12px; font-weight: 600; text-transform: uppercase; color: #64748b;">Income</p>
                 <div style="display: flex; align-items: baseline;">
@@ -150,7 +124,6 @@ const generateBudgetSummary = async (data: ReportData, date: Date) => {
                 </div>
             </div>
 
-            <!-- Expenses -->
             <div style="padding: 16px; border-bottom: 1px solid #e2e8f0;">
                 <p style="margin: 0 0 8px 0; font-size: 12px; font-weight: 600; text-transform: uppercase; color: #64748b;">Expenses</p>
                 ${expenseGroups.size === 0 ? '<p style="margin:0; font-style:italic; color:#94a3b8; font-size:14px;">No expenses</p>' : ''}
@@ -168,7 +141,6 @@ const generateBudgetSummary = async (data: ReportData, date: Date) => {
                  </div>
             </div>
 
-             <!-- Liabilities -->
             <div style="padding: 16px; border-bottom: 1px solid #e2e8f0;">
                 <p style="margin: 0 0 8px 0; font-size: 12px; font-weight: 600; text-transform: uppercase; color: #64748b;">Liability Minimums</p>
                  ${liabilityGroups.size === 0 ? '<p style="margin:0; font-style:italic; color:#94a3b8; font-size:14px;">No liabilities</p>' : ''}
@@ -186,7 +158,6 @@ const generateBudgetSummary = async (data: ReportData, date: Date) => {
                  </div>
             </div>
             
-            <!-- Summary -->
              <div style="padding: 16px; background-color: #f8fafc;">
                  <div style="display: flex; align-items: baseline; font-size: 18px; margin-top: 12px; padding-top: 12px;">
                     <span style="font-weight: 700;">Remaining</span>
@@ -203,37 +174,22 @@ const generateBudgetSummary = async (data: ReportData, date: Date) => {
     `;
 };
 
-
-// --- Transfer Report Logic ---
-
 const generateTransferReport = async (data: ReportData, date: Date) => {
     const { liabilities, expenses, incomes, settings, extraPayments } = data;
     const currencySymbol = settings.currencySymbol || '$';
-    const dateKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`; // approximate comparison key
-
-    // 1. Identify Today's Paychecks
-    // We need to generate paychecks for a window around today to catch it properly ensuring date strings match
+    const dateKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
     const { start, end } = getPeriodRange(date.getFullYear(), date.getMonth() + 1);
     const budgetStartDate = settings.startDate ? new Date(settings.startDate) : null;
-
     const paychecks = generatePaychecks(incomes, start, end, { budgetStartDate });
-
-    // Filter for ONLY checks happening exactly "today" (passed in date)
-    // Use string comparison to avoid time drift issues
     const targetDateString = date.toLocaleDateString();
     const todaysPaychecks = paychecks.filter(p => p.date.toLocaleDateString() === targetDateString);
 
-    if (todaysPaychecks.length === 0) return null; // No transfers to report if no paychecks
+    if (todaysPaychecks.length === 0) return null;
 
-    // 2. Calculate Transfers for these paychecks
-    // We will aggregate transfers across all paychecks triggering today (usually just 1, but could be multiple)
-    // 2. Calculate Transfers and Manual Payments for these paychecks
     const transferGroups = new Map<string, { total: number; items: { name: string; amount: number; type: string }[] }>();
     const manualPayments: { name: string; subtitle?: string; amount: number; type: string; account?: string }[] = [];
-
-    // Prepare Split Ratio
     const budgetedIncomes = incomes.filter(i => i.includeInPlanner !== false);
-    let userSplitRatio = 0.5; // Default logic duplicated from above... 
+    let userSplitRatio = 0.5;
     if (settings.enablePartner) {
         if (settings.expenseSplitMethod === 'PERCENTAGE') {
             userSplitRatio = (settings.userSplitPercentage || 50) / 100;
@@ -245,26 +201,21 @@ const generateTransferReport = async (data: ReportData, date: Date) => {
         }
     }
 
-    // Helper functions need to sum across "Today's Checks"
     const getMonthPaychecksFor = (d: Date) => {
         const key = `${d.getFullYear()}-${d.getMonth()}`;
         return paychecks.filter(p => `${p.date.getFullYear()}-${p.date.getMonth()}` === key);
     };
 
-    // Iterate Logic
     todaysPaychecks.forEach(currentPaycheck => {
         const monthPaychecks = getMonthPaychecksFor(currentPaycheck.date);
 
-        // Expenses
         expenses.forEach(e => {
             const amt = getPerCheckExpenseAmount(e, currentPaycheck, monthPaychecks, budgetedIncomes, userSplitRatio);
             if (amt > 0) {
-                // If manual payment required, track it
                 if (e.manualPaymentRequired) {
                     manualPayments.push({ name: e.name, subtitle: e.subtitle, amount: amt, type: 'Expense', account: e.transferAccount });
                 }
 
-                // If transfer account specified, group it
                 if (e.transferAccount) {
                     const group = transferGroups.get(e.transferAccount) || { total: 0, items: [] };
                     group.total += amt;
@@ -274,9 +225,7 @@ const generateTransferReport = async (data: ReportData, date: Date) => {
             }
         });
 
-        // Liabilities
         liabilities.forEach(l => {
-            // Must prepare the "Planned Payment" liability object
             const currentBalance = l.balance || 0;
             const interestRate = l.interestRate || 0;
             const annualFee = l.annualFee || 0;
@@ -287,12 +236,10 @@ const generateTransferReport = async (data: ReportData, date: Date) => {
 
             const amt = getPerCheckLiabilityAmount(liabilityWithMin, currentPaycheck, monthPaychecks, budgetedIncomes, extraPayments, userSplitRatio, { includeUnchecked: false });
             if (amt > 0) {
-                // If manual payment required, track it
                 if (l.manualPaymentRequired) {
                     manualPayments.push({ name: l.name, subtitle: l.subtitle, amount: amt, type: 'Liability', account: l.transferAccount });
                 }
 
-                // If transfer account specified, group it
                 if (l.transferAccount) {
                     const group = transferGroups.get(l.transferAccount) || { total: 0, items: [] };
                     group.total += amt;

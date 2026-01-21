@@ -108,12 +108,10 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
     settings,
     incomes = [],
 }) => {
-    // Modal States
     const [isFormModalOpen, setIsFormModalOpen] = useState(false);
     const [isAmortizationOpen, setIsAmortizationOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-    // UI Toggles for Form
     const [enablePercent, setEnablePercent] = useState(true);
     const [enableFixed, setEnableFixed] = useState(false);
     const [enableFloor, setEnableFloor] = useState(true);
@@ -130,18 +128,15 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             setExpandAnnualFee(next);
         }
         if (next) {
-            // Close the others
             if (section !== "details") setExpandLiabilityDetails(false);
             if (section !== "min") setExpandMinPayment(false);
             if (section !== "fee") setExpandAnnualFee(false);
         }
     };
-    // Collapsible Sections
     const [expandLiabilityDetails, setExpandLiabilityDetails] = useState(false);
     const [expandMinPayment, setExpandMinPayment] = useState(false);
     const [expandAnnualFee, setExpandAnnualFee] = useState(false);
 
-    // Selection States
     const [editingId, setEditingId] = useState<string | null>(null);
     const [viewingLiability, setViewingLiability] = useState<Liability | null>(
         null
@@ -543,7 +538,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                 today.setHours(0, 0, 0, 0);
                 const isPast = parsedDate ? parsedDate <= today : false;
 
-                // Use the period index from date; keep historical periods (<= 0) so they render before payment #1.
                 const rawPeriod = getPeriodIndexFromDate(
                     liability,
                     p.checkDate
@@ -776,7 +770,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
 
         if (!rowsWithDates.length) return null;
 
-        // Find the latest applied payment (<= today)
         const pastRows = rowsWithDates.filter(({ date }) => date <= today);
         if (pastRows.length) {
             const latest = pastRows.reduce((acc, cur) =>
@@ -785,7 +778,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             return latest.row.remainingBalance;
         }
 
-        // Otherwise use the earliest dated row (upcoming) as the next balance marker
         const earliest = rowsWithDates.reduce((acc, cur) =>
             cur.date < acc.date ? cur : acc
         );
@@ -931,13 +923,11 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         return derived ?? getDisplayBalance(liability);
     };
 
-    // Helper: get local YYYY-MM-DD string (avoids timezone shifting to prior day)
     const toLocalDateString = (date: Date) =>
         new Date(date.getTime() - date.getTimezoneOffset() * 60000)
             .toISOString()
             .split("T")[0];
 
-    // When a historical payment is added/edited/removed, adjust the live balance so the list matches reality.
     const applyHistoricalBalanceDelta = (
         liabilityId: string,
         delta: number
@@ -973,9 +963,9 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             delta =
                 oldAmount - (newAmount || 0) + (newInterest - oldInterest);
         } else if (wasHistorical && !isHistorical) {
-            delta = oldAmount - oldInterest; // removing a historical payment
+            delta = oldAmount - oldInterest;
         } else if (!wasHistorical && isHistorical) {
-            delta = -(newAmount || 0) + newInterest; // adding/moving into history
+            delta = -(newAmount || 0) + newInterest;
         }
 
         if (delta !== 0) {
@@ -994,7 +984,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         return Math.max(1, currentMonthCount - savedMonthCount + 1);
     }
 
-    // Form State
     const [formData, setFormData] = useState<Omit<Liability, "id">>({
         name: "",
         subtitle: "",
@@ -1034,18 +1023,15 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         [incomes]
     );
 
-    // --- CRUD Handlers ---
     const handleOpenFormModal = (liability?: Liability) => {
         const todayStr = toLocalDateString(new Date());
 
-        // Default collapsed to save space
         setExpandMinPayment(false);
         setExpandAnnualFee(false);
 
         if (liability) {
             setEditingId(liability.id);
 
-            // Initialize Toggles based on values
             setEnablePercent(liability.minPaymentPercentage > 0);
             setEnableFixed(liability.minPaymentAmount > 0);
             setEnableFloor(liability.minPaymentFloor > 0);
@@ -1088,13 +1074,12 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             });
         } else {
             setEditingId(null);
-            // Defaults
             setEnablePercent(true);
             setEnableFixed(false);
             setEnableFloor(true);
             setEnableAnnualFee(false);
 
-            const currentMonth = new Date().getMonth() + 1; // 1-12
+            const currentMonth = new Date().getMonth() + 1;
             const currentDay = new Date().getDate();
 
             setFormData({
@@ -1129,7 +1114,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
     const handleSave = (e: React.FormEvent) => {
         e.preventDefault();
 
-        // Final cleanup ensuring values match toggles
         const finalData = { ...formData };
         const existing = editingId
             ? liabilities.find((l) => l.id === editingId)
@@ -1168,7 +1152,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             onSave({
                 ...finalData,
                 id: editingId,
-                customOrder: existing?.customOrder, // preserve custom order; edited via settings modal
+                customOrder: existing?.customOrder,
             });
         } else {
             const newLiability: Liability = {
@@ -1232,7 +1216,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         }
     };
 
-    // --- Amortization Handlers ---
     const handleViewAmortization = async (liability: Liability) => {
         setViewingLiability(liability);
         setIsAmortizationOpen(true);
@@ -1256,7 +1239,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         setAmortizationData(data);
     };
 
-    // Keep amortization in sync while modal is open
     useEffect(() => {
         if (!isAmortizationOpen || !viewingLiability) return;
         let active = true;
@@ -1273,7 +1255,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         return () => {
             active = false;
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
         extraPayments,
         savedSchedule,
@@ -1349,7 +1330,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                     checkDate,
                 });
             }
-            // Recompute with new extra
             void handleViewAmortization(viewingLiability);
         } catch {
             /* ignore save failures */
@@ -1691,7 +1671,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         const currentBalance = getDisplayBalance(liability);
         const monthlyInt =
             currentBalance * (liability.interestRate / 100 / 12);
-        // Estimate fee for label context - show monthly equivalent
         const estFee = liability.isFeeMonthly ? liability.annualFee / 12 : 0;
         const adjustedLiability =
             liability.paymentFrequency === "BI_WEEKLY"
@@ -1707,7 +1686,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             estFee
         );
 
-        // Construct dynamic description
         const parts = [];
         if (liability.minPaymentPercentage > 0)
             parts.push(`${liability.minPaymentPercentage}%`);
@@ -1769,7 +1747,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             });
         }
 
-        // Monthly fallback
         let target = new Date(
             baseDate.getFullYear(),
             baseDate.getMonth(),
@@ -1825,7 +1802,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             return addDays(anchor, (rowIndex - 1) * intervalDays);
         }
 
-        // Monthly payments
         let guard = 0;
         if (useFutureStart) {
             while (anchor < (start || today) && guard < 120) {
@@ -1862,7 +1838,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         );
     };
 
-    // Helper for summary text in collapsed headers
     const getMinPaymentSummary = () => {
         const parts = [];
         if (enablePercent) parts.push(`${formData.minPaymentPercentage}%`);
@@ -3323,7 +3298,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                             id: "temp",
                                             ...formData,
 
-                                            // Ensure toggled-off values are 0 in preview
                                             minPaymentPercentage: enablePercent
                                                 ? formData.minPaymentPercentage
                                                 : 0,
@@ -3347,7 +3321,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 ? formData.annualFee
                                                 : 0,
                                             minPaymentPlusFees:
-                                                formData.minPaymentPlusFees, // ensure toggle is respected
+                                                formData.minPaymentPlusFees,
                                         };
 
                                         const baseBalance =
@@ -3356,7 +3330,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                             0;
                                         let currentFee = 0;
 
-                                        // Logic to show fee impact in preview
                                         if (
                                             enableAnnualFee &&
                                             formData.annualFee > 0
@@ -3365,7 +3338,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 currentFee =
                                                     formData.annualFee / 12;
                                             } else {
-                                                // If current month matches selected fee month, show full fee
                                                 const currentMonth =
                                                     new Date().getMonth() + 1;
                                                 if (

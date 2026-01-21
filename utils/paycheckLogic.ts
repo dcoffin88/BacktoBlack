@@ -1,9 +1,6 @@
 import { IncomeSource, Expense, Liability, ExtraPayment, PaycheckOccurrence } from "../types";
 import { getAnnualizedIncomeAmount } from "../server/liabilityAlgorithms";
 
-
-// --- Date Helpers ---
-
 export const getSemiMonthlyDates = (
     anchorDay: number,
     startDate: Date,
@@ -50,7 +47,6 @@ export const getPayDates = (source: IncomeSource, startDate: Date, endDate: Date
     const dates: Date[] = [];
     let iterations = 0;
 
-    // Backtrack to find start point
     while (current > startDate && iterations < 5000) {
         const prev = new Date(current);
         switch (source.frequency) {
@@ -100,8 +96,6 @@ export const getPayDates = (source: IncomeSource, startDate: Date, endDate: Date
     return dates;
 };
 
-// --- Paycheck Generation ---
-
 export const generatePaychecks = (
     incomes: IncomeSource[],
     startDate: Date,
@@ -114,11 +108,6 @@ export const generatePaychecks = (
     const monthCountsBySource: Record<string, Record<string, number>> = {};
 
     incomes.forEach((src) => {
-        // Determine effective window start for this source
-        // If budgetStartDate is strictly later than window start, we might skip some checks?
-        // Dashboard logic: 
-        // const startBoundary = budgetStartDate && budgetStartDate.getTime() > periodStart.getTime() ? budgetStartDate : periodStart;
-        // So if options.budgetStartDate is provided, we use the later of (startDate, budgetStartDate) as the start boundary.
         const startBoundary = options.budgetStartDate && options.budgetStartDate.getTime() > startDate.getTime()
             ? options.budgetStartDate
             : startDate;
@@ -150,8 +139,6 @@ export const generatePaychecks = (
 
     return occurrences.sort((a, b) => a.date.getTime() - b.date.getTime());
 };
-
-// --- Allocation Logic ---
 
 export const getAnnualizedShareMap = (sources: IncomeSource[]) => {
     const totalShare = sources.reduce(
@@ -232,7 +219,6 @@ export const getPerCheckRatio = (
     return (current.share / current.count) / totalShareInMonth;
 };
 
-// Returns the amount of this expense that should be allocated to the current paycheck
 export const getPerCheckExpenseAmount = (
     expense: Expense,
     currentPaycheck: PaycheckOccurrence | null,
@@ -245,7 +231,6 @@ export const getPerCheckExpenseAmount = (
         return 0;
     }
 
-    // Helper for rounding
     const rounded = (value: number) => Math.ceil(value * 100) / 100;
     const perCheckBase = expense.amount;
 
@@ -320,8 +305,6 @@ export const getPerCheckExpenseAmount = (
         return getRatio(false, ownerKey);
     })();
 
-    // Special Handling: If Bi-Weekly Expense, we try to match it to Bi-Weekly income sources first
-    // if available, weighted by income share
     if (useBiWeekly) {
         const monthSources = Array.from(
             new Map(monthPaychecksForCheck.map((p) => [p.source.id, p.source])).values()
@@ -387,7 +370,6 @@ export const getPerCheckExpenseAmount = (
             : monthlyEquivalent * monthlyRatioOwnerEff;
     }
 
-    // Joint: split by configured ratio and allocate only to the corresponding partner's paychecks
     const userPortion = perCheckBase * userSplitRatio;
     const partnerPortion = perCheckBase - userPortion;
 
@@ -419,10 +401,6 @@ export const getPerCheckLiabilityAmount = (
     const excluded = new Set<string>(liability.excludedIncomeSourceIds || []);
     if (excluded.has(currentPaycheck.source.id)) return 0;
 
-    // Calculate extra payment (Only include checked if isChecked is present, or if it's undefined - assume true?
-    // Based on Reports logic, it checks `p.isChecked`.
-    // We will assume that if `isChecked` is explicitly `false`, we exclude it. If undefined or true, include.
-    // Dashboard doesn't set isChecked, so undefined. Reports sets it.
     const { includeUnchecked = true } = options || {};
 
     const toLocalYMD = (date: Date) => {
@@ -438,12 +416,9 @@ export const getPerCheckLiabilityAmount = (
             if (p.id.startsWith('min-')) return false;
             if (p.liabilityId !== liability.id) return false;
             if (p.checkDate !== checkDateStr) return false;
-
-            // Filtering based on checked status
             if (!includeUnchecked) {
                 return !!p.isChecked;
             }
-            // Default behavior: Include unless explicitly unchecked (false)
             return p.isChecked !== false;
         })
         .reduce((sum, p) => sum + p.amount, 0);
@@ -511,7 +486,6 @@ export const getPerCheckLiabilityAmount = (
     const ratioOwner = useBiWeekly ? biWeeklyRatioOwnerEff : monthlyRatioOwnerEff;
     const ratio = owner === "JOINT" ? ratioBase : ratioOwner;
 
-    // Monthly frequency should respect usage eligibility
     if (!useBiWeekly && currentPaycheck?.eligibleMonthly === false) return 0;
 
     const monthlyAmount = liability.plannedPayment ?? (liability.minPaymentAmount || 0);

@@ -28,7 +28,6 @@ const db = new sqlite3.Database(DB_FILE, (err) => {
   startScheduler(db);
 });
 
-// Ensure legacy databases have the name column on users (added after initial release)
 const ensureUserNameColumn = () => {
   db.all('PRAGMA table_info(users)', (tableErr, rows) => {
     if (tableErr) {
@@ -242,7 +241,6 @@ const ensureStrategySimulationTable = () => {
 };
 ensureStrategySimulationTable();
 
-// Allow larger JSON bodies for schedule payloads
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ limit: '5mb', extended: true }));
 
@@ -824,7 +822,6 @@ const getBalanceFromSchedule = (
       null
     );
 
-    // If the liability hasn't started yet, infer the starting balance.
     if (anchor > today) {
       if (!firstRow) {
         if (Number.isFinite(liability.startingBalance ?? NaN)) {
@@ -843,7 +840,6 @@ const getBalanceFromSchedule = (
       return null;
     }
 
-    // Liability is active; use the current period from the schedule even if actualDate is absent.
     const period = getPeriodIndexFromDate(liability, toLocalDateString(today));
     if (period !== null && period !== undefined) {
       const matchingRow = schedule.timeline.find((row) => row.month === period);
@@ -923,7 +919,6 @@ const normalizeIncomeSources = (
   });
 };
 
-// --- Auth ---
 app.post('/api/register', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
@@ -968,7 +963,6 @@ app.post('/api/login', (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Extend token lifetime so sessions survive reboots
     const token = jwt.sign({ id: (user as any).id, email: (user as any).email }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, householdId: (user as any).household_id || null });
   });
@@ -996,7 +990,6 @@ const authenticateToken = (req: AuthedRequest, res: express.Response, next: expr
   });
 };
 
-// --- Profile ---
 app.get('/api/profile', authenticateToken, (req, res) => {
   const user = req.user!;
   db.get('SELECT id, email, name FROM users WHERE id = ?', [user.id], (err, row) => {
@@ -1040,8 +1033,6 @@ app.put('/api/profile/password', authenticateToken, async (req, res) => {
   });
 });
 
-
-// --- Reports ---
 app.post('/api/reports/trigger-monthly', authenticateToken, async (req: AuthedRequest, res) => {
   const user = req.user!;
   try {
@@ -1081,8 +1072,6 @@ app.get('/api/reports/available-checks', authenticateToken, async (req: AuthedRe
   }
 });
 
-
-// --- Liabilities ---
 app.get('/api/liabilities', authenticateToken, async (req: AuthedRequest, res) => {
   const user = req.user!;
   const scopeId = user.householdId || user.id;
@@ -1304,7 +1293,6 @@ app.get('/api/liabilities/:id/amortization', authenticateToken, async (req: Auth
   }
 });
 
-// --- Expenses ---
 app.get('/api/expenses', authenticateToken, (req: AuthedRequest, res) => {
   const user = req.user!;
   const scopeId = user.householdId || user.id;
@@ -1345,7 +1333,6 @@ app.delete('/api/expenses/:id', authenticateToken, (req: AuthedRequest, res) => 
   });
 });
 
-// --- Assets ---
 app.get('/api/assets', authenticateToken, (req: AuthedRequest, res) => {
   const user = req.user!;
   const scopeId = user.householdId || user.id;
@@ -1386,7 +1373,6 @@ app.delete('/api/assets/:id', authenticateToken, (req: AuthedRequest, res) => {
   });
 });
 
-// --- Budget Checks ---
 app.get('/api/budget/checks', authenticateToken, (req: AuthedRequest, res) => {
   const user = req.user!;
   const scopeId = user.householdId || user.id;
@@ -1456,7 +1442,6 @@ app.post('/api/budget/checks', authenticateToken, (req: AuthedRequest, res) => {
   );
 });
 
-// --- Budget Schedule ---
 app.get('/api/budget/schedule', authenticateToken, (req: AuthedRequest, res) => {
   const user = req.user!;
   const scopeId = user.householdId || user.id;
@@ -1790,7 +1775,6 @@ app.delete('/api/budget/amortization-overrides/:id', authenticateToken, (req: Au
   );
 });
 
-// --- Incomes ---
 app.get('/api/incomes', authenticateToken, (req: AuthedRequest, res) => {
   const user = req.user!;
   const scopeId = user.householdId || user.id;
@@ -1802,7 +1786,6 @@ app.get('/api/incomes', authenticateToken, (req: AuthedRequest, res) => {
     const incomes = rows.map(row => {
       const parsed = JSON.parse((row as any).content) as IncomeSource;
       const ownerId = (parsed as any).ownerId ?? (row as any).user_id;
-      // Partner status is relative to the requesting user
       const derivedIsPartner = ownerId !== user.id;
       return { ...parsed, ownerId, isPartner: derivedIsPartner };
     });
@@ -1815,7 +1798,6 @@ app.post('/api/incomes', authenticateToken, (req: AuthedRequest, res) => {
   const user = req.user!;
   const scopeId = user.householdId || user.id;
   const persist = (partnerId: number | null) => {
-    // If partner is checked but we can't find a partner id, store with a placeholder ownerId (-1) so it stays classified as partner
     const derivedOwnerId = income.isPartner ? (partnerId ?? -1) : user.id;
     const payload = { ...income, ownerId: derivedOwnerId, householdId: scopeId, isPartner: income.isPartner };
     db.run('INSERT OR REPLACE INTO incomes (id, content, user_id, household_id) VALUES (?, ?, ?, ?)', [income.id, JSON.stringify(payload), derivedOwnerId, scopeId], (err) => {
@@ -1854,7 +1836,6 @@ app.delete('/api/incomes/:id', authenticateToken, (req: AuthedRequest, res) => {
   });
 });
 
-// --- Settings ---
 app.get('/api/settings', authenticateToken, (req: AuthedRequest, res) => {
   const user = req.user!;
   const scopeId = user.householdId || user.id;
@@ -1888,12 +1869,10 @@ app.get('/api/settings', authenticateToken, (req: AuthedRequest, res) => {
       if (!settings.startDate) settings.startDate = todayIso;
       if (!settings.monthlyIncomeMode) settings.monthlyIncomeMode = 'ANNUALIZED';
 
-      // Force enable partner mode if household is present
       if (user.householdId) {
         settings.enablePartner = true;
         settings.householdId = user.householdId;
         settings.partnerLinked = true;
-        // Override partner name if available from their profile
         if (partnerName) {
           settings.partnerName = partnerName;
         }
@@ -1970,13 +1949,13 @@ app.post('/api/settings/test-email', authenticateToken, async (req: AuthedReques
     const transporter = nodemailer.createTransport({
       host: smtpHost,
       port: Number(smtpPort),
-      secure: smtpSecure || false, // true for 465, false for other ports
+      secure: smtpSecure || false,
       auth: {
         user: smtpUser,
         pass: smtpPass,
       },
       tls: {
-        rejectUnauthorized: false // Often needed for local/self-signed certs or some providers
+        rejectUnauthorized: false
       }
     });
 
@@ -1997,7 +1976,6 @@ app.post('/api/settings/test-email', authenticateToken, async (req: AuthedReques
   }
 });
 
-// --- Household Linking ---
 app.post('/api/household/join', authenticateToken, (req: AuthedRequest, res) => {
   const user = req.user!;
   const { partnerEmail } = req.body as { partnerEmail?: string };
@@ -2021,7 +1999,6 @@ app.post('/api/household/join', authenticateToken, (req: AuthedRequest, res) => 
     db.serialize(() => {
       migrateHousehold(targetHousehold, user.id, partner.id, currentHousehold, partnerHousehold);
 
-      // Ensure there is a settings row for the household (prefer existing user settings)
       db.get(
         'SELECT content FROM settings WHERE household_id IN (?, ?) OR id = ? LIMIT 1',
         [currentHousehold, partnerHousehold, 'user_settings'],
@@ -2047,7 +2024,6 @@ app.post('/api/household/join', authenticateToken, (req: AuthedRequest, res) => 
   });
 });
 
-// --- Household Invite/Accept ---
 app.post('/api/household/invite', authenticateToken, (req: AuthedRequest, res) => {
   const user = req.user!;
   const { partnerEmail } = req.body as { partnerEmail?: string };
@@ -2240,10 +2216,8 @@ app.post('/api/household/leave', authenticateToken, (req: AuthedRequest, res) =>
     const memberIds: number[] = memberRows.map((r: any) => r.id);
 
     db.serialize(() => {
-      // Clear household for all members
       db.run('UPDATE users SET household_id = NULL WHERE household_id = ?', [householdId]);
 
-      // Detach shared records for all members
       const tables = ['liabilities', 'expenses', 'assets', 'incomes'];
       tables.forEach((table) => {
         db.run(
@@ -2257,7 +2231,6 @@ app.post('/api/household/leave', authenticateToken, (req: AuthedRequest, res) =>
         );
       });
 
-      // Copy settings to standalone (terminate partnership flags)
       db.get('SELECT content FROM settings WHERE household_id = ? LIMIT 1', [householdId], (err, row) => {
         if (err) {
           console.error('Failed to fetch settings for leave household', err.message);
@@ -2274,13 +2247,11 @@ app.post('/api/household/leave', authenticateToken, (req: AuthedRequest, res) =>
             ['user_settings', JSON.stringify(cloned), user.id]
           );
         } else {
-          // Ensure a basic settings row exists post-leave
           db.run(
             'INSERT OR REPLACE INTO settings (id, content, user_id, household_id) VALUES (?, ?, ?, NULL)',
             ['user_settings', JSON.stringify({ householdId: undefined, enablePartner: false, partnerLinked: false }), user.id]
           );
         }
-        // Cancel pending invites tied to this household
         db.run('UPDATE household_invites SET status = "CANCELLED" WHERE household_id = ?', [householdId], () => {
           res.json({ householdId: null, membersUnlinked: memberIds });
         });

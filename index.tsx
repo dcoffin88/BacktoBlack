@@ -2,7 +2,6 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 
-// Global number formatting: default to 2 decimal places when no precision is specified
 const originalToLocaleString = Number.prototype.toLocaleString;
 Number.prototype.toLocaleString = function (
   locales?: Intl.LocalesArgument,
@@ -21,7 +20,6 @@ Number.prototype.toLocaleString = function (
   } else if (minSet && !maxSet) {
     opts.maximumFractionDigits = opts.minimumFractionDigits;
   } else if (minSet && maxSet && (opts.maximumFractionDigits as number) < (opts.minimumFractionDigits as number)) {
-    // Prevent RangeError when the supplied max is below the supplied min.
     opts.maximumFractionDigits = opts.minimumFractionDigits;
   }
   return originalToLocaleString.call(this, locales as any, opts);

@@ -33,19 +33,17 @@ export interface PaychequeAllocation {
     sourceName: string;
     totalAmount: number;
     isPartner: boolean;
-    assignedExpenses: ExpenseEvent[]; // Contains the share amount specific to this person
+    assignedExpenses: ExpenseEvent[];
     totalAllocated: number;
     remaining: number;
 }
 
-// Helper to add days
 const addDays = (date: Date, days: number) => {
     const result = new Date(date);
     result.setDate(result.getDate() + days);
     return result;
 };
 
-// Generate specific pay dates for a source for a duration
 const getSemiMonthlyDates = (
     anchorDay: number,
     startDate: Date,
@@ -86,7 +84,6 @@ const getPayDates = (
 ): Date[] => {
     const dates: Date[] = [];
 
-    // Ensure nextPayDate is treated as local date
     const [y, m, d] = source.nextPayDate.split("-").map(Number);
     const seed = new Date(y, m - 1, d);
     if (Number.isNaN(seed.getTime())) return dates;
@@ -94,8 +91,6 @@ const getPayDates = (
         return getSemiMonthlyDates(seed.getDate(), startDate, endDate);
     }
     let current = new Date(seed);
-
-    // Backtrack logic to find relevant past paycheques if needed for current month's expenses
     let iterations = 0;
     while (current > startDate && iterations < 500) {
         const prev = new Date(current);
@@ -115,7 +110,7 @@ const getPayDates = (
             default:
                 prev.setDate(prev.getDate() - 30);
         }
-        if (prev < startDate) break; // Don't go too far back
+        if (prev < startDate) break;
         current = prev;
         iterations++;
     }
@@ -128,7 +123,6 @@ const getPayDates = (
             dates.push(new Date(current));
         }
 
-        // Advance
         switch (source.frequency) {
             case "WEEKLY":
                 current = addDays(current, 7);
@@ -151,7 +145,6 @@ const getPayDates = (
     return dates;
 };
 
-// Calculate splits based on item ownership and global settings
 const calculateShares = (
     amount: number,
     owner: Ownership,
@@ -162,7 +155,6 @@ const calculateShares = (
     } else if (owner === "PARTNER") {
         return { myShare: 0, partnerShare: amount };
     } else {
-        // JOINT / Household
         const myShare = amount * userRatio;
         return { myShare, partnerShare: amount - myShare };
     }
@@ -323,7 +315,7 @@ export const generateAllocationPlan = (
                     id: `${item.id}-${alloc.date.getTime()}-${index}`,
                     name: item.name,
                     totalAmount: amountToAllocate,
-                    myShare: amountToAllocate, // Assuming all allocations are for the user for now
+                    myShare: amountToAllocate,
                     partnerShare: 0,
                     dueDate: alloc.date,
                     category: item.itemType,
@@ -350,7 +342,6 @@ export const generatePaychequePlan = (
     daysToProject: number = 45,
     visibleStart: Date | null = null
 ): PaychequeAllocation[] => {
-    // Respect includeInPlanner flag (default true)
     const plannerIncomes = incomes.filter(
         (src) => src.includeInPlanner !== false
     );
@@ -359,11 +350,9 @@ export const generatePaychequePlan = (
     const showFrom = visibleStart ? new Date(visibleStart) : today;
     showFrom.setHours(0, 0, 0, 0);
 
-    // Look back 60 days to ensure we capture the start of current expenseing cycles
     const historyStart = addDays(today, -60);
     const endDate = addDays(today, daysToProject);
 
-    // 1. Determine Split Ratios
     let userRatio = 1.0;
 
     if (settings.enablePartner) {
@@ -380,15 +369,12 @@ export const generatePaychequePlan = (
             if (total > 0) userRatio = u / total;
             else userRatio = 0.5;
         } else {
-            // EQUAL
             userRatio = 0.5;
         }
     }
 
-    // 2. Generate Expense Events (Expenses + Liabilities)
     const expenseEvents: ExpenseEvent[] = [];
 
-    // Expenses
     expenses.forEach((expense) => {
         const intervalDays =
             expense.frequency === "WEEKLY"
@@ -404,7 +390,6 @@ export const generatePaychequePlan = (
                 ? new Date(expense.quarterlyAnchor)
                 : null;
 
-        // Start loop from roughly 1 month before historyStart to ensure we catch boundary expenses
         let currentDue = anchorDate && !Number.isNaN(anchorDate.getTime())
             ? new Date(anchorDate)
             : new Date(
@@ -413,7 +398,6 @@ export const generatePaychequePlan = (
                 dueDay
             );
 
-        // Advance to at least historyStart
         while (currentDue < historyStart) {
             if (intervalDays) {
                 currentDue = addDays(currentDue, intervalDays);
@@ -466,11 +450,9 @@ export const generatePaychequePlan = (
                 });
             }
 
-            // Advance
             if (intervalDays) {
                 currentDue = addDays(currentDue, intervalDays);
             } else {
-                // Monthly
                 const expectedMonth = currentDue.getMonth() + monthInterval;
                 currentDue = new Date(
                     currentDue.getFullYear(),
@@ -488,7 +470,6 @@ export const generatePaychequePlan = (
         }
     });
 
-    // Liability Minimums
     liabilities.forEach((liability) => {
         const monthlyInt =
             liability.balance * (liability.interestRate / 100 / 12);
@@ -548,7 +529,6 @@ export const generatePaychequePlan = (
                     currentDue = addDays(currentDue, intervalDays);
                 }
             } else {
-                // Monthly Liability Payment
                 let currentDue = new Date(
                     historyStart.getFullYear(),
                     historyStart.getMonth() - 1,
@@ -613,13 +593,10 @@ export const generatePaychequePlan = (
         }
     });
 
-    // Sort Expenses by Date
     expenseEvents.sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime());
 
-  // 3. Generate Paycheque Allocations (Including History)
   const allocations: PaychequeAllocation[] = [];
 
-  // Guarded push to avoid duplicate entries for the same expense event on a single cheque
   const addAssignment = (
       paycheque: PaychequeAllocation,
       expense: ExpenseEvent,
@@ -649,26 +626,18 @@ export const generatePaychequePlan = (
         });
     });
 
-    // Sort Allocations by Date
     allocations.sort((a, b) => a.date.getTime() - b.date.getTime());
 
-    // 4. Assign Expenses to Paycheques
     expenseEvents.forEach((expense) => {
         const sameMonth = (date: Date) =>
             date.getFullYear() === expense.dueDate.getFullYear() &&
             date.getMonth() === expense.dueDate.getMonth();
 
-        // 4a. Assign User Share
         if (expense.myShare > 0.01) {
-            // Find User paycheques in the same calendar month as the expense
             const candidates = allocations.filter(
                 (p) => !p.isPartner && sameMonth(p.date)
             );
 
-            // BUDGET SYSTEM LOGIC:
-            // If expense is MONTHLY or QUARTERLY, limit to the first 2 paycheques of the month.
-            // This ensures "Extra" (3rd) paycheques in a month are treated as surplus/savings.
-            // If expense is BI_WEEKLY/WEEKLY, we use all available paycheques.
             const cap =
                 expense.frequency === "MONTHLY" ||
                 expense.frequency === "QUARTERLY"
@@ -695,7 +664,6 @@ export const generatePaychequePlan = (
                         );
                     });
                 } else {
-                    // If income total is zero (edge case), fall back to equal split
                     const sharePerCheque =
                         expense.myShare / scopedCandidates.length;
                     scopedCandidates.forEach((p, idx) => {
@@ -710,7 +678,6 @@ export const generatePaychequePlan = (
                     });
                 }
             } else {
-                // Fallback: Closest previous paycheque (or next) if none in month
                 const previous = allocations.filter(
                     (p) => !p.isPartner && p.date <= expense.dueDate
                 );
@@ -727,13 +694,11 @@ export const generatePaychequePlan = (
             }
         }
 
-        // 4b. Assign Partner Share
         if (expense.partnerShare > 0.01) {
             const candidates = allocations.filter(
                 (p) => p.isPartner && sameMonth(p.date)
             );
 
-            // BUDGET SYSTEM LOGIC (Partner):
             const cap =
                 expense.frequency === "MONTHLY" ||
                 expense.frequency === "QUARTERLY"
@@ -797,6 +762,5 @@ export const generatePaychequePlan = (
         }
     });
 
-    // 5. Filter out past allocations to show only relevant future/current
     return allocations.filter((p) => p.date >= showFrom);
 };

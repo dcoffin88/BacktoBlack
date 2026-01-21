@@ -7,12 +7,12 @@ interface PeriodTotalsProps {
     liabilities: Liability[];
     expenses: Expense[];
     incomes: IncomeSource[];
-    assets: Asset[]; // kept for potential future net worth calc, though not strictly needed for current breakdown
-    extraPayments: any[]; // exact type defined in components commonly
+    assets: Asset[];
+    extraPayments: any[];
     periodStart: Date;
     periodEnd: Date;
     userSettings: UserSettings;
-    monthlyBudget: number; // needed for cash out calc
+    monthlyBudget: number;
     amortizationSchedules?: Record<string, any>;
 }
 
@@ -46,7 +46,6 @@ export const usePeriodTotals = ({
         });
     }, [budgetStartDate, budgetedIncomes, periodStart, periodEnd]);
 
-    // Ensure we only look at paychecks strictly within the requested window
     const paychecksInPeriod = useMemo(
         () =>
             paychecks.filter(
@@ -99,7 +98,6 @@ export const usePeriodTotals = ({
         return getPerCheckExpenseAmount(expense, currentPaycheck, monthPaychecksForCheck, budgetedIncomes, userSplitRatio);
     }, [userSplitRatio, budgetedIncomes]);
 
-    // Checkbox explicitly forced to false for Reports consistency
     const getPerCheckLiabilityFor = useCallback((liability: Liability & { plannedPayment?: number }, currentPaycheck: PaycheckOccurrence | null, monthPaychecksForCheck: PaycheckOccurrence[]) => {
         return getPerCheckLiabilityAmount(
             liability,
@@ -112,7 +110,6 @@ export const usePeriodTotals = ({
         );
     }, [userSplitRatio, budgetedIncomes, extraPayments]);
 
-    // Prepare liabilities with calculated planned payments (similar to Reports.tsx logic)
     const activeLiabilities = useMemo(() => {
         const rangeEnd = new Date(periodEnd);
         rangeEnd.setHours(0, 0, 0, 0);
@@ -138,7 +135,6 @@ export const usePeriodTotals = ({
             let latestDate: Date | null = null;
             let latestBalance: number | null = null;
             schedule.timeline.forEach((row: any) => {
-                // Basic date parsing logic duplicated for safety
                 const val = row.actualDate;
                 const parsed = !val ? null : (val.includes('T') ? new Date(val) : new Date(`${val}T12:00:00`));
 
@@ -152,7 +148,6 @@ export const usePeriodTotals = ({
                 next[liability.id] = latestBalance;
                 return;
             }
-            // Fallback to historical check same as Reports... omitted for brevity/simplicity as we mostly care about totals
             next[liability.id] = liability.balance;
         });
         return next;
@@ -206,7 +201,6 @@ export const usePeriodTotals = ({
         [getLiabilityPeriodTotal, liabilityWithMins]
     );
 
-    // Calculate month count for budget multiplier (usually 1 if simple monthly view)
     const monthCount = useMemo(() => {
         const startY = periodStart.getFullYear();
         const startM = periodStart.getMonth();

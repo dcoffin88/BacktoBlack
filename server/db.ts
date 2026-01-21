@@ -23,7 +23,6 @@ const fetchJson = async <T = any>(url: string, init?: RequestInit): Promise<T> =
 };
 
 export const dbAPI = {
-  // AUTH
   login: async (email: string, password: string) => {
     const response = await fetch(`${API_BASE_URL}/login`, {
       method: 'POST',
@@ -50,7 +49,6 @@ export const dbAPI = {
     return payload;
   },
 
-  // PROFILE
   getProfile: async (): Promise<UserProfile> => {
     return await fetchJson<UserProfile>(`${API_BASE_URL}/profile`, { headers: getAuthHeaders() });
   },
@@ -71,7 +69,6 @@ export const dbAPI = {
     });
   },
 
-  // INCOMES
   getIncomes: async () => {
     return await fetchJson<IncomeSource[]>(`${API_BASE_URL}/incomes`, { headers: getAuthHeaders() });
   },
@@ -86,9 +83,6 @@ export const dbAPI = {
     await fetchJson(`${API_BASE_URL}/incomes/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
   },
 
-  // ACCOUNTS / TRANSACTIONS
-
-  // DEBTS
   getLiabilities: async (): Promise<Liability[]> => {
     return await fetchJson<Liability[]>(`${API_BASE_URL}/liabilities`, { headers: getAuthHeaders() });
   },
@@ -121,7 +115,6 @@ export const dbAPI = {
     return await fetchJson(`${API_BASE_URL}/liabilities/${id}/amortization`, { headers: getAuthHeaders() });
   },
 
-  // BILLS
   getExpenses: async (): Promise<Expense[]> => {
     return await fetchJson<Expense[]>(`${API_BASE_URL}/expenses`, { headers: getAuthHeaders() });
   },
@@ -136,7 +129,6 @@ export const dbAPI = {
     await fetchJson(`${API_BASE_URL}/expenses/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
   },
 
-  // ASSETS
   getAssets: async (): Promise<Asset[]> => {
     return await fetchJson<Asset[]>(`${API_BASE_URL}/assets`, { headers: getAuthHeaders() });
   },
@@ -151,7 +143,6 @@ export const dbAPI = {
     await fetchJson(`${API_BASE_URL}/assets/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
   },
 
-  // Budget Checks
   getBudgetChecks: async (): Promise<{
     expenseChecksByCheck: Record<string, Record<string, boolean>>;
     liabilityChecksByCheck: Record<string, Record<string, boolean>>;
@@ -220,7 +211,6 @@ export const dbAPI = {
     });
   },
 
-  // Budget Schedule
   getBudgetSchedule: async (): Promise<{ schedule: BudgetSchedule | null }> => {
     return await fetchJson(`${API_BASE_URL}/budget/schedule`, { headers: getAuthHeaders() });
   },
@@ -238,7 +228,6 @@ export const dbAPI = {
     });
   },
 
-  // SETTINGS
   getSettings: async (): Promise<UserSettings | null> => {
     return await fetchJson<UserSettings | null>(`${API_BASE_URL}/settings`, { headers: getAuthHeaders() });
   },
@@ -277,7 +266,6 @@ export const dbAPI = {
     return await fetchJson<string[]>(`${API_BASE_URL}/reports/available-checks`, { headers: getAuthHeaders() });
   },
 
-  // HOUSEHOLD
   joinHousehold: async (partnerEmail: string) => {
     const response = await fetch(`${API_BASE_URL}/household/join`, {
       method: 'POST',

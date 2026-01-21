@@ -74,7 +74,6 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
     }
   };
 
-  // Income Source Modal State
   const [isIncomeModalOpen, setIsIncomeModalOpen] = useState(false);
   const [editingIncomeId, setEditingIncomeId] = useState<string | null>(null);
   const [incomeFormData, setIncomeFormData] = useState<Omit<IncomeSource, 'id'>>({
@@ -86,7 +85,6 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
     ownerId: undefined
   });
 
-  // Sync temp settings if props change externally
   useEffect(() => {
     const nextSettings = { ...settings };
     if (!nextSettings.startDate) {
@@ -132,7 +130,6 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
     }
   };
 
-  // Helper for split ratio display
   const getIncomeRatio = () => {
     const eligibleIncomes = incomes.filter((s) => s.includeInPlanner !== false);
     const userSources = eligibleIncomes.filter(s => !s.isPartner);
@@ -146,7 +143,6 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
     return { u: (u / total) * 100, p: (p / total) * 100 };
   };
 
-  // --- Real-time Budget Calculation ---
   const totalExpenses = expenses.reduce((sum, b) => {
     return sum + (b.frequency === 'BI_WEEKLY' ? b.amount * 2 : b.amount);
   }, 0);
@@ -169,7 +165,6 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
   const currencySymbol = tempSettings.currencySymbol || '$';
   const currencyOptions = ['$', '£', '€', '₹', '¥', '₱', '₩'];
 
-  // --- Income Management ---
   const openIncomeModal = (source?: IncomeSource, isPartnerAdd: boolean = false) => {
     if (source) {
       setEditingIncomeId(source.id);

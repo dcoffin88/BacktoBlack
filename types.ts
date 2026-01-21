@@ -4,34 +4,30 @@ export interface Liability {
     name: string;
     subtitle?: string;
     transferAccount?: string;
-    excludedIncomeSourceIds?: string[]; // income sources to skip for budget check allocation
-    excludeFromSplitting?: boolean; // bypass split ratios; assign to payer only
+    excludedIncomeSourceIds?: string[];
+    excludeFromSplitting?: boolean;
     balance: number;
     category?: string;
-    interestRate: number; // Annual percentage (e.g., 18.5 for 18.5%)
+    interestRate: number;
+    startingBalance: number;
+    startDate: string;
 
-    // Historical / Meta Data
-    startingBalance: number; // Original loan amount for progress tracking
-    startDate: string; // YYYY-MM-DD
+    minPaymentPercentage: number;
+    minPaymentPlusInterest: boolean;
+    minPaymentPlusFees: boolean;
+    minPaymentAmount: number;
+    paymentFrequency: "MONTHLY" | "BI_WEEKLY" | "WEEKLY";
+    minPaymentFloor: number;
 
-    // Minimum Payment Atoms (Replaces Strategy Enum)
-    minPaymentPercentage: number; // e.g. 1 (for 1% of balance)
-    minPaymentPlusInterest: boolean; // Add accrued interest to the min payment?
-    minPaymentPlusFees: boolean; // Add charged fees to the min payment?
-    minPaymentAmount: number; // Fixed amount added on top (or the base flat amount if % is 0)
-    paymentFrequency: "MONTHLY" | "BI_WEEKLY" | "WEEKLY"; // Frequency of the FIXED amount component
-    minPaymentFloor: number; // The "Minimum of the Minimum" (e.g. $25)
-
-    // Fee Configuration
     annualFee: number;
-    isFeeMonthly: boolean; // If true, charge fee/12 monthly. If false, charge annualFee once a year.
-    feeMonth: number; // 1-12 (January - December) for Annual Fee timing
+    isFeeMonthly: boolean;
+    feeMonth: number;
 
-    dueDate: number; // Day of month 1-31
-    nextDueDate?: string; // Anchor date for bi-weekly / weekly schedules
+    dueDate: number;
+    nextDueDate?: string;
 
     creditLimit?: number;
-    customOrder?: number; // For manual sorting
+    customOrder?: number;
     owner?: Ownership;
     manualPaymentRequired?: boolean;
 }
@@ -43,14 +39,14 @@ export interface Expense {
     subtitle?: string;
     transferAccount?: string;
     amount: number;
-    dueDate?: number; // Day of month 1-31 (optional)
+    dueDate?: number;
     frequency: "MONTHLY" | "BI_WEEKLY" | "WEEKLY" | "QUARTERLY" | "ANNUAL";
-    quarterlyAnchor?: string; // YYYY-MM-DD to anchor quarter start (optional)
+    quarterlyAnchor?: string;
     category: string;
     isPaid: boolean;
     owner?: Ownership;
-    excludedIncomeSourceIds?: string[]; // income sources to skip for budget check allocation
-    excludeFromSplitting?: boolean; // bypass split ratios; assign to payer only
+    excludedIncomeSourceIds?: string[];
+    excludeFromSplitting?: boolean;
     manualPaymentRequired?: boolean;
 }
 
@@ -65,10 +61,10 @@ export interface Asset {
 }
 
 export enum StrategyType {
-    SNOWBALL = "SNOWBALL", // Lowest Balance
-    AVALANCHE = "AVALCHE", // Highest Interest Rate
-    HYBRID = "HYBRID", // Liability/Interest Ratio
-    CFI = "CFI", // Cash Flow Index (Balance / Min Payment)
+    SNOWBALL = "SNOWBALL",
+    AVALANCHE = "AVALCHE",
+    HYBRID = "HYBRID",
+    CFI = "CFI",
     HIGHEST_PAYMENT = "HIGHEST_PAYMENT",
     HIGHEST_UTILIZATION = "HIGHEST_UTILIZATION",
     HIGHEST_INTEREST_AMT = "HIGHEST_INTEREST_AMT",
@@ -99,7 +95,6 @@ export interface PayoffResult {
     timeline: PayoffMonth[];
 }
 
-// Saved payoff schedule that can be shared across Budget, Dashboard, and Liabilities
 export interface BudgetSchedule {
     strategy: string;
     strategyLabel: string;
@@ -138,56 +133,49 @@ export type Ownership = "USER" | "PARTNER" | "JOINT";
 export interface IncomeSource {
     id: string;
     name: string;
-    amount: number; // Net amount per paycheque
+    amount: number;
     frequency: PayFrequency;
-    nextPayDate: string; // YYYY-MM-DD
+    nextPayDate: string;
     isPartner: boolean;
-    ownerId?: number; // User id of the income owner (helps keep partner income separate across accounts)
-    includeInPlanner?: boolean; // If false, excluded from Paycheque Planner math
-    includeFirstTwoChecks?: boolean; // If true, only first 2 checks per month counted in budget
+    ownerId?: number;
+    includeInPlanner?: boolean;
+    includeFirstTwoChecks?: boolean;
     splitIncomeAsJoint?: boolean;
     excludeFromSplitting?: boolean;
 }
 
 export interface UserSettings {
     householdId?: string;
-    monthlyBudget: number; // Extra money available strictly for liability on top of minimums
+    monthlyBudget: number;
     emailReports: boolean;
     email: string;
-    // SMTP Configuration
     smtpHost?: string;
     smtpPort?: number;
     smtpUser?: string;
     smtpPass?: string;
     smtpSecure?: boolean;
 
-    // Granular Report Settings
     enableMonthlyReport?: boolean;
-    monthlyReportRecipients?: string; // comma separated
+    monthlyReportRecipients?: string;
     enableTransferReport?: boolean;
-    transferReportRecipients?: string; // comma separated
+    transferReportRecipients?: string;
 
-    // Display / terminology preferences
-    useSimpleTerms?: boolean; // Loan/Bills naming
+    useSimpleTerms?: boolean;
     currencySymbol?: string;
     monthlyIncomeMode?: MonthlyIncomeMode;
 
-    // Income Configuration
     incomeSources: IncomeSource[];
 
-    // Partner / Joint Account Settings
     enablePartner?: boolean;
     partnerName?: string;
     partnerBudget?: number;
     partnerEmail?: string;
     partnerLinked?: boolean;
-    startDate?: string; // YYYY-MM-DD
+    startDate?: string;
 
-    // Expense Splitting
     expenseSplitMethod?: ExpenseSplitMethod;
-    userSplitPercentage?: number; // 0-100
+    userSplitPercentage?: number;
 
-    // Deprecated but kept for type compatibility during migration
     userIncome?: number;
     partnerIncome?: number;
 }

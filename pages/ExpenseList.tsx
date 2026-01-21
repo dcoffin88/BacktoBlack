@@ -36,7 +36,6 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
 
-    // Form State
     const [formData, setFormData] = useState<
         Omit<Expense, "id" | "isPaid"> & { dueDate?: number }
     >({
@@ -123,7 +122,6 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
         }
     };
 
-    // Helper to calculate next actual due date based on the day of month
     const getNextDueDate = (expense: Expense) => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -134,7 +132,6 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                 weekday: "short",
             });
 
-        // Quarterly uses anchor date if provided
         if (expense.frequency === "QUARTERLY") {
             const anchor = expense.quarterlyAnchor
                 ? new Date(expense.quarterlyAnchor)
@@ -160,7 +157,6 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
             return formatDate(next);
         }
 
-        // Monthly (and fallback for others with a due day)
         if (Number.isFinite(expense.dueDate)) {
             const day = expense.dueDate as number;
             let target = new Date(today.getFullYear(), today.getMonth(), day);
@@ -181,7 +177,6 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
         return 1;
     };
 
-    // --- Expense Stats ---
     const totalMonthlyExpenses = expenses.reduce((sum, b) => {
         const freqMultiplier = getMonthlyMultiplier(b.frequency);
         return sum + b.amount * freqMultiplier;
@@ -197,7 +192,6 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
         return Object.entries(bucket).sort((a, b) => b[1] - a[1]);
     }, [expenses]);
 
-    // --- Split Logic ---
     let userShare = 0;
     let partnerShare = 0;
     let splitLabel = "Personal Total";
@@ -227,11 +221,9 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
             if (total > 0) userRatio = u / total;
             label = "Income Weighted";
         } else {
-            // Equal
             userRatio = 0.5;
         }
 
-        // Calculate shares by iterating expenses
         expenses.forEach((b) => {
             const freqMultiplier = getMonthlyMultiplier(b.frequency);
             const amt = b.amount * freqMultiplier;

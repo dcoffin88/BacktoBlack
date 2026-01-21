@@ -17,14 +17,14 @@ interface StrategyLabProps {
 }
 
 const COLORS: Record<StrategyType, string> = {
-  [StrategyType.SNOWBALL]: '#3b82f6', // Blue
-  [StrategyType.AVALANCHE]: '#10b981', // Emerald
-  [StrategyType.HYBRID]: '#8b5cf6', // Violet
-  [StrategyType.CFI]: '#f59e0b', // Amber
-  [StrategyType.HIGHEST_PAYMENT]: '#ec4899', // Pink
-  [StrategyType.HIGHEST_UTILIZATION]: '#ef4444', // Red
-  [StrategyType.HIGHEST_INTEREST_AMT]: '#06b6d4', // Cyan
-  [StrategyType.CUSTOM]: '#6366f1', // Indigo
+  [StrategyType.SNOWBALL]: '#3b82f6',
+  [StrategyType.AVALANCHE]: '#10b981',
+  [StrategyType.HYBRID]: '#8b5cf6',
+  [StrategyType.CFI]: '#f59e0b',
+  [StrategyType.HIGHEST_PAYMENT]: '#ec4899',
+  [StrategyType.HIGHEST_UTILIZATION]: '#ef4444',
+  [StrategyType.HIGHEST_INTEREST_AMT]: '#06b6d4',
+  [StrategyType.CUSTOM]: '#6366f1',
 };
 
 const useChartDimensions = () => {
@@ -193,13 +193,10 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
     >
   >({});
 
-  // For Comparison Mode
   const [compareSelection, setCompareSelection] = useState<StrategySelection[]>([
     StrategyType.SNOWBALL,
     StrategyType.AVALANCHE
   ]);
-
-  // --- Calculations ---
 
   useEffect(() => {
     setCustomOrderMap(() => {
@@ -212,7 +209,6 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
   }, [liabilities]);
 
   useEffect(() => {
-    // Avoid ResponsiveContainer measuring at -1/-1 before mount
     setChartsReady(true);
   }, []);
 
@@ -499,30 +495,22 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
     }
   }, [customOrderMap, liabilitiesWithDerivedBalance, selectedStrategy]);
 
-  // Precise Calculation Result
   const preciseResult = useMemo(() => {
     const strat = selectedStrategy as StrategyType;
     const effectiveBudget = monthlyBudget;
     return calculatePrecisePayoff(orderedLiabilities, effectiveBudget, strat, anchorDate);
   }, [orderedLiabilities, monthlyBudget, selectedStrategy, anchorDate]);
 
-
-
-  // Single Simulation Result
   const singleResult = useMemo(() => {
-    // Always prefer precise calculation for the schedule
     if (preciseResult) {
       return preciseResult;
     }
 
-    // Fallback logic
-    // Fallback logic
     const strat = selectedStrategy as StrategyType;
     return strategySimulations[strat] || calculatePayoff(orderedLiabilities, monthlyBudget, strat);
   }, [orderedLiabilities, monthlyBudget, selectedStrategy, strategySimulations, preciseResult]);
 
   const strategyMatrixRows = useMemo(() => {
-    // Matrix source (Use precise result by default for the schedule view)
     const simulation = preciseResult
       ? preciseResult
       : strategySimulations[selectedStrategy as StrategyType];
@@ -572,7 +560,6 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
     !!preciseResult ||
     !!strategySimulations[selectedStrategy as StrategyType];
 
-  // Comparison Results (Calculate all for data table)
   const allStrategies = Object.values(StrategyType);
   const compareOptions = useMemo(
     () => [
@@ -587,7 +574,6 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
   const comparisonResults = useMemo(() => {
     return compareOptions.map((option) => {
       const strat = option.key as StrategyType;
-      // We don't use precise mode for comparison table (too slow/complex to render 8 of them on fly)
       const res =
         strategySimulations[strat] ||
         calculatePayoff(orderedLiabilities, monthlyBudget, strat);
@@ -602,11 +588,9 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
     });
   }, [compareOptions, orderedLiabilities, monthlyBudget, strategySimulations]);
 
-  // Best/Worst for stats
   const bestInterest = comparisonResults.reduce((min, cur) => cur.interest < min.interest ? cur : min, comparisonResults[0]);
   const bestTime = comparisonResults.reduce((min, cur) => cur.months < min.months ? cur : min, comparisonResults[0]);
 
-  // Chart Data Construction for Comparison
   const comparisonChartData = useMemo(() => {
     const activeComparisons = comparisonResults.filter(r => compareSelection.includes(r.strategy));
     if (activeComparisons.length === 0) return [];
@@ -615,7 +599,6 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
     const initialBalance = liabilitiesWithDerivedBalance.reduce((sum, d) => sum + d.balance, 0);
 
     const data = [];
-    // Include Month 0
     const point0: any = { month: 0 };
     activeComparisons.forEach(r => point0[r.label] = initialBalance);
     data.push(point0);
@@ -623,7 +606,6 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
     for (let i = 1; i <= maxMonths; i++) {
       const point: any = { month: i };
       activeComparisons.forEach(r => {
-        // Find balance at month i. If i > timeline, balance is 0.
         const entry = r.timeline.find(t => t.month === i);
         point[r.label] = entry ? entry.totalBalance : 0;
       });
@@ -632,11 +614,9 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
     return data;
   }, [comparisonResults, compareSelection, liabilitiesWithDerivedBalance]);
 
-  // --- Handlers ---
   const toggleComparisonStrategy = (s: StrategySelection) => {
     setCompareSelection(prev => {
       const next = prev.includes(s) ? prev.filter(i => i !== s) : [...prev, s];
-      // Keep the active selected strategy always included
       if (!next.includes(selectedStrategy)) {
         next.push(selectedStrategy);
       }
@@ -659,14 +639,13 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
       setScheduleSavedAt(null);
       setHasJustSentSchedule(false);
     } catch {
-      // keep state if delete fails
     }
   };
 
   const saveScheduleToBudget = async () => {
     const anchorIso =
       anchorDate && !Number.isNaN(new Date(anchorDate).getTime())
-        ? `${anchorDate}T12:00:00.000Z` // use midday UTC to avoid timezone shifting the date back
+        ? `${anchorDate}T12:00:00.000Z`
         : new Date().toISOString();
     const payload: BudgetSchedule = {
       strategy: selectedStrategy as StrategyType,
@@ -688,7 +667,6 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
       }
       setHasJustSentSchedule(true);
     } catch {
-      // keep local state untouched on failure
     }
   };
 

@@ -253,7 +253,6 @@ const Budget: React.FC<BudgetProps> = ({
         (e) => e.frequency === "BI_WEEKLY" || e.frequency === "WEEKLY"
     );
 
-    // Generate paychecks over a wide window (history + future), respecting optional start date
     const currentMonthPaychecks = useMemo(() => {
         const today = new Date();
         const windowYears = 20;
@@ -311,7 +310,6 @@ const Budget: React.FC<BudgetProps> = ({
             }
             let current = new Date(seed);
 
-            // Backtrack to ensure we have coverage to the start boundary
             let iterations = 0;
             while (current > startDate && iterations < 5000) {
                 const prev = new Date(current);
@@ -384,7 +382,7 @@ const Budget: React.FC<BudgetProps> = ({
 
                 const eligibleMonthly =
                     src.includeFirstTwoChecks === true
-                        ? currentCount < 2 // allow the first two occurrences per calendar month
+                        ? currentCount < 2
                         : true;
 
                 occurrences.push({
@@ -448,10 +446,8 @@ const Budget: React.FC<BudgetProps> = ({
         return {
             ...d,
             scheduledFrequency: getLiabilityFrequency(d),
-            // Use minPayment as the distribution base to match Reports.tsx, 
-            // ignoring the potentially inflated BudgetSchedule amount for 3-check months.
             plannedPayment: d.minPayment,
-            scheduledAmount: scheduledPayment, // Keep for UI if needed
+            scheduledAmount: scheduledPayment,
         };
     });
 
@@ -471,7 +467,6 @@ const Budget: React.FC<BudgetProps> = ({
     const expenseChecks = expenseChecksByCheck[currentCheckKey] || {};
     const liabilityChecks = liabilityChecksByCheck[currentCheckKey] || {};
 
-    // Keep the schedule month indicator aligned to the currently viewed paycheck
     useEffect(() => {
         if (!budgetSchedule || !currentPaycheck) return;
         const savedDate = new Date(budgetSchedule.savedAt);
@@ -666,7 +661,6 @@ const Budget: React.FC<BudgetProps> = ({
             weekday: "short",
         });
 
-    // Income-weighted allocation: monthly/quarterly items use monthly-eligible income; weekly/bi-weekly items use all income
     const monthlyExpensesTotal = expenses.reduce((sum, e) => {
         const multiplier =
             e.frequency === "QUARTERLY"

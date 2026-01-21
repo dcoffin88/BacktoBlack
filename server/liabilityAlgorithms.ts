@@ -1,6 +1,5 @@
 import { Liability, PayoffMonth, PayoffResult, StrategyType, IncomeSource, MonthlyIncomeMode } from '../types';
 
-// Helper to deep copy liabilities to avoid mutating state during simulation
 const copyLiabilities = (liabilities: Liability[]): Liability[] => JSON.parse(JSON.stringify(liabilities));
 
 export interface AmortizationRow {
@@ -15,7 +14,6 @@ export interface AmortizationRow {
   isHistorical?: boolean;
 }
 
-// Helper to calculate monthly equivalent of income sources
 export const calculateMonthlyIncome = (sources: IncomeSource[]): number => {
   return sources.reduce((total, source) => {
     let monthlyAmount = 0;
@@ -27,7 +25,7 @@ export const calculateMonthlyIncome = (sources: IncomeSource[]): number => {
         monthlyAmount = source.amount * (26 / 12);
         break;
       case 'SEMI_MONTHLY':
-        monthlyAmount = source.amount * 2; // 24 checks per year
+        monthlyAmount = source.amount * 2;
         break;
       case 'MONTHLY':
         monthlyAmount = source.amount;
@@ -209,30 +207,18 @@ export const calculateMonthlyIncomeByMode = (
   return modeValue;
 };
 
-// Helper to calculate current minimum payment based on flexible atoms
 export const getMinPayment = (liability: Liability, currentPrincipal: number, accruedInterest: number, feesChargedThisMonth: number = 0): number => {
   const totalBalance = currentPrincipal + accruedInterest;
-  // Use logical OR for compatibility instead of ??
   const floor = liability.minPaymentFloor || 0;
 
-  // 1. Explicit Floor Check: If total balance is less than the floor, pay the full balance.
   if (totalBalance < floor) {
     return totalBalance;
   }
 
-  // 2. Calculate Components
-  // Percent Component
   const percentAmount = currentPrincipal * (liability.minPaymentPercentage / 100);
-  
-  // Interest Component
   const interestAmount = liability.minPaymentPlusInterest ? accruedInterest : 0;
-  
-  // Fee Component (if configured to be part of min payment)
   const feeAmount = liability.minPaymentPlusFees ? feesChargedThisMonth : 0;
 
-  // Fixed Amount Component - ADJUSTED FOR FREQUENCY
-  // If frequency is Bi-Weekly or Weekly and the user wants the *entire* payment on that cadence
-  // treat the entered minPaymentAmount as the per-period payment and convert to monthly equivalent.
   let fixedAmount = liability.minPaymentAmount || 0;
   if (liability.paymentFrequency === 'BI_WEEKLY') {
     fixedAmount = fixedAmount * (26 / 12);
@@ -240,13 +226,10 @@ export const getMinPayment = (liability: Liability, currentPrincipal: number, ac
     fixedAmount = fixedAmount * (52 / 12);
   }
 
-  // Sum it up
   let calculated = percentAmount + interestAmount + feeAmount + fixedAmount;
 
-  // 3. Apply Floor (The "Greater of [Calc] or [Floor]" rule)
   calculated = Math.max(calculated, floor);
 
-  // 4. Final Cap: Never pay more than the total balance
   return Math.min(calculated, totalBalance);
 };
 
@@ -258,8 +241,6 @@ export const calculateIndividualAmortization = (
   >,
   plannedPaymentsByPeriod?: Record<number, number>
 ) => {
-  // Always seed from the original starting balance when provided so historical
-  // payments and start date drive the table; fall back to current balance.
   const rate = liability.interestRate;
   
   const timeline: AmortizationRow[] = [];
@@ -275,10 +256,8 @@ export const calculateIndividualAmortization = (
   const startMonthIndex = (() => {
     const d = liability.startDate ? new Date(liability.startDate) : null;
     return d && !Number.isNaN(d.getTime()) ? d.getMonth() : new Date().getMonth();
-  })(); // 0-11
+  })();
 
-  // Apply historical payments (period <= 0) before starting the projection so they
-  // appear as their own rows prior to Payment #1.
   const forcedHistoricalPeriods = new Set<number>();
   const historicalPayments = Object.entries(extraPaymentsByPeriod || {})
     .map(([k, v]) => {
@@ -331,7 +310,6 @@ export const calculateIndividualAmortization = (
     });
   });
 
-  // Initial sanity check for infinite loops (use period-equivalent)
   const firstInterest = balance * periodRate;
   const firstFee = liability.isFeeMonthly 
     ? (liability.annualFee / periodsPerYear) 
@@ -353,16 +331,13 @@ export const calculateIndividualAmortization = (
     return Math.max(raw, floor, 0);
   })();
   
-  // Only warn if balance is stable/growing AND it's not a temporary fee spike issue
-  // We relax this check slightly to allow for fee months, but if standard interest > min, warn.
   if (
     liability.minPaymentPercentage === 0 &&
     !liability.minPaymentPlusInterest &&
     firstMin <= firstInterest &&
     balance > 0 &&
-    !hasExternalPayments // allow loading if schedule/extras will cover it
+    !hasExternalPayments
   ) {
-      // Allow it if user has fees included in payment, as that might cover it
       if (!liability.minPaymentPlusFees) {
           return {
               isInfinite: true,
@@ -377,18 +352,15 @@ export const calculateIndividualAmortization = (
   while (balance > 0.01 && periodsElapsed < 3000) {
     periodsElapsed++;
 
-    // If this period was already converted to a historical payment, skip generating a scheduled row.
     if (forcedHistoricalPeriods.has(periodsElapsed)) {
       continue;
     }
 
-    // Fee Charge Logic
     let currentMonthFee = 0;
     if (liability.annualFee > 0) {
       if (liability.isFeeMonthly) {
         currentMonthFee = liability.annualFee / periodsPerYear;
       } else {
-        // Calculate current calendar month of simulation (0-11) based on elapsed periods
         const periodsPerMonth = periodsPerYear / 12;
         const simMonthIndex = Math.floor((periodsElapsed - 1) / periodsPerMonth + startMonthIndex) % 12;
         if (simMonthIndex + 1 === (liability.feeMonth || 1)) {
@@ -400,8 +372,6 @@ export const calculateIndividualAmortization = (
     totalFees += currentMonthFee;
 
     const interest = balance * periodRate;
-    
-    // Calculate required minimum for this period (use raw per-period components, no monthly scaling)
     const floor = liability.minPaymentFloor || 0;
     const percentComponent = balance * (liability.minPaymentPercentage / 100);
     const feeComponent = liability.minPaymentPlusFees ? currentMonthFee : 0;
@@ -413,7 +383,6 @@ export const calculateIndividualAmortization = (
 
     let currentTotalDue = balance + interest;
 
-    // Cap payment at total due
     if (requiredPayment > currentTotalDue) {
         requiredPayment = currentTotalDue;
     }
@@ -428,7 +397,6 @@ export const calculateIndividualAmortization = (
       typeof extraEntry === 'object' && !!extraEntry?.forceHistorical;
     const plannedPayment = plannedPaymentsByPeriod?.[periodsElapsed];
 
-    // If a planned payment exists, treat anything above the required amount as additional extra
     const plannedExtra =
       plannedPayment !== undefined
         ? Math.max(0, plannedPayment - requiredPayment)
@@ -438,8 +406,6 @@ export const calculateIndividualAmortization = (
     let effectiveExtra = extraPayment;
     let effectivePlannedExtra = plannedExtra;
 
-    // If this entry is forced historical, treat its amount as the full payment for that period
-    // instead of stacking on top of the minimum (prevents double-counting).
     if (isForcedHistorical) {
       effectiveRequired = extraPayment;
       effectiveExtra = 0;
@@ -453,7 +419,6 @@ export const calculateIndividualAmortization = (
     let principal = principalWithExtras;
     let payment = paymentWithExtras;
 
-    // Final month adjustment
     if (balance < principal) {
         principal = balance;
         payment = principal + interest;
@@ -502,12 +467,10 @@ export const calculatePayoff = (
   let totalInterestPaid = 0;
   let months = 0;
   const timeline: PayoffMonth[] = [];
-  const startMonthIndex = new Date().getMonth(); // 0-11
+  const startMonthIndex = new Date().getMonth();
   
-  // Sorting Function
   const sortLiabilities = (currentLiabilities: Liability[]) => {
     return currentLiabilities.sort((a, b) => {
-      // Estimate min payment for sorting purposes (ignoring fees for sort stability)
       const intA = a.balance * (a.interestRate / 100 / 12);
       const intB = b.balance * (b.interestRate / 100 / 12);
       
@@ -541,10 +504,8 @@ export const calculatePayoff = (
     });
   };
 
-  // 1. Calculate Target Monthly Outflow (Baseline)
   const initialMinTotal = initialLiabilities.reduce((sum, d) => {
      const int = d.balance * (d.interestRate / 100 / 12);
-     // For baseline, assume monthly fee if applicable, or 0 if annual (averaged out is too complex for baseline)
      const fee = d.isFeeMonthly ? (d.annualFee / 12) : 0;
      return sum + getMinPayment(d, d.balance, int, fee);
   }, 0);
@@ -560,17 +521,13 @@ export const calculatePayoff = (
       let monthlyInterestTotal = 0;
       const paidOffThisMonth: string[] = [];
       const simMonthIndex = (startMonthIndex + months - 1) % 12;
-
-      // Track detailed breakdown for this month
       const monthlyBreakdown: Record<string, { name: string, interest: number, payment: number, balance: number }> = {};
       liabilities.forEach(d => {
           monthlyBreakdown[d.id] = { name: d.name, interest: 0, payment: 0, balance: 0 };
       });
 
-      // A. Accrue Interest & Fees
       liabilities.forEach(d => {
         if (d.balance > 0) {
-          // Charge Fee
           let currentMonthFee = 0;
           if (d.annualFee > 0) {
             if (d.isFeeMonthly) {
@@ -581,11 +538,10 @@ export const calculatePayoff = (
           }
           d.balance += currentMonthFee;
           
-          // Store fee on object temporarily to pass to getMinPayment below
           (d as any)._tempFee = currentMonthFee;
 
           const interest = d.balance * (d.interestRate / 100 / 12);
-          d.balance += interest; // Balance now includes this month's interest
+          d.balance += interest;
           monthlyInterestTotal += interest;
 
           monthlyBreakdown[d.id].interest = interest;
@@ -593,7 +549,6 @@ export const calculatePayoff = (
       });
       totalInterestPaid += monthlyInterestTotal;
 
-      // B. Calculate Required Minimums for this month
       let currentMonthRequiredMinSum = 0;
       liabilities.forEach(d => {
           if (d.balance > 0.01) {
@@ -607,10 +562,8 @@ export const calculatePayoff = (
           }
       });
 
-      // C. Determine Snowball Amount
       let availableSnowball = Math.max(0, targetMonthlyOutflow - currentMonthRequiredMinSum);
       
-      // D. Pay Required Minimums
       liabilities.forEach(d => {
          if (d.balance > 0.01) {
              const monthlyRate = d.interestRate / 100 / 12;
@@ -625,13 +578,11 @@ export const calculatePayoff = (
              d.balance -= payment;
              monthlyBreakdown[d.id].payment += payment;
              
-             // Check unused budget if payment was capped by balance
              const unused = required - payment;
              if (unused > 0) availableSnowball += unused;
          }
       });
 
-      // E. Apply Snowball
       const activeLiabilities = liabilities.filter(d => d.balance > 0.01);
       sortLiabilities(activeLiabilities);
 
@@ -647,7 +598,6 @@ export const calculatePayoff = (
           }
       }
       
-      // Update final balances in breakdown
       liabilities.forEach(d => {
           monthlyBreakdown[d.id].balance = Math.max(0, d.balance);
       });

@@ -333,7 +333,6 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
     ? liabilities.reduce((sum, d) => sum + d.interestRate, 0) / liabilities.length
     : 0;
 
-  // Core Data & Paycheck Generation
   const budgetedIncomes = incomes.filter((i) => i.includeInPlanner !== false);
   const budgetStartDate = useMemo(() => {
     if (!userSettings?.startDate) return null;
@@ -356,11 +355,7 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
     expenses,
     incomes,
     assets,
-    extraPayments: extraPayments, // Dashboard generally wants to see ALL payments, but for the "Breakdown" card which user requested to match Reports, we use the hook which defaults to checked-only or we can modify hook.
-    // Wait, the user said "Dashboard breadkdown card can just pull... directly from the budget report". 
-    // Reports strictly obeys the checkboxes. Dashboard historically didn't have checkboxes for main view but user didn't specifying adding them.
-    // The hook uses { includeUnchecked: false } by default in its internal getPerCheckLiabilityAmount call (I hardcoded it). 
-    // This will match Reports exactly.
+    extraPayments: extraPayments,
     periodStart: currentMonthStart,
     periodEnd: currentMonthEnd,
     userSettings: userSettings || {} as UserSettings,
@@ -373,7 +368,6 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
 
   const totalMinPayment = currentMonthLiabilityMins;
 
-  // Restored Asset Calculations
   const totalAssets = useMemo(() => assets.reduce((sum, a) => sum + a.value, 0), [assets]);
   const netWorth = useMemo(() => totalAssets - totalLiability, [totalAssets, totalLiability]);
 
