@@ -237,7 +237,7 @@ export const calculateIndividualAmortization = (
   liability: Liability,
   extraPaymentsByPeriod?: Record<
     number,
-    number | { amount: number; checkDate?: string | null; forceHistorical?: boolean; interest?: number }
+    number | { amount: number; chequeDate?: string | null; forceHistorical?: boolean; interest?: number }
   >,
   plannedPaymentsByPeriod?: Record<number, number>
 ) => {
@@ -269,14 +269,14 @@ export const calculateIndividualAmortization = (
       return {
         period: periodNum,
         amount: parsed.amount,
-        checkDate: parsed.checkDate,
+        chequeDate: parsed.chequeDate,
         forceHistorical: parsed.forceHistorical,
         interest: parsed.interest,
       };
     })
-    .filter(({ period, amount, forceHistorical, interest, checkDate }) =>
+    .filter(({ period, amount, forceHistorical, interest, chequeDate }) =>
       (forceHistorical || period <= 0) &&
-      (amount !== 0 || (interest ?? 0) !== 0 || (!!checkDate && period <= 0))
+      (amount !== 0 || (interest ?? 0) !== 0 || (!!chequeDate && period <= 0))
     )
     .sort((a, b) => a.period - b.period);
 
@@ -289,7 +289,7 @@ export const calculateIndividualAmortization = (
         : liability.balance;
   let balance = initialBalance;
 
-  historicalPayments.forEach(({ period, amount, checkDate, interest }) => {
+  historicalPayments.forEach(({ period, amount, chequeDate, interest }) => {
     if (amount >= 0 && balance <= 0 && !(interest && interest > 0)) return;
     const principal = amount >= 0 ? Math.min(balance, amount) : amount;
     const payment = principal;
@@ -305,7 +305,7 @@ export const calculateIndividualAmortization = (
       principal,
       fees: 0,
       remainingBalance: balance,
-      actualDate: checkDate,
+      actualDate: chequeDate,
       isHistorical: true,
     });
   });
@@ -392,7 +392,7 @@ export const calculateIndividualAmortization = (
     const extraPayment =
       typeof extraEntry === 'number' ? extraEntry : extraEntry?.amount || 0;
     const extraDate =
-      typeof extraEntry === 'number' ? undefined : extraEntry?.checkDate;
+      typeof extraEntry === 'number' ? undefined : extraEntry?.chequeDate;
     const isForcedHistorical =
       typeof extraEntry === 'object' && !!extraEntry?.forceHistorical;
     const plannedPayment = plannedPaymentsByPeriod?.[periodsElapsed];

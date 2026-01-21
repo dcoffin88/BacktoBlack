@@ -25,8 +25,8 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
   const [invites, setInvites] = useState<Array<{ token: string; status: string; inviterEmail: string; inviteeEmail: string; householdId: string; isIncoming: boolean }>>([]);
   const [sendingMonthly, setSendingMonthly] = useState(false);
   const [sendingTransfer, setSendingTransfer] = useState(false);
-  const [availableChecks, setAvailableChecks] = useState<string[]>([]);
-  const [showCheckSelection, setShowCheckSelection] = useState(false);
+  const [availableCheques, setAvailableCheques] = useState<string[]>([]);
+  const [showChequeSelection, setShowChequeSelection] = useState(false);
 
   const triggerMonthlyReport = async () => {
     setSendingMonthly(true);
@@ -44,7 +44,7 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
 
   const handleTriggerTransfer = async (date?: string) => {
     setSendingTransfer(true);
-    setShowCheckSelection(false);
+    setShowChequeSelection(false);
     try {
       const res = await dbAPI.triggerTransferReport(date);
       if (res.success) {
@@ -60,16 +60,16 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
   const triggerTransferReport = async () => {
     setSendingTransfer(true);
     try {
-      const checks = await dbAPI.getAvailableChecks();
-      if (checks.length === 0) {
-        alert('No upcoming paychecks found to send alerts for.');
+      const cheques = await dbAPI.getAvailableCheques();
+      if (cheques.length === 0) {
+        alert('No upcoming paycheques found to send alerts for.');
         setSendingTransfer(false);
         return;
       }
-      setAvailableChecks(checks);
-      setShowCheckSelection(true);
+      setAvailableCheques(cheques);
+      setShowChequeSelection(true);
     } catch (e: any) {
-      alert(`Failed to fetch available checks: ${e.message}`);
+      alert(`Failed to fetch available cheques: ${e.message}`);
       setSendingTransfer(false);
     }
   };
@@ -982,14 +982,14 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
         </div>
       )}
 
-      {/* Check Selection Modal */}
-      {showCheckSelection && (
+      {/* Cheque Selection Modal */}
+      {showChequeSelection && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="bg-indigo-600 px-6 py-4 flex items-center justify-between">
-              <h3 className="text-white font-bold text-lg">Select Check Date</h3>
+              <h3 className="text-white font-bold text-lg">Select Cheque Date</h3>
               <button
-                onClick={() => setShowCheckSelection(false)}
+                onClick={() => setShowChequeSelection(false)}
                 className="text-white/80 hover:text-white"
               >
                 <X size={20} />
@@ -997,10 +997,10 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
             </div>
             <div className="p-6">
               <p className="text-slate-500 text-sm mb-4">
-                Choose which paycheck's "Money on the Move" report you'd like to send.
+                Choose which paycheque's "Money on the Move" report you'd like to send.
               </p>
               <div className="space-y-2 max-h-60 overflow-y-auto pr-1 custom-scrollbar">
-                {availableChecks.map(date => (
+                {availableCheques.map(date => (
                   <button
                     key={date}
                     onClick={() => handleTriggerTransfer(date)}
@@ -1019,7 +1019,7 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
                 ))}
               </div>
               <button
-                onClick={() => setShowCheckSelection(false)}
+                onClick={() => setShowChequeSelection(false)}
                 className="w-full mt-6 py-3 text-slate-600 font-bold hover:bg-slate-50 rounded-xl transition-colors"
               >
                 Cancel

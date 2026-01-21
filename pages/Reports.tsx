@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Asset, Expense, IncomeSource, Liability, PaycheckOccurrence, UserSettings } from '../types';
+import { Asset, Expense, IncomeSource, Liability, PaychequeOccurrence, UserSettings } from '../types';
 import { calculateMonthlyIncome, getMinPayment, AmortizationRow, getAnnualizedIncomeAmount } from '../server/liabilityAlgorithms';
-import { generatePaychecks, getPerCheckExpenseAmount, getPerCheckLiabilityAmount } from '../utils/paycheckLogic';
+import { generatePaycheques, getPerChequeExpenseAmount, getPerChequeLiabilityAmount } from '../utils/paychequeLogic';
 import { dbAPI } from '../server/db';
 import { CalendarRange, ChevronDown, ChevronUp, Calculator, ArrowRightLeft, Receipt, FileText, Wallet } from 'lucide-react';
 
@@ -43,7 +43,7 @@ type ExtraPayment = {
   id: string;
   liabilityId: string;
   amount: number;
-  checkDate?: string | null;
+  chequeDate?: string | null;
   isChecked?: boolean;
 };
 
@@ -58,7 +58,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
   const currencySymbol = settings.currencySymbol || '$';
   const monthlyIncomeMode = settings.monthlyIncomeMode || 'ANNUALIZED';
   const [expandedReport, setExpandedReport] = useState<string | null>(null);
-  const [selectedCheckKey, setSelectedCheckKey] = useState<string | null>(null);
+  const [selectedChequeKey, setSelectedChequeKey] = useState<string | null>(null);
   const [amortizationSchedules, setAmortizationSchedules] = useState<Record<string, AmortizationDataView>>({});
   const [amortizationLoaded, setAmortizationLoaded] = useState(false);
   const [allExtraPayments, setAllExtraPayments] = useState<ExtraPayment[]>([]);
@@ -283,64 +283,64 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     setExpandedReport((current) => (current === key ? null : key));
   };
 
-  const paychecks = useMemo(() => {
-    return generatePaychecks(budgetedIncomes, periodRange.start, periodRange.end, {
+  const paycheques = useMemo(() => {
+    return generatePaycheques(budgetedIncomes, periodRange.start, periodRange.end, {
       budgetStartDate
     });
   }, [budgetStartDate, budgetedIncomes, periodRange]);
 
-  const paychecksInPeriod = useMemo(
+  const paychequesInPeriod = useMemo(
     () =>
-      paychecks.filter(
-        (paycheck) => paycheck.date >= periodRange.start && paycheck.date <= periodRange.end
+      paycheques.filter(
+        (paycheque) => paycheque.date >= periodRange.start && paycheque.date <= periodRange.end
       ),
-    [paychecks, periodRange]
+    [paycheques, periodRange]
   );
 
   const incomeTotalsById = useMemo(() => {
     const totals = new Map<string, number>();
-    paychecksInPeriod.forEach((paycheck) => {
-      const current = totals.get(paycheck.source.id) || 0;
-      totals.set(paycheck.source.id, current + paycheck.source.amount);
+    paychequesInPeriod.forEach((paycheque) => {
+      const current = totals.get(paycheque.source.id) || 0;
+      totals.set(paycheque.source.id, current + paycheque.source.amount);
     });
     return totals;
-  }, [paychecksInPeriod]);
+  }, [paychequesInPeriod]);
 
   const periodIncomeTotal = useMemo(
-    () => paychecksInPeriod.reduce((sum, paycheck) => sum + paycheck.source.amount, 0),
-    [paychecksInPeriod]
+    () => paychequesInPeriod.reduce((sum, paycheque) => sum + paycheque.source.amount, 0),
+    [paychequesInPeriod]
   );
 
-  const transferChecks = useMemo(() => {
-    return paychecks.map((paycheck) => {
-      const dateKey = paycheck.date.toISOString().split('T')[0];
+  const transferCheques = useMemo(() => {
+    return paycheques.map((paycheque) => {
+      const dateKey = paycheque.date.toISOString().split('T')[0];
       return {
-        key: `${paycheck.source.id}-${dateKey}`,
-        date: paycheck.date,
-        label: `${paycheck.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} - ${paycheck.source.name}`,
-        paycheck,
+        key: `${paycheque.source.id}-${dateKey}`,
+        date: paycheque.date,
+        label: `${paycheque.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} - ${paycheque.source.name}`,
+        paycheque,
       };
     });
-  }, [paychecks]);
+  }, [paycheques]);
 
   const defaultTransferKey = useMemo(() => {
-    if (transferChecks.length === 0) return null;
+    if (transferCheques.length === 0) return null;
     const today = new Date();
-    const next = transferChecks.find((check) => check.date >= today);
-    return (next || transferChecks[transferChecks.length - 1]).key;
-  }, [transferChecks]);
+    const next = transferCheques.find((cheque) => cheque.date >= today);
+    return (next || transferCheques[transferCheques.length - 1]).key;
+  }, [transferCheques]);
 
   useEffect(() => {
-    if (!selectedCheckKey && defaultTransferKey) {
-      setSelectedCheckKey(defaultTransferKey);
+    if (!selectedChequeKey && defaultTransferKey) {
+      setSelectedChequeKey(defaultTransferKey);
       return;
     }
-    if (selectedCheckKey && !transferChecks.some((check) => check.key === selectedCheckKey)) {
-      setSelectedCheckKey(defaultTransferKey);
+    if (selectedChequeKey && !transferCheques.some((cheque) => cheque.key === selectedChequeKey)) {
+      setSelectedChequeKey(defaultTransferKey);
     }
-  }, [defaultTransferKey, selectedCheckKey, transferChecks]);
+  }, [defaultTransferKey, selectedChequeKey, transferCheques]);
 
-  const selectedTransfer = transferChecks.find((check) => check.key === selectedCheckKey) || null;
+  const selectedTransfer = transferCheques.find((cheque) => cheque.key === selectedChequeKey) || null;
 
   const liabilityWithMins = useMemo(() => {
     return activeLiabilities.map((liability) => {
@@ -355,49 +355,49 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     });
   }, [activeLiabilities, scheduleBalanceById]);
 
-  const monthPaychecksByKey = useMemo(() => {
-    const buckets = new Map<string, PaycheckOccurrence[]>();
-    paychecks.forEach((paycheck) => {
-      const key = getMonthKey(paycheck.date);
+  const monthPaychequesByKey = useMemo(() => {
+    const buckets = new Map<string, PaychequeOccurrence[]>();
+    paycheques.forEach((paycheque) => {
+      const key = getMonthKey(paycheque.date);
       const existing = buckets.get(key);
       if (existing) {
-        existing.push(paycheck);
+        existing.push(paycheque);
         return;
       }
-      buckets.set(key, [paycheck]);
+      buckets.set(key, [paycheque]);
     });
     return buckets;
-  }, [paychecks]);
+  }, [paycheques]);
 
-  const getMonthPaychecksFor = useCallback(
-    (date: Date) => monthPaychecksByKey.get(getMonthKey(date)) || [],
-    [monthPaychecksByKey]
+  const getMonthPaychequesFor = useCallback(
+    (date: Date) => monthPaychequesByKey.get(getMonthKey(date)) || [],
+    [monthPaychequesByKey]
   );
 
-  const monthPaychecks = useMemo(() => {
-    if (!selectedTransfer) return paychecks;
+  const monthPaycheques = useMemo(() => {
+    if (!selectedTransfer) return paycheques;
     const key = getMonthKey(selectedTransfer.date);
-    return monthPaychecksByKey.get(key) || paychecks;
-  }, [monthPaychecksByKey, paychecks, selectedTransfer]);
+    return monthPaychequesByKey.get(key) || paycheques;
+  }, [monthPaychequesByKey, paycheques, selectedTransfer]);
 
 
 
-  const getPerCheckExpenseFor = useCallback((expense: Expense, currentPaycheck: PaycheckOccurrence | null, monthPaychecksForCheck: PaycheckOccurrence[]) => {
-    return getPerCheckExpenseAmount(expense, currentPaycheck, monthPaychecksForCheck, budgetedIncomes, userSplitRatio);
+  const getPerChequeExpenseFor = useCallback((expense: Expense, currentPaycheque: PaychequeOccurrence | null, monthPaychequesForCheque: PaychequeOccurrence[]) => {
+    return getPerChequeExpenseAmount(expense, currentPaycheque, monthPaychequesForCheque, budgetedIncomes, userSplitRatio);
   }, [userSplitRatio, budgetedIncomes]);
 
-  const getPerCheckExpense = (expense: Expense) => {
-    const currentPaycheck = selectedTransfer?.paycheck || null;
-    if (!currentPaycheck) return 0;
-    const monthPaychecksForCheck = getMonthPaychecksFor(currentPaycheck.date);
-    return getPerCheckExpenseFor(expense, currentPaycheck, monthPaychecksForCheck);
+  const getPerChequeExpense = (expense: Expense) => {
+    const currentPaycheque = selectedTransfer?.paycheque || null;
+    if (!currentPaycheque) return 0;
+    const monthPaychequesForCheque = getMonthPaychequesFor(currentPaycheque.date);
+    return getPerChequeExpenseFor(expense, currentPaycheque, monthPaychequesForCheque);
   };
 
-  const getPerCheckLiabilityFor = useCallback((liability: typeof liabilityWithMins[number], currentPaycheck: PaycheckOccurrence | null, monthPaychecksForCheck: PaycheckOccurrence[]) => {
-    return getPerCheckLiabilityAmount(
+  const getPerChequeLiabilityFor = useCallback((liability: typeof liabilityWithMins[number], currentPaycheque: PaychequeOccurrence | null, monthPaychequesForCheque: PaychequeOccurrence[]) => {
+    return getPerChequeLiabilityAmount(
       liability,
-      currentPaycheck,
-      monthPaychecksForCheck,
+      currentPaycheque,
+      monthPaychequesForCheque,
       budgetedIncomes,
       allExtraPayments,
       userSplitRatio,
@@ -405,31 +405,31 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     );
   }, [userSplitRatio, budgetedIncomes, allExtraPayments]);
 
-  const getPerCheckLiability = (liability: typeof liabilityWithMins[number]) => {
-    const currentPaycheck = selectedTransfer?.paycheck || null;
-    if (!currentPaycheck) return 0;
-    const monthPaychecksForCheck = getMonthPaychecksFor(currentPaycheck.date);
-    return getPerCheckLiabilityFor(liability, currentPaycheck, monthPaychecksForCheck);
+  const getPerChequeLiability = (liability: typeof liabilityWithMins[number]) => {
+    const currentPaycheque = selectedTransfer?.paycheque || null;
+    if (!currentPaycheque) return 0;
+    const monthPaychequesForCheque = getMonthPaychequesFor(currentPaycheque.date);
+    return getPerChequeLiabilityFor(liability, currentPaycheque, monthPaychequesForCheque);
   };
 
   const getExpensePeriodTotal = useCallback(
     (expense: Expense) => {
-      return paychecksInPeriod.reduce((sum, paycheck) => {
-        const monthPaychecksForCheck = getMonthPaychecksFor(paycheck.date);
-        return sum + getPerCheckExpenseFor(expense, paycheck, monthPaychecksForCheck);
+      return paychequesInPeriod.reduce((sum, paycheque) => {
+        const monthPaychequesForCheque = getMonthPaychequesFor(paycheque.date);
+        return sum + getPerChequeExpenseFor(expense, paycheque, monthPaychequesForCheque);
       }, 0);
     },
-    [getMonthPaychecksFor, getPerCheckExpenseFor, paychecksInPeriod]
+    [getMonthPaychequesFor, getPerChequeExpenseFor, paychequesInPeriod]
   );
 
   const getLiabilityPeriodTotal = useCallback(
     (liability: typeof liabilityWithMins[number]) => {
-      return paychecksInPeriod.reduce((sum, paycheck) => {
-        const monthPaychecksForCheck = getMonthPaychecksFor(paycheck.date);
-        return sum + getPerCheckLiabilityFor(liability, paycheck, monthPaychecksForCheck);
+      return paychequesInPeriod.reduce((sum, paycheque) => {
+        const monthPaychequesForCheque = getMonthPaychequesFor(paycheque.date);
+        return sum + getPerChequeLiabilityFor(liability, paycheque, monthPaychequesForCheque);
       }, 0);
     },
-    [getMonthPaychecksFor, getPerCheckLiabilityFor, paychecksInPeriod]
+    [getMonthPaychequesFor, getPerChequeLiabilityFor, paychequesInPeriod]
   );
 
   const periodExpenseTotal = useMemo(
@@ -494,7 +494,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     expenses.forEach((expense) => {
       const account = expense.transferAccount?.trim();
       if (!account) return;
-      const amount = getPerCheckExpense(expense);
+      const amount = getPerChequeExpense(expense);
       if (amount <= 0) return;
       const existing = buckets.get(account) || { account, total: 0, items: [] };
       existing.total += amount;
@@ -508,7 +508,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     liabilityWithMins.forEach((liability) => {
       const account = liability.transferAccount?.trim();
       if (!account) return;
-      const amount = getPerCheckLiability(liability);
+      const amount = getPerChequeLiability(liability);
       if (amount <= 0) return;
       const existing = buckets.get(account) || { account, total: 0, items: [] };
       existing.total += amount;
@@ -522,7 +522,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     return Array.from(buckets.values()).sort((a, b) =>
       a.account.localeCompare(b.account)
     );
-  }, [expenses, getPerCheckExpense, getPerCheckLiability, liabilityWithMins, selectedTransfer]);
+  }, [expenses, getPerChequeExpense, getPerChequeLiability, liabilityWithMins, selectedTransfer]);
 
   const monthOptions = useMemo(
     () =>
@@ -802,21 +802,21 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
             <div>
               <select
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 bg-white"
-                value={selectedCheckKey || ''}
-                onChange={(e) => setSelectedCheckKey(e.target.value)}
-                disabled={transferChecks.length === 0}
+                value={selectedChequeKey || ''}
+                onChange={(e) => setSelectedChequeKey(e.target.value)}
+                disabled={transferCheques.length === 0}
               >
-                {transferChecks.length === 0 && <option value="">No checks</option>}
-                {transferChecks.map((check) => (
-                  <option key={check.key} value={check.key}>
-                    {check.label}
+                {transferCheques.length === 0 && <option value="">No cheques</option>}
+                {transferCheques.map((cheque) => (
+                  <option key={cheque.key} value={cheque.key}>
+                    {cheque.label}
                   </option>
                 ))}
               </select>
             </div>
           </div>
           {transferGroups.length === 0 ? (
-            <p className="text-sm text-slate-400">No transfers configured for this check.</p>
+            <p className="text-sm text-slate-400">No transfers configured for this cheque.</p>
           ) : (
             <div className="space-y-4 text-sm">
               {transferGroups.map((group) => (

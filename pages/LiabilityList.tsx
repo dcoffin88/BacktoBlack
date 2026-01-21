@@ -37,7 +37,7 @@ type ExtraPayment = {
     id: string;
     liabilityId: string;
     amount: number;
-    checkDate?: string | null;
+    chequeDate?: string | null;
 };
 
 const parseLocalDate = (value?: string | null) => {
@@ -59,14 +59,14 @@ type AmortizationDataView = {
 type AmortizationTableMemoProps = {
     amortizationData: AmortizationDataView;
     viewingLiability: Liability;
-    paymentsByCheckDate: Map<string, ExtraPayment>;
+    paymentsByChequeDate: Map<string, ExtraPayment>;
     amortizationOverridesForViewing: Record<
         number,
         {
             payment: number;
             interest: number;
             purchase?: number;
-            checkDate?: string | null;
+            chequeDate?: string | null;
         }
     >;
     minimumPaidByPeriod: Record<number, number>;
@@ -83,7 +83,7 @@ const AmortizationTable = React.memo(
     (prev, next) =>
         prev.amortizationData === next.amortizationData &&
         prev.viewingLiability === next.viewingLiability &&
-        prev.paymentsByCheckDate === next.paymentsByCheckDate &&
+        prev.paymentsByChequeDate === next.paymentsByChequeDate &&
         prev.amortizationOverridesForViewing ===
         next.amortizationOverridesForViewing &&
         prev.minimumPaidByPeriod === next.minimumPaidByPeriod &&
@@ -207,7 +207,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                     payment: number;
                     interest: number;
                     purchase?: number;
-                    checkDate?: string | null;
+                    chequeDate?: string | null;
                 }
             >
         >
@@ -247,7 +247,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                 payment: number;
                                 interest: number;
                                 purchase?: number;
-                                checkDate?: string | null;
+                                chequeDate?: string | null;
                             }
                         >
                     >
@@ -259,7 +259,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                         payment: row.payment,
                         interest: row.interest,
                         purchase: row.purchase ?? 0,
-                        checkDate: row.checkDate ?? null,
+                        chequeDate: row.chequeDate ?? null,
                     };
                     return acc;
                 }, {});
@@ -499,7 +499,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                 number,
                 {
                     amount: number;
-                    checkDate?: string | null;
+                    chequeDate?: string | null;
                     forceHistorical?: boolean;
                     interest?: number;
                 }
@@ -507,11 +507,11 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         >((acc, [periodKey, overrideValue]) => {
             const period = Number(periodKey);
             if (!Number.isFinite(period)) return acc;
-            const override = overrideValue as { payment: number; interest: number; purchase?: number; checkDate?: string | null };
+            const override = overrideValue as { payment: number; interest: number; purchase?: number; chequeDate?: string | null };
             const amount = (override.payment || 0) - (override.purchase || 0);
             acc[period] = {
                 amount,
-                checkDate: override.checkDate || null,
+                chequeDate: override.chequeDate || null,
                 interest: override.interest,
             };
             return acc;
@@ -527,20 +527,20 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                     number,
                     {
                         amount: number;
-                        checkDate?: string | null;
+                        chequeDate?: string | null;
                         forceHistorical?: boolean;
                         interest?: number;
                     }
                 >
             >((acc, p) => {
-                const parsedDate = parseLocalDate(p.checkDate);
+                const parsedDate = parseLocalDate(p.chequeDate);
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
                 const isPast = parsedDate ? parsedDate <= today : false;
 
                 const rawPeriod = getPeriodIndexFromDate(
                     liability,
-                    p.checkDate
+                    p.chequeDate
                 );
                 if (rawPeriod === null || rawPeriod === undefined) return acc;
                 const period = rawPeriod;
@@ -548,7 +548,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
 
                 acc[period] = {
                     amount: (acc[period]?.amount || 0) + p.amount,
-                    checkDate: p.checkDate || acc[period]?.checkDate,
+                    chequeDate: p.chequeDate || acc[period]?.chequeDate,
                     forceHistorical: isPast,
                     interest: override?.interest,
                 };
@@ -582,9 +582,9 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
 
     const getPeriodIndexFromDate = (
         liability: Liability,
-        checkDate?: string | null
+        chequeDate?: string | null
     ) => {
-        const target = parseLocalDate(checkDate);
+        const target = parseLocalDate(chequeDate);
         if (!target) return null;
         target.setHours(0, 0, 0, 0);
         let anchor = getPaymentAnchorDate(liability);
@@ -742,7 +742,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             (sum, [periodKey, override]) => {
                 if (!override) return sum;
                 const periodNum = Number(periodKey);
-                const date = parseLocalDate(override.checkDate || null);
+                const date = parseLocalDate(override.chequeDate || null);
                 if (date && date > today) return sum;
                 if (!date && !(Number.isFinite(periodNum) && periodNum <= 0))
                     return sum;
@@ -790,8 +790,8 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             .filter((p) => p.liabilityId === viewingLiability.id)
             .slice()
             .sort((a, b) => {
-                const da = pDate(a.checkDate);
-                const db = pDate(b.checkDate);
+                const da = pDate(a.chequeDate);
+                const db = pDate(b.chequeDate);
                 if (da === db) return a.id.localeCompare(b.id);
                 return da - db;
             });
@@ -808,7 +808,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             .reduce<Record<number, number>>((acc, p) => {
                 const period = getPeriodIndexFromDate(
                     viewingLiability,
-                    p.checkDate
+                    p.chequeDate
                 );
                 if (period === null || period === undefined) return acc;
                 const bucket = period < 0 ? 0 : period;
@@ -822,11 +822,11 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         return amortizationOverrides[viewingLiability.id] || {};
     }, [amortizationOverrides, viewingLiability]);
 
-    const paymentsByCheckDate = useMemo(() => {
+    const paymentsByChequeDate = useMemo(() => {
         const map = new Map<string, ExtraPayment>();
         paymentsForViewing.forEach((p) => {
-            if (!p.checkDate || map.has(p.checkDate)) return;
-            map.set(p.checkDate, p);
+            if (!p.chequeDate || map.has(p.chequeDate)) return;
+            map.set(p.chequeDate, p);
         });
         return map;
     }, [paymentsForViewing]);
@@ -1278,12 +1278,12 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             setHistoricalPaymentError("Enter a valid date.");
             return;
         }
-        const checkDate = dateValue;
+        const chequeDate = dateValue;
         const payload: ExtraPayment = {
             id: Math.random().toString(36).substr(2, 9),
             liabilityId: viewingLiability.id,
             amount: netAmount,
-            checkDate,
+            chequeDate,
         };
         setExtraPayments((prev) => [...prev, payload]);
         if (historicalDateRef.current) historicalDateRef.current.value = "";
@@ -1299,13 +1299,13 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             0,
             undefined,
             payload.amount,
-            payload.checkDate,
+            payload.chequeDate,
             0,
             safeInterest
         );
         try {
             await dbAPI.saveExtraPayment(payload);
-            const period = getPeriodIndexFromDate(viewingLiability, checkDate);
+            const period = getPeriodIndexFromDate(viewingLiability, chequeDate);
             if (period !== null && period !== undefined) {
                 const overrideId = `${viewingLiability.id}-${period}`;
                 setAmortizationOverrides((prev) => ({
@@ -1316,7 +1316,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                             payment: amountValue,
                             interest: safeInterest,
                             purchase: purchaseValue,
-                            checkDate,
+                            chequeDate,
                         },
                     },
                 }));
@@ -1327,7 +1327,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                     payment: amountValue,
                     purchase: purchaseValue,
                     interest: safeInterest,
-                    checkDate,
+                    chequeDate,
                 });
             }
             void handleViewAmortization(viewingLiability);
@@ -1340,7 +1340,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         if (viewingLiability) {
             const period = getPeriodIndexFromDate(
                 viewingLiability,
-                payment.checkDate
+                payment.chequeDate
             );
             const override =
                 period !== null && period !== undefined
@@ -1349,7 +1349,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             setEditingPaymentId(payment.id);
             setEditPayment({
                 amount: override?.payment ?? Math.max(0, payment.amount),
-                date: payment.checkDate || "",
+                date: payment.chequeDate || "",
             });
             setEditPaymentPurchase(
                 override?.purchase ??
@@ -1360,7 +1360,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             setEditingPaymentId(payment.id);
             setEditPayment({
                 amount: Math.max(0, payment.amount),
-                date: payment.checkDate || "",
+                date: payment.chequeDate || "",
             });
             setEditPaymentPurchase(
                 payment.amount < 0 ? Math.abs(payment.amount) : 0
@@ -1387,9 +1387,9 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         const updated: ExtraPayment = {
             ...existing,
             amount: netAmount,
-            checkDate:
+            chequeDate:
                 editPayment.date ||
-                existing.checkDate ||
+                existing.chequeDate ||
                 toLocalDateString(new Date()),
         };
         setExtraPayments((prev) =>
@@ -1399,7 +1399,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         setEditPaymentPurchase(0);
         const oldPeriod = getPeriodIndexFromDate(
             viewingLiability,
-            existing.checkDate
+            existing.chequeDate
         );
         const oldInterest =
             oldPeriod !== null && oldPeriod !== undefined
@@ -1410,9 +1410,9 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         reconcileHistoricalBalanceChange(
             viewingLiability,
             existing.amount,
-            existing.checkDate,
+            existing.chequeDate,
             updated.amount,
-            updated.checkDate,
+            updated.chequeDate,
             oldInterest,
             safeInterest
         );
@@ -1420,7 +1420,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             await dbAPI.saveExtraPayment(updated);
             const period = getPeriodIndexFromDate(
                 viewingLiability,
-                updated.checkDate
+                updated.chequeDate
             );
             if (period !== null && period !== undefined) {
                 const overrideId = `${viewingLiability.id}-${period}`;
@@ -1432,7 +1432,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                             payment: editPayment.amount,
                             interest: safeInterest,
                             purchase: editPaymentPurchase,
-                            checkDate: updated.checkDate,
+                            chequeDate: updated.chequeDate,
                         },
                     },
                 }));
@@ -1443,7 +1443,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                     payment: editPayment.amount,
                     purchase: editPaymentPurchase,
                     interest: safeInterest,
-                    checkDate: updated.checkDate,
+                    chequeDate: updated.chequeDate,
                 });
             }
             void handleViewAmortization(viewingLiability);
@@ -1461,7 +1461,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         if (viewingLiability && existing) {
             const oldPeriod = getPeriodIndexFromDate(
                 viewingLiability,
-                existing.checkDate
+                existing.chequeDate
             );
             const oldInterest =
                 oldPeriod !== null && oldPeriod !== undefined
@@ -1471,9 +1471,9 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             reconcileHistoricalBalanceChange(
                 viewingLiability,
                 existing.amount,
-                existing.checkDate,
+                existing.chequeDate,
                 0,
-                existing.checkDate,
+                existing.chequeDate,
                 oldInterest,
                 0
             );
@@ -1558,7 +1558,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             return;
         const nextDate = amortizationEditDate
             ? amortizationEditDate
-            : row.actualDate || matchingPayment?.checkDate || null;
+            : row.actualDate || matchingPayment?.chequeDate || null;
         const safePayment = nextPayment - nextPurchase;
         const safeInterest = Math.max(0, nextInterest);
         const priorOverride =
@@ -1574,7 +1574,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                     payment: nextPayment,
                     interest: safeInterest,
                     purchase: nextPurchase,
-                    checkDate: nextDate,
+                    chequeDate: nextDate,
                 },
             },
         }));
@@ -1590,7 +1590,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                 payment: nextPayment,
                 purchase: nextPurchase,
                 interest: safeInterest,
-                checkDate: nextDate,
+                chequeDate: nextDate,
             });
         } catch {
             /* ignore save failures */
@@ -1600,7 +1600,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             const updated: ExtraPayment = {
                 ...matchingPayment,
                 amount: safePayment,
-                checkDate: nextDate || toLocalDateString(new Date()),
+                chequeDate: nextDate || toLocalDateString(new Date()),
             };
             setExtraPayments((prev) =>
                 prev.map((p) => (p.id === matchingPayment.id ? updated : p))
@@ -1612,9 +1612,9 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             reconcileHistoricalBalanceChange(
                 viewingLiability,
                 matchingPayment.amount,
-                matchingPayment.checkDate,
+                matchingPayment.chequeDate,
                 updated.amount,
-                updated.checkDate,
+                updated.chequeDate,
                 oldInterest,
                 safeInterest
             );
@@ -3128,7 +3128,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                         <p className="text-xs text-slate-500">
                                             Exclude this liability from specific
                                             income sources when splitting
-                                            per-check on the Budget page.
+                                            per-cheque on the Budget page.
                                         </p>
                                         <label className="flex items-center space-x-2 text-sm text-slate-700">
                                             <input
@@ -3594,7 +3594,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                         <AmortizationTable
                             amortizationData={amortizationData}
                             viewingLiability={viewingLiability}
-                            paymentsByCheckDate={paymentsByCheckDate}
+                            paymentsByChequeDate={paymentsByChequeDate}
                             amortizationOverridesForViewing={
                                 amortizationOverridesForViewing
                             }
@@ -3667,7 +3667,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                     displayDate <= today;
                                                 const matchingPayment =
                                                     row.actualDate
-                                                        ? paymentsByCheckDate.get(
+                                                        ? paymentsByChequeDate.get(
                                                             row.actualDate
                                                         )
                                                         : undefined;
@@ -3823,7 +3823,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                                     className="w-32 px-2 py-1 border border-slate-300 rounded-md text-sm"
                                                                     value={
                                                                         amortizationEditDate ||
-                                                                        matchingPayment.checkDate ||
+                                                                        matchingPayment.chequeDate ||
                                                                         row.actualDate ||
                                                                         toLocalDateString(
                                                                             displayDate

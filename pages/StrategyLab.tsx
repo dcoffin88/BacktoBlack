@@ -95,8 +95,8 @@ const getPaymentAnchorDate = (liability: Liability) => {
   return anchor;
 };
 
-const getPeriodIndexFromDate = (liability: Liability, checkDate?: string | null) => {
-  const target = parseLocalDate(checkDate);
+const getPeriodIndexFromDate = (liability: Liability, chequeDate?: string | null) => {
+  const target = parseLocalDate(chequeDate);
   if (!target) return null;
   target.setHours(0, 0, 0, 0);
   let anchor = getPaymentAnchorDate(liability);

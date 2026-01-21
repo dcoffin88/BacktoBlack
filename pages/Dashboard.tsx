@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Liability, Expense, Asset, StrategyType, STRATEGY_LABELS, UserSettings, IncomeSource, BudgetSchedule, PayoffResult, PaycheckOccurrence } from '../types';
+import { Liability, Expense, Asset, StrategyType, STRATEGY_LABELS, UserSettings, IncomeSource, BudgetSchedule, PayoffResult, PaychequeOccurrence } from '../types';
 import { calculatePayoff, getMinPayment, calculateMonthlyIncomeByMode, AmortizationRow, getAnnualizedIncomeAmount } from '../server/liabilityAlgorithms';
-import { generatePaychecks, getPerCheckExpenseAmount, getPerCheckLiabilityAmount } from '../utils/paycheckLogic';
+import { generatePaycheques, getPerChequeExpenseAmount, getPerChequeLiabilityAmount } from '../utils/paychequeLogic';
 import { usePeriodTotals } from '../hooks/usePeriodTotals';
 import { Link } from 'react-router-dom';
 import { ArrowRight, TrendingUp, Calendar, Wallet, LayoutDashboard, DollarSign, Receipt, Landmark, Calculator, AlertTriangle } from 'lucide-react';
@@ -51,14 +51,14 @@ type ExtraPayment = {
   id: string;
   liabilityId: string;
   amount: number;
-  checkDate?: string | null;
+  chequeDate?: string | null;
 };
 
 type AmortizationOverride = {
   payment: number;
   interest: number;
   purchase?: number;
-  checkDate?: string | null;
+  chequeDate?: string | null;
 };
 
 
@@ -174,7 +174,7 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
             payment: row.payment,
             interest: row.interest,
             purchase: row.purchase ?? 0,
-            checkDate: row.checkDate ?? null,
+            chequeDate: row.chequeDate ?? null,
           };
           return acc;
         }, {});
@@ -767,7 +767,7 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
             {/* Quick Stats: Assets vs Liabilities */}
             {assets.length > 0 && liabilities.length > 0 && (
               <div className="mt-8 pt-6 border-t border-slate-100">
-                <h4 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Health Check</h4>
+                <h4 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Health Cheque</h4>
                 {!balancesReady ? (
                   <div className="space-y-3">
                     <div className="flex items-center space-x-2 text-sm">

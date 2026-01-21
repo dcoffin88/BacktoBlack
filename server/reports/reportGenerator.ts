@@ -1,6 +1,6 @@
-import { Asset, Expense, IncomeSource, Liability, UserSettings, PaycheckOccurrence, ExtraPayment } from '../../types';
+import { Asset, Expense, IncomeSource, Liability, UserSettings, PaychequeOccurrence, ExtraPayment } from '../../types';
 import { calculateIndividualAmortization, getAnnualizedIncomeAmount, getMinPayment } from '../liabilityAlgorithms';
-import { generatePaychecks, getPerCheckExpenseAmount, getPerCheckLiabilityAmount } from '../../utils/paycheckLogic';
+import { generatePaycheques, getPerChequeExpenseAmount, getPerChequeLiabilityAmount } from '../../utils/paychequeLogic';
 
 interface ReportData {
     liabilities: Liability[];
@@ -29,9 +29,9 @@ const generateBudgetSummary = async (data: ReportData, date: Date) => {
     const { start, end } = getPeriodRange(year, month);
     const currencySymbol = settings.currencySymbol || '$';
     const budgetStartDate = settings.startDate ? new Date(settings.startDate) : null;
-    const paychecks = generatePaychecks(incomes, start, end, { budgetStartDate });
-    const paychecksInPeriod = paychecks.filter(p => p.date >= start && p.date <= end);
-    const periodIncomeTotal = paychecksInPeriod.reduce((sum, p) => sum + p.source.amount, 0);
+    const paycheques = generatePaycheques(incomes, start, end, { budgetStartDate });
+    const paychequesInPeriod = paycheques.filter(p => p.date >= start && p.date <= end);
+    const periodIncomeTotal = paychequesInPeriod.reduce((sum, p) => sum + p.source.amount, 0);
     const scheduleBalanceById: Record<string, number> = {};
     const liabilityWithMins = liabilities.map(l => {
         const currentBalance = l.balance || 0;
@@ -63,22 +63,22 @@ const generateBudgetSummary = async (data: ReportData, date: Date) => {
         }
     }
 
-    const getMonthPaychecksFor = (d: Date) => {
+    const getMonthPaychequesFor = (d: Date) => {
         const key = `${d.getFullYear()}-${d.getMonth()}`;
-        return paychecks.filter(p => `${p.date.getFullYear()}-${p.date.getMonth()}` === key);
+        return paycheques.filter(p => `${p.date.getFullYear()}-${p.date.getMonth()}` === key);
     };
 
     const getExpenseTotal = (expense: Expense) => {
-        return paychecksInPeriod.reduce((sum, p) => {
-            const monthPaychecks = getMonthPaychecksFor(p.date);
-            return sum + getPerCheckExpenseAmount(expense, p, monthPaychecks, budgetedIncomes, userSplitRatio);
+        return paychequesInPeriod.reduce((sum, p) => {
+            const monthPaycheques = getMonthPaychequesFor(p.date);
+            return sum + getPerChequeExpenseAmount(expense, p, monthPaycheques, budgetedIncomes, userSplitRatio);
         }, 0);
     };
 
     const getLiabilityTotal = (liability: typeof liabilityWithMins[number]) => {
-        return paychecksInPeriod.reduce((sum, p) => {
-            const monthPaychecks = getMonthPaychecksFor(p.date);
-            return sum + getPerCheckLiabilityAmount(liability, p, monthPaychecks, budgetedIncomes, extraPayments, userSplitRatio, { includeUnchecked: false });
+        return paychequesInPeriod.reduce((sum, p) => {
+            const monthPaycheques = getMonthPaychequesFor(p.date);
+            return sum + getPerChequeLiabilityAmount(liability, p, monthPaycheques, budgetedIncomes, extraPayments, userSplitRatio, { includeUnchecked: false });
         }, 0);
     };
 
@@ -180,11 +180,11 @@ const generateTransferReport = async (data: ReportData, date: Date) => {
     const dateKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
     const { start, end } = getPeriodRange(date.getFullYear(), date.getMonth() + 1);
     const budgetStartDate = settings.startDate ? new Date(settings.startDate) : null;
-    const paychecks = generatePaychecks(incomes, start, end, { budgetStartDate });
+    const paycheques = generatePaycheques(incomes, start, end, { budgetStartDate });
     const targetDateString = date.toLocaleDateString();
-    const todaysPaychecks = paychecks.filter(p => p.date.toLocaleDateString() === targetDateString);
+    const todaysPaycheques = paycheques.filter(p => p.date.toLocaleDateString() === targetDateString);
 
-    if (todaysPaychecks.length === 0) return null;
+    if (todaysPaycheques.length === 0) return null;
 
     const transferGroups = new Map<string, { total: number; items: { name: string; amount: number; type: string }[] }>();
     const manualPayments: { name: string; subtitle?: string; amount: number; type: string; account?: string }[] = [];
@@ -201,16 +201,16 @@ const generateTransferReport = async (data: ReportData, date: Date) => {
         }
     }
 
-    const getMonthPaychecksFor = (d: Date) => {
+    const getMonthPaychequesFor = (d: Date) => {
         const key = `${d.getFullYear()}-${d.getMonth()}`;
-        return paychecks.filter(p => `${p.date.getFullYear()}-${p.date.getMonth()}` === key);
+        return paycheques.filter(p => `${p.date.getFullYear()}-${p.date.getMonth()}` === key);
     };
 
-    todaysPaychecks.forEach(currentPaycheck => {
-        const monthPaychecks = getMonthPaychecksFor(currentPaycheck.date);
+    todaysPaycheques.forEach(currentPaycheque => {
+        const monthPaycheques = getMonthPaychequesFor(currentPaycheque.date);
 
         expenses.forEach(e => {
-            const amt = getPerCheckExpenseAmount(e, currentPaycheck, monthPaychecks, budgetedIncomes, userSplitRatio);
+            const amt = getPerChequeExpenseAmount(e, currentPaycheque, monthPaycheques, budgetedIncomes, userSplitRatio);
             if (amt > 0) {
                 if (e.manualPaymentRequired) {
                     manualPayments.push({ name: e.name, subtitle: e.subtitle, amount: amt, type: 'Expense', account: e.transferAccount });
@@ -234,7 +234,7 @@ const generateTransferReport = async (data: ReportData, date: Date) => {
             const plannedPayment = getMinPayment(l, currentBalance, monthlyInterest, estFee);
             const liabilityWithMin = { ...l, plannedPayment, scheduledFrequency: l.paymentFrequency || 'MONTHLY' };
 
-            const amt = getPerCheckLiabilityAmount(liabilityWithMin, currentPaycheck, monthPaychecks, budgetedIncomes, extraPayments, userSplitRatio, { includeUnchecked: false });
+            const amt = getPerChequeLiabilityAmount(liabilityWithMin, currentPaycheque, monthPaycheques, budgetedIncomes, extraPayments, userSplitRatio, { includeUnchecked: false });
             if (amt > 0) {
                 if (l.manualPaymentRequired) {
                     manualPayments.push({ name: l.name, subtitle: l.subtitle, amount: amt, type: 'Liability', account: l.transferAccount });
@@ -257,7 +257,7 @@ const generateTransferReport = async (data: ReportData, date: Date) => {
         <div style="background-color: #f8fafc; padding: 24px; border-radius: 12px; margin-bottom: 24px;">
             <h1 style="margin: 0 0 8px 0; color: #0f172a; font-size: 24px;">Money on the Move</h1>
              <p style="margin: 0; color: #64748b;">
-                ${todaysPaychecks.map(p => `${p.source.name}`).join(' & ')} • ${date.toLocaleDateString()}
+                ${todaysPaycheques.map(p => `${p.source.name}`).join(' & ')} • ${date.toLocaleDateString()}
              </p>
         </div>
 

@@ -12,9 +12,9 @@ import {
     getMinPayment,
 } from "../server/liabilityAlgorithms";
 import {
-    getPerCheckExpenseAmount,
-    getPerCheckLiabilityAmount,
-} from "../utils/paycheckLogic";
+    getPerChequeExpenseAmount,
+    getPerChequeLiabilityAmount,
+} from "../utils/paychequeLogic";
 import {
     CheckSquare,
     Square,
@@ -40,7 +40,7 @@ type ExtraPayment = {
     id: string;
     liabilityId: string;
     amount: number;
-    checkDate?: string | null;
+    chequeDate?: string | null;
     isChecked?: boolean;
 };
 
@@ -59,10 +59,10 @@ const Budget: React.FC<BudgetProps> = ({
     ): Liability["paymentFrequency"] =>
         liability.frequency || liability.paymentFrequency || "MONTHLY";
 
-    const [expenseChecksByCheck, setExpenseChecksByCheck] = useState<
+    const [expenseChequesByCheque, setExpenseChequesByCheque] = useState<
         Record<string, Record<string, boolean>>
     >({});
-    const [liabilityChecksByCheck, setLiabilityChecksByCheck] = useState<
+    const [liabilityChequesByCheque, setLiabilityChequesByCheque] = useState<
         Record<string, Record<string, boolean>>
     >({});
     const [extraPayments, setExtraPayments] = useState<ExtraPayment[]>([]);
@@ -70,14 +70,14 @@ const Budget: React.FC<BudgetProps> = ({
         liabilityId: string;
         amount: number;
     }>({ liabilityId: "", amount: 0 });
-    const [currentPaycheckIndex, setCurrentPaycheckIndex] = useState(0);
+    const [currentPaychequeIndex, setCurrentPaychequeIndex] = useState(0);
     const [budgetSchedule, setBudgetSchedule] = useState<BudgetSchedule | null>(null);
     const [scheduleMonthIndex, setScheduleMonthIndex] = useState<number | null>(
         null
     );
     const isMinimumPaymentId = (id: string) => id.startsWith("min-");
-    const getMinimumPaymentId = (liabilityId: string, checkDate: string) =>
-        `min-${liabilityId}-${checkDate}`;
+    const getMinimumPaymentId = (liabilityId: string, chequeDate: string) =>
+        `min-${liabilityId}-${chequeDate}`;
     const budgetStartDate = useMemo(() => {
         if (!userSettings?.startDate) return null;
         const parsed = new Date(userSettings.startDate);
@@ -85,18 +85,18 @@ const Budget: React.FC<BudgetProps> = ({
         return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
     }, [userSettings?.startDate]);
 
-    const persistChecks = useCallback(
+    const persistCheques = useCallback(
         async (
-            checkDate: string,
-            expenseChecks: Record<string, boolean>,
-            liabilityChecks: Record<string, boolean>
+            chequeDate: string,
+            expenseCheques: Record<string, boolean>,
+            liabilityCheques: Record<string, boolean>
         ) => {
-            if (!checkDate) return;
+            if (!chequeDate) return;
             try {
-                await dbAPI.saveBudgetChecks({
-                    checkDate,
-                    expenseChecks,
-                    liabilityChecks,
+                await dbAPI.saveBudgetCheques({
+                    chequeDate,
+                    expenseCheques,
+                    liabilityCheques,
                 });
             } catch {
                 /* if offline or unauthenticated, ignore */
@@ -107,17 +107,17 @@ const Budget: React.FC<BudgetProps> = ({
 
     useEffect(() => {
         let active = true;
-        const loadRemoteChecks = async () => {
+        const loadRemoteCheques = async () => {
             try {
-                const remote = await dbAPI.getBudgetChecks();
+                const remote = await dbAPI.getBudgetCheques();
                 if (!active || !remote) return;
-                setExpenseChecksByCheck((prev) => ({
+                setExpenseChequesByCheque((prev) => ({
                     ...prev,
-                    ...(remote.expenseChecksByCheck || {}),
+                    ...(remote.expenseChequesByCheque || {}),
                 }));
-                setLiabilityChecksByCheck((prev) => ({
+                setLiabilityChequesByCheque((prev) => ({
                     ...prev,
-                    ...(remote.liabilityChecksByCheck || {}),
+                    ...(remote.liabilityChequesByCheque || {}),
                 }));
             } catch {
                 /* ignore fetch errors */
@@ -132,7 +132,7 @@ const Budget: React.FC<BudgetProps> = ({
                 /* ignore fetch errors */
             }
         };
-        loadRemoteChecks();
+        loadRemoteCheques();
         loadExtras();
         return () => {
             active = false;
@@ -253,7 +253,7 @@ const Budget: React.FC<BudgetProps> = ({
         (e) => e.frequency === "BI_WEEKLY" || e.frequency === "WEEKLY"
     );
 
-    const currentMonthPaychecks = useMemo(() => {
+    const currentMonthPaycheques = useMemo(() => {
         const today = new Date();
         const windowYears = 20;
         const start = new Date(today.getFullYear() - windowYears, 0, 1);
@@ -381,7 +381,7 @@ const Budget: React.FC<BudgetProps> = ({
                 monthCountsBySource[src.id][monthKey] = currentCount + 1;
 
                 const eligibleMonthly =
-                    src.includeFirstTwoChecks === true
+                    src.includeFirstTwoCheques === true
                         ? currentCount < 2
                         : true;
 
@@ -398,27 +398,27 @@ const Budget: React.FC<BudgetProps> = ({
         return occurrences.sort((a, b) => a.date.getTime() - b.date.getTime());
     }, [budgetedIncomes, hasBiWeeklyExpense, budgetStartDate]);
 
-    const paycheckCount = currentMonthPaychecks.length || 1;
+    const paychequeCount = currentMonthPaycheques.length || 1;
     useEffect(() => {
-        if (currentMonthPaychecks.length === 0) {
-            setCurrentPaycheckIndex(0);
+        if (currentMonthPaycheques.length === 0) {
+            setCurrentPaychequeIndex(0);
             return;
         }
         const today = new Date();
-        const nextIdx = currentMonthPaychecks.findIndex(
+        const nextIdx = currentMonthPaycheques.findIndex(
             (p) => p.date >= today
         );
         const idx =
-            nextIdx >= 0 ? nextIdx : currentMonthPaychecks.length - 1;
-        setCurrentPaycheckIndex(idx);
-    }, [currentMonthPaychecks]);
+            nextIdx >= 0 ? nextIdx : currentMonthPaycheques.length - 1;
+        setCurrentPaychequeIndex(idx);
+    }, [currentMonthPaycheques]);
 
-    const currentPaycheck =
-        currentMonthPaychecks[currentPaycheckIndex] || null;
+    const currentPaycheque =
+        currentMonthPaycheques[currentPaychequeIndex] || null;
 
     const activeLiabilities = useMemo(() => {
-        if (!currentPaycheck) return [];
-        const a = new Date(currentPaycheck.date);
+        if (!currentPaycheque) return [];
+        const a = new Date(currentPaycheque.date);
         a.setHours(0, 0, 0, 0);
         const y = a.getFullYear();
         const m = a.getMonth();
@@ -431,7 +431,7 @@ const Budget: React.FC<BudgetProps> = ({
             start.setHours(0, 0, 0, 0);
             return start <= lastDay;
         });
-    }, [liabilities, currentPaycheck]);
+    }, [liabilities, currentPaycheque]);
 
     const liabilityWithMins = activeLiabilities.map((d) => {
         const monthlyInterest = d.balance * (d.interestRate / 100 / 12);
@@ -462,18 +462,18 @@ const Budget: React.FC<BudgetProps> = ({
 
     const totalNeeded = totalExpenses + totalLiabilityPayments;
     const currencySymbol = userSettings?.currencySymbol || "$";
-    const currentCheckKey =
-        currentPaycheck?.date.toISOString().split("T")[0] || "default-check";
-    const expenseChecks = expenseChecksByCheck[currentCheckKey] || {};
-    const liabilityChecks = liabilityChecksByCheck[currentCheckKey] || {};
+    const currentChequeKey =
+        currentPaycheque?.date.toISOString().split("T")[0] || "default-cheque";
+    const expenseCheques = expenseChequesByCheque[currentChequeKey] || {};
+    const liabilityCheques = liabilityChequesByCheque[currentChequeKey] || {};
 
     useEffect(() => {
-        if (!budgetSchedule || !currentPaycheck) return;
+        if (!budgetSchedule || !currentPaycheque) return;
         const savedDate = new Date(budgetSchedule.savedAt);
         if (Number.isNaN(savedDate.getTime())) return;
         const savedMonthCount = savedDate.getFullYear() * 12 + savedDate.getMonth();
         const selectedMonthCount =
-            currentPaycheck.date.getFullYear() * 12 + currentPaycheck.date.getMonth();
+            currentPaycheque.date.getFullYear() * 12 + currentPaycheque.date.getMonth();
         const rawMonthIndex = selectedMonthCount - savedMonthCount + 1;
         if (rawMonthIndex < 1) {
             setScheduleMonthIndex(null);
@@ -481,51 +481,51 @@ const Budget: React.FC<BudgetProps> = ({
         }
         const clamped = Math.min(budgetSchedule.timeline.length, rawMonthIndex);
         setScheduleMonthIndex(clamped);
-    }, [budgetSchedule, currentPaycheck]);
+    }, [budgetSchedule, currentPaycheque]);
 
     const toInputDate = (d: Date) => d.toISOString().split("T")[0];
-    const paycheckDateRange = useMemo(() => {
-        if (currentMonthPaychecks.length === 0) {
+    const paychequeDateRange = useMemo(() => {
+        if (currentMonthPaycheques.length === 0) {
             return {
                 min: budgetStartDate ? toInputDate(budgetStartDate) : "",
                 max: "",
             };
         }
-        const first = currentMonthPaychecks[0].date;
+        const first = currentMonthPaycheques[0].date;
         const last =
-            currentMonthPaychecks[currentMonthPaychecks.length - 1].date;
+            currentMonthPaycheques[currentMonthPaycheques.length - 1].date;
         return {
             min: budgetStartDate ? toInputDate(budgetStartDate) : toInputDate(first),
             max: toInputDate(last),
         };
-    }, [budgetStartDate, currentMonthPaychecks]);
+    }, [budgetStartDate, currentMonthPaycheques]);
 
     const jumpToDate = (value: string) => {
-        if (!value || currentMonthPaychecks.length === 0) return;
+        if (!value || currentMonthPaycheques.length === 0) return;
         const [y, m, d] = value.split("-").map(Number);
         const target = new Date(y, (m || 1) - 1, d || 1);
         let bestIdx = 0;
         let bestDiff = Infinity;
-        currentMonthPaychecks.forEach((p, idx) => {
+        currentMonthPaycheques.forEach((p, idx) => {
             const diff = Math.abs(p.date.getTime() - target.getTime());
             if (diff < bestDiff) {
                 bestDiff = diff;
                 bestIdx = idx;
             }
         });
-        setCurrentPaycheckIndex(bestIdx);
+        setCurrentPaychequeIndex(bestIdx);
     };
 
-    const currentOwnerIsPartner = currentPaycheck?.source.isPartner;
+    const currentOwnerIsPartner = currentPaycheque?.source.isPartner;
     const toggleExpense = (id: string) => {
-        setExpenseChecksByCheck((prev) => {
-            const nextForCheck = { ...(prev[currentCheckKey] || {}) };
-            nextForCheck[id] = !nextForCheck[id];
-            const nextState = { ...prev, [currentCheckKey]: nextForCheck };
-            persistChecks(
-                currentCheckKey,
-                nextForCheck,
-                liabilityChecksByCheck[currentCheckKey] || {}
+        setExpenseChequesByCheque((prev) => {
+            const nextForCheque = { ...(prev[currentChequeKey] || {}) };
+            nextForCheque[id] = !nextForCheque[id];
+            const nextState = { ...prev, [currentChequeKey]: nextForCheque };
+            persistCheques(
+                currentChequeKey,
+                nextForCheque,
+                liabilityChequesByCheque[currentChequeKey] || {}
             );
             return nextState;
         });
@@ -538,10 +538,10 @@ const Budget: React.FC<BudgetProps> = ({
         const rounded = Math.max(0, Number(amount.toFixed(2)));
         if (rounded <= 0) return;
         const payload: ExtraPayment = {
-            id: getMinimumPaymentId(liability.id, currentCheckKey),
+            id: getMinimumPaymentId(liability.id, currentChequeKey),
             liabilityId: liability.id,
             amount: rounded,
-            checkDate: currentCheckKey,
+            chequeDate: currentChequeKey,
             isChecked: true,
         };
         setExtraPayments((prev) => {
@@ -556,7 +556,7 @@ const Budget: React.FC<BudgetProps> = ({
     };
 
     const deleteMinimumPayment = async (liabilityId: string) => {
-        const id = getMinimumPaymentId(liabilityId, currentCheckKey);
+        const id = getMinimumPaymentId(liabilityId, currentChequeKey);
         setExtraPayments((prev) => prev.filter((p) => p.id !== id));
         try {
             await dbAPI.deleteExtraPayment(id);
@@ -566,25 +566,25 @@ const Budget: React.FC<BudgetProps> = ({
     };
 
     const toggleLiability = (liability: Liability & { plannedPayment: number }) => {
-        setLiabilityChecksByCheck((prev) => {
-            const nextForCheck = { ...(prev[currentCheckKey] || {}) };
-            nextForCheck[liability.id] = !nextForCheck[liability.id];
-            const willCheck = nextForCheck[liability.id];
+        setLiabilityChequesByCheque((prev) => {
+            const nextForCheque = { ...(prev[currentChequeKey] || {}) };
+            nextForCheque[liability.id] = !nextForCheque[liability.id];
+            const willCheck = nextForCheque[liability.id];
             if (willCheck) {
                 const extraAmount = extraByLiability[liability.id] || 0;
                 const minimumPortion = Math.max(
                     0,
-                    getPerCheckLiability(liability) - extraAmount
+                    getPerChequeLiability(liability) - extraAmount
                 );
                 saveMinimumPayment(liability, minimumPortion);
             } else {
                 deleteMinimumPayment(liability.id);
             }
-            const nextState = { ...prev, [currentCheckKey]: nextForCheck };
-            persistChecks(
-                currentCheckKey,
-                expenseChecksByCheck[currentCheckKey] || {},
-                nextForCheck
+            const nextState = { ...prev, [currentChequeKey]: nextForCheque };
+            persistCheques(
+                currentChequeKey,
+                expenseChequesByCheque[currentChequeKey] || {},
+                nextForCheque
             );
             return nextState;
         });
@@ -607,7 +607,7 @@ const Budget: React.FC<BudgetProps> = ({
             id: Math.random().toString(36).slice(2, 9),
             liabilityId: extraForm.liabilityId,
             amount: extraForm.amount,
-            checkDate: currentCheckKey,
+            chequeDate: currentChequeKey,
             isChecked: false,
         };
         setExtraPayments((prev) => [...prev, newPayment]);
@@ -635,18 +635,18 @@ const Budget: React.FC<BudgetProps> = ({
         }
     };
 
-    const extrasForCurrentCheck = useMemo(
+    const extrasForCurrentCheque = useMemo(
         () =>
             extraPayments.filter(
                 (p) =>
-                    p.checkDate &&
-                    p.checkDate === currentCheckKey &&
+                    p.chequeDate &&
+                    p.chequeDate === currentChequeKey &&
                     !isMinimumPaymentId(p.id)
             ),
-        [extraPayments, currentCheckKey]
+        [extraPayments, currentChequeKey]
     );
 
-    const extraByLiability = extrasForCurrentCheck.reduce<Record<string, number>>(
+    const extraByLiability = extrasForCurrentCheque.reduce<Record<string, number>>(
         (acc, p) => {
             acc[p.liabilityId] = (acc[p.liabilityId] || 0) + p.amount;
             return acc;
@@ -687,19 +687,19 @@ const Budget: React.FC<BudgetProps> = ({
     const monthlyNeed = monthlyExpensesTotal + monthlyLiabilityTotal;
     const biWeeklyNeed = biWeeklyExpensesTotal + biWeeklyLiabilityTotal;
 
-    const displayedPaychecks = useMemo(() => {
-        if (!currentPaycheck) return currentMonthPaychecks;
-        const y = currentPaycheck.date.getFullYear();
-        const m = currentPaycheck.date.getMonth();
-        return currentMonthPaychecks.filter(
+    const displayedPaycheques = useMemo(() => {
+        if (!currentPaycheque) return currentMonthPaycheques;
+        const y = currentPaycheque.date.getFullYear();
+        const m = currentPaycheque.date.getMonth();
+        return currentMonthPaycheques.filter(
             (p) =>
                 p.date.getFullYear() === y &&
                 p.date.getMonth() === m
         );
-    }, [currentPaycheck, currentMonthPaychecks]);
+    }, [currentPaycheque, currentMonthPaycheques]);
 
-    const monthPaychecks =
-        displayedPaychecks.length > 0 ? displayedPaychecks : currentMonthPaychecks;
+    const monthPaycheques =
+        displayedPaycheques.length > 0 ? displayedPaycheques : currentMonthPaycheques;
 
     const getAnnualizedShareMap = (sources: IncomeSource[]) => {
         const total = sources.reduce(
@@ -715,16 +715,16 @@ const Budget: React.FC<BudgetProps> = ({
         return { total, shareById };
     };
 
-    const getPerCheckRatio = (
-        currentPaycheck: typeof monthPaychecks[number] | null,
-        monthPaychecksForCheck: typeof monthPaychecks,
+    const getPerChequeRatio = (
+        currentPaycheque: typeof monthPaycheques[number] | null,
+        monthPaychequesForCheque: typeof monthPaycheques,
         options: {
             useBiWeekly: boolean;
             excludedIds?: Set<string>;
             owner?: "USER" | "PARTNER" | "ALL";
         }
     ) => {
-        if (!currentPaycheck) return 0;
+        if (!currentPaycheque) return 0;
         const { useBiWeekly, excludedIds = new Set<string>(), owner = "ALL" } =
             options;
         const matchesOwner = (source: IncomeSource) =>
@@ -733,90 +733,90 @@ const Budget: React.FC<BudgetProps> = ({
                 : owner === "PARTNER"
                     ? source.isPartner
                     : !source.isPartner;
-        const isEligiblePaycheck = (paycheck: (typeof monthPaychecks)[number]) => {
+        const isEligiblePaycheque = (paycheque: (typeof monthPaycheques)[number]) => {
             const passesFrequency = useBiWeekly
-                ? paycheck.eligibleBiWeekly !== false
-                : paycheck.eligibleMonthly !== false;
+                ? paycheque.eligibleBiWeekly !== false
+                : paycheque.eligibleMonthly !== false;
             return (
                 passesFrequency &&
-                !excludedIds.has(paycheck.source.id) &&
-                matchesOwner(paycheck.source)
+                !excludedIds.has(paycheque.source.id) &&
+                matchesOwner(paycheque.source)
             );
         };
 
-        const eligiblePaychecks = monthPaychecksForCheck.filter(isEligiblePaycheck);
-        if (eligiblePaychecks.length === 0) return 0;
-        if (!isEligiblePaycheck(currentPaycheck)) return 0;
+        const eligiblePaycheques = monthPaychequesForCheque.filter(isEligiblePaycheque);
+        if (eligiblePaycheques.length === 0) return 0;
+        if (!isEligiblePaycheque(currentPaycheque)) return 0;
 
         const eligibleSources = budgetedIncomes.filter(
             (source) => !excludedIds.has(source.id) && matchesOwner(source)
         );
         const { total, shareById } = getAnnualizedShareMap(eligibleSources);
-        if (total <= 0) return 1 / eligiblePaychecks.length;
+        if (total <= 0) return 1 / eligiblePaycheques.length;
 
         const perSource = new Map<string, { share: number; count: number }>();
-        eligiblePaychecks.forEach((paycheck) => {
-            const share = shareById.get(paycheck.source.id) || 0;
-            const existing = perSource.get(paycheck.source.id) || {
+        eligiblePaycheques.forEach((paycheque) => {
+            const share = shareById.get(paycheque.source.id) || 0;
+            const existing = perSource.get(paycheque.source.id) || {
                 share,
                 count: 0,
             };
             existing.share = share;
             existing.count += 1;
-            perSource.set(paycheck.source.id, existing);
+            perSource.set(paycheque.source.id, existing);
         });
 
         const totalShareInMonth = Array.from(perSource.values()).reduce(
             (sum, entry) => sum + entry.share,
             0
         );
-        if (totalShareInMonth <= 0) return 1 / eligiblePaychecks.length;
-        const current = perSource.get(currentPaycheck.source.id);
+        if (totalShareInMonth <= 0) return 1 / eligiblePaycheques.length;
+        const current = perSource.get(currentPaycheque.source.id);
         if (!current || current.count <= 0) return 0;
         return (current.share / current.count) / totalShareInMonth;
     };
 
-    const monthlyRatio = getPerCheckRatio(currentPaycheck, monthPaychecks, {
+    const monthlyRatio = getPerChequeRatio(currentPaycheque, monthPaycheques, {
         useBiWeekly: false,
     });
-    const biWeeklyRatio = getPerCheckRatio(currentPaycheck, monthPaychecks, {
+    const biWeeklyRatio = getPerChequeRatio(currentPaycheque, monthPaycheques, {
         useBiWeekly: true,
     });
-    const ownerKey = currentPaycheck?.source.isPartner ? "PARTNER" : "USER";
-    const monthlyRatioOwner = getPerCheckRatio(currentPaycheck, monthPaychecks, {
+    const ownerKey = currentPaycheque?.source.isPartner ? "PARTNER" : "USER";
+    const monthlyRatioOwner = getPerChequeRatio(currentPaycheque, monthPaycheques, {
         useBiWeekly: false,
         owner: ownerKey,
     });
-    const biWeeklyRatioOwner = getPerCheckRatio(currentPaycheck, monthPaychecks, {
+    const biWeeklyRatioOwner = getPerChequeRatio(currentPaycheque, monthPaycheques, {
         useBiWeekly: true,
         owner: ownerKey,
     });
 
-    const perPaycheckSetAside =
+    const perPaychequeSetAside =
         monthlyNeed * monthlyRatio + biWeeklyNeed * biWeeklyRatio;
 
-    const getPerCheckExpense = (expense: Expense) => {
-        if (!currentPaycheck) return 0;
-        return getPerCheckExpenseAmount(
+    const getPerChequeExpense = (expense: Expense) => {
+        if (!currentPaycheque) return 0;
+        return getPerChequeExpenseAmount(
             expense,
-            currentPaycheck,
-            monthPaychecks,
+            currentPaycheque,
+            monthPaycheques,
             budgetedIncomes,
             userSplitRatio
         );
     };
 
-    const getPerCheckLiability = (
+    const getPerChequeLiability = (
         liability: Liability & {
             plannedPayment: number;
             scheduledFrequency?: Liability["paymentFrequency"];
         }
     ) => {
-        if (!currentPaycheck) return 0;
-        return getPerCheckLiabilityAmount(
+        if (!currentPaycheque) return 0;
+        return getPerChequeLiabilityAmount(
             liability,
-            currentPaycheck,
-            monthPaychecks,
+            currentPaycheque,
+            monthPaycheques,
             budgetedIncomes,
             extraPayments,
             userSplitRatio
@@ -828,36 +828,36 @@ const Budget: React.FC<BudgetProps> = ({
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((expense) => ({
             expense,
-            perCheck: getPerCheckExpense(expense),
+            perCheque: getPerChequeExpense(expense),
         }))
-        .filter(({ perCheck }) => perCheck > 0);
+        .filter(({ perCheque }) => perCheque > 0);
 
     const liabilityPortions = liabilityWithPlan
         .slice()
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((liability) => ({
             liability,
-            perCheck: getPerCheckLiability(liability),
+            perCheque: getPerChequeLiability(liability),
         }))
-        .filter(({ perCheck }) => perCheck > 0);
+        .filter(({ perCheque }) => perCheque > 0);
 
     const currentExpenseTotal = useMemo(
         () =>
-            expensePortions.reduce((sum, { perCheck }) => sum + perCheck, 0),
+            expensePortions.reduce((sum, { perCheque }) => sum + perCheque, 0),
         [expensePortions]
     );
 
     const currentLiabilityTotal = useMemo(
         () =>
             liabilityPortions.reduce(
-                (sum, { perCheck }) => sum + perCheck,
+                (sum, { perCheque }) => sum + perCheque,
                 0
             ),
         [liabilityPortions]
     );
 
     const currentLeftOver =
-        (currentPaycheck?.source.amount || 0) -
+        (currentPaycheque?.source.amount || 0) -
         currentExpenseTotal -
         currentLiabilityTotal;
 
@@ -874,18 +874,18 @@ const Budget: React.FC<BudgetProps> = ({
                 </div>
             </div>
 
-            {currentPaycheck && (
+            {currentPaycheque && (
                 <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-2 flex flex-wrap items-center justify-between gap-4 md:p-4">
                     <div className="order-1">
                         <p className="text-xs font-semibold text-indigo-500 uppercase tracking-wide">
-                            Current Check
+                            Current Cheque
                         </p>
                         <p className="text-lg font-bold text-slate-900">
-                            {currentPaycheck.source.name}
+                            {currentPaycheque.source.name}
                         </p>
                         <p className="text-xs text-slate-500">
-                            {formatDate(currentPaycheck.date)}{" "}
-                            {currentPaycheck.date.getFullYear()}
+                            {formatDate(currentPaycheque.date)}{" "}
+                            {currentPaycheque.date.getFullYear()}
                         </p>
                     </div>
                     <div className="order-3 md:order-2 w-full md:w-auto md:flex-1 flex flex-wrap items-center gap-2 md:justify-center lg:gap-6 justify-center">
@@ -895,7 +895,7 @@ const Budget: React.FC<BudgetProps> = ({
                             </p>
                             <p className="text-s sm:text-xl font-bold text-emerald-700">
                                 {currencySymbol}
-                                {currentPaycheck.source.amount.toLocaleString()}
+                                {currentPaycheque.source.amount.toLocaleString()}
                             </p>
                         </div>
                         <div className="text-center">
@@ -963,39 +963,39 @@ const Budget: React.FC<BudgetProps> = ({
                             <button
                                 type="button"
                                 onClick={() =>
-                                    setCurrentPaycheckIndex((idx) =>
+                                    setCurrentPaychequeIndex((idx) =>
                                         Math.max(0, idx - 1)
                                     )
                                 }
-                                disabled={currentPaycheckIndex === 0}
-                                className={`p-2 rounded-md border ${currentPaycheckIndex === 0
+                                disabled={currentPaychequeIndex === 0}
+                                className={`p-2 rounded-md border ${currentPaychequeIndex === 0
                                     ? "text-slate-300 border-slate-200 cursor-not-allowed"
                                     : "text-indigo-600 border-indigo-200 hover:bg-indigo-50"
                                     }`}
-                                aria-label="Previous paycheck"
+                                aria-label="Previous paycheque"
                             >
                                 <ChevronLeft size={16} />
                             </button>
                             <button
                                 type="button"
                                 onClick={() =>
-                                    setCurrentPaycheckIndex((idx) =>
+                                    setCurrentPaychequeIndex((idx) =>
                                         Math.min(
-                                            currentMonthPaychecks.length - 1,
+                                            currentMonthPaycheques.length - 1,
                                             idx + 1
                                         )
                                     )
                                 }
                                 disabled={
-                                    currentPaycheckIndex ===
-                                    currentMonthPaychecks.length - 1
+                                    currentPaychequeIndex ===
+                                    currentMonthPaycheques.length - 1
                                 }
-                                className={`p-2 rounded-md border ${currentPaycheckIndex ===
-                                    currentMonthPaychecks.length - 1
+                                className={`p-2 rounded-md border ${currentPaychequeIndex ===
+                                    currentMonthPaycheques.length - 1
                                     ? "text-slate-300 border-slate-200 cursor-not-allowed"
                                     : "text-indigo-600 border-indigo-200 hover:bg-indigo-50"
                                     }`}
-                                aria-label="Next paycheck"
+                                aria-label="Next paycheque"
                             >
                                 <ChevronRight size={16} />
                             </button>
@@ -1005,8 +1005,8 @@ const Budget: React.FC<BudgetProps> = ({
                             <input
                                 type="date"
                                 className="px-2 py-1 border border-slate-300 rounded-md text-xs focus:ring-2 focus:ring-indigo-500"
-                                min={paycheckDateRange.min || undefined}
-                                max={paycheckDateRange.max || undefined}
+                                min={paychequeDateRange.min || undefined}
+                                max={paychequeDateRange.max || undefined}
                                 onChange={(e) => jumpToDate(e.target.value)}
                             />
                         </label>
@@ -1023,16 +1023,16 @@ const Budget: React.FC<BudgetProps> = ({
                     <div className="divide-y divide-slate-100">
                         {expensePortions.length === 0 ? (
                             <div className="p-6 text-sm text-slate-400">
-                                Nothing scheduled for this check.
+                                Nothing scheduled for this cheque.
                             </div>
                         ) : (
-                            expensePortions.map(({ expense, perCheck }) => (
+                            expensePortions.map(({ expense, perCheque }) => (
                                 <label
                                     key={expense.id}
                                     className="flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors cursor-pointer"
                                 >
                                     <div className="flex items-center space-x-3">
-                                        {expenseChecks[expense.id] ? (
+                                        {expenseCheques[expense.id] ? (
                                             <CheckSquare className="text-green-600" />
                                         ) : (
                                             <Square className="text-slate-400" />
@@ -1049,7 +1049,7 @@ const Budget: React.FC<BudgetProps> = ({
                                     <div className="text-right">
                                         <p className="font-semibold text-slate-900">
                                             {currencySymbol}
-                                            {perCheck.toLocaleString(
+                                            {perCheque.toLocaleString(
                                                 undefined,
                                                 {
                                                     minimumFractionDigits: 2,
@@ -1061,7 +1061,7 @@ const Budget: React.FC<BudgetProps> = ({
                                     <input
                                         type="checkbox"
                                         className="hidden"
-                                        checked={!!expenseChecks[expense.id]}
+                                        checked={!!expenseCheques[expense.id]}
                                         onChange={() =>
                                             toggleExpense(expense.id)
                                         }
@@ -1117,16 +1117,16 @@ const Budget: React.FC<BudgetProps> = ({
                     <div className="divide-y divide-slate-100">
                         {liabilityPortions.length === 0 ? (
                             <div className="p-6 text-sm text-slate-400">
-                                Nothing scheduled for this check.
+                                Nothing scheduled for this cheque.
                             </div>
                         ) : (
-                            liabilityPortions.map(({ liability, perCheck }) => (
+                            liabilityPortions.map(({ liability, perCheque }) => (
                                 <label
                                     key={liability.id}
                                     className="flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors cursor-pointer"
                                 >
                                     <div className="flex items-center space-x-3">
-                                        {liabilityChecks[liability.id] ? (
+                                        {liabilityCheques[liability.id] ? (
                                             <CheckSquare className="text-green-600" />
                                         ) : (
                                             <Square className="text-slate-400" />
@@ -1144,7 +1144,7 @@ const Budget: React.FC<BudgetProps> = ({
                                     <div className="text-right">
                                         <p className="font-semibold text-slate-900">
                                             {currencySymbol}
-                                            {perCheck.toFixed(2)}
+                                            {perCheque.toFixed(2)}
                                         </p>
                                         {extraByLiability[liability.id] && (
                                             <p className="text-xs text-emerald-600 font-medium">
@@ -1160,7 +1160,7 @@ const Budget: React.FC<BudgetProps> = ({
                                         type="checkbox"
                                         className="hidden"
                                         checked={
-                                            !!liabilityChecks[liability.id]
+                                            !!liabilityCheques[liability.id]
                                         }
                                         onChange={() =>
                                             toggleLiability(liability)
@@ -1239,9 +1239,9 @@ const Budget: React.FC<BudgetProps> = ({
                         </button>
                     </div>
                 </form>
-                {extrasForCurrentCheck.length > 0 && (
+                {extrasForCurrentCheque.length > 0 && (
                     <div className="px-6 pb-6 space-y-3">
-                        {extrasForCurrentCheck.map((p) => {
+                        {extrasForCurrentCheque.map((p) => {
                             const liability =
                                 liabilities.find((l) => l.id === p.liabilityId) ||
                                 null;

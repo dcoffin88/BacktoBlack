@@ -1,6 +1,6 @@
 # BacktoBlack
 
-BacktoBlack is a debt payoff and budgeting companion that pairs a Strategy Lab for comparing payoff methods with a paycheck-aware Budget planner. It runs on a React + Vite front end and an Express + SQLite API.
+BacktoBlack is a debt payoff and budgeting companion that pairs a Strategy Lab for comparing payoff methods with a paycheque-aware Budget planner. It runs on a React + Vite front end and an Express + SQLite API.
 
 ## Features
 - Strategy Lab to simulate Avalanche, Snowball, and custom payoff strategies, then send a saved schedule to Budget.

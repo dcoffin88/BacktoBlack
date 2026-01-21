@@ -21,7 +21,7 @@ const Income: React.FC<IncomeProps> = ({ incomes, onSaveIncome, onDeleteIncome, 
     isPartner: false,
     ownerId: undefined,
     includeInPlanner: true,
-    includeFirstTwoChecks: false,
+    includeFirstTwoCheques: false,
     splitIncomeAsJoint: false,
     excludeFromSplitting: false,
   });
@@ -36,7 +36,7 @@ const Income: React.FC<IncomeProps> = ({ incomes, onSaveIncome, onDeleteIncome, 
   const openModal = (income?: IncomeSource, isPartnerAdd: boolean = false) => {
     if (income) {
       setEditingId(income.id);
-      setFormData({ includeInPlanner: income.includeInPlanner ?? true, includeFirstTwoChecks: income.includeFirstTwoChecks ?? false, ...income, splitIncomeAsJoint: income.splitIncomeAsJoint ?? false, excludeFromSplitting: income.excludeFromSplitting ?? false });
+      setFormData({ includeInPlanner: income.includeInPlanner ?? true, includeFirstTwoCheques: income.includeFirstTwoCheques ?? false, ...income, splitIncomeAsJoint: income.splitIncomeAsJoint ?? false, excludeFromSplitting: income.excludeFromSplitting ?? false });
     } else {
       setEditingId(null);
       setFormData({
@@ -47,7 +47,7 @@ const Income: React.FC<IncomeProps> = ({ incomes, onSaveIncome, onDeleteIncome, 
         isPartner: isPartnerAdd,
         ownerId: undefined,
         includeInPlanner: true,
-        includeFirstTwoChecks: false,
+        includeFirstTwoCheques: false,
         splitIncomeAsJoint: false,
         excludeFromSplitting: false,
       });
@@ -392,13 +392,13 @@ const Income: React.FC<IncomeProps> = ({ incomes, onSaveIncome, onDeleteIncome, 
               <div className="flex items-center space-x-2">
                 <input
                   type="checkbox"
-                  id="includeFirstTwoChecks"
-                  checked={!!formData.includeFirstTwoChecks}
-                  onChange={e => setFormData({ ...formData, includeFirstTwoChecks: e.target.checked })}
+                  id="includeFirstTwoCheques"
+                  checked={!!formData.includeFirstTwoCheques}
+                  onChange={e => setFormData({ ...formData, includeFirstTwoCheques: e.target.checked })}
                   className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
                 />
-                <label htmlFor="includeFirstTwoChecks" className="text-sm text-slate-700">
-                  Only include first two paychecks each month in budget
+                <label htmlFor="includeFirstTwoCheques" className="text-sm text-slate-700">
+                  Only include first two paycheques each month in budget
                 </label>
               </div>
 

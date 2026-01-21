@@ -8,7 +8,7 @@ import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 import { randomUUID } from 'crypto';
 
-import { startScheduler, triggerMonthlyReportForUser, triggerTransferReportForUser, getAvailableCheckDates } from './scheduler';
+import { startScheduler, triggerMonthlyReportForUser, triggerTransferReportForUser, getAvailableChequeDates } from './scheduler';
 
 const app = express();
 const port = 3001;
@@ -48,25 +48,25 @@ const ensureUserNameColumn = () => {
 };
 ensureUserNameColumn();
 
-const ensureBudgetChecksTable = () => {
+const ensureBudgetChequesTable = () => {
   db.run(
-    `CREATE TABLE IF NOT EXISTS budget_checks (
+    `CREATE TABLE IF NOT EXISTS budget_cheques (
       id TEXT PRIMARY KEY,
-      check_date TEXT,
-      expense_checks TEXT,
-      liability_checks TEXT,
+      cheque_date TEXT,
+      expense_cheques TEXT,
+      liability_cheques TEXT,
       household_id TEXT,
       user_id INTEGER,
       updated_at TEXT
     )`,
     (err) => {
       if (err) {
-        console.error('Failed to ensure budget_checks table:', err.message);
+        console.error('Failed to ensure budget_cheques table:', err.message);
       }
     }
   );
 };
-ensureBudgetChecksTable();
+ensureBudgetChequesTable();
 
 const ensureBudgetExtrasTable = () => {
   db.run(
@@ -74,7 +74,7 @@ const ensureBudgetExtrasTable = () => {
       id TEXT PRIMARY KEY,
       liability_id TEXT,
       amount REAL,
-      check_date TEXT,
+      cheque_date TEXT,
       household_id TEXT,
       user_id INTEGER,
       updated_at TEXT
@@ -117,7 +117,7 @@ const ensureBudgetAmortizationOverridesTable = () => {
       payment REAL,
       purchase REAL,
       interest REAL,
-      check_date TEXT,
+      cheque_date TEXT,
       household_id TEXT,
       user_id INTEGER,
       updated_at TEXT
@@ -172,6 +172,58 @@ const ensureBudgetScheduleTable = () => {
   );
 };
 ensureBudgetScheduleTable();
+
+const runMigrations = () => {
+  // 1. budget_checks -> budget_cheques
+  db.all("SELECT name FROM sqlite_master WHERE type='table' AND name='budget_checks'", [], (err, rows) => {
+    if (err || !rows) return;
+    if (rows.length > 0) {
+      console.log('Migrating budget_checks to budget_cheques...');
+      db.run(`INSERT OR IGNORE INTO budget_cheques (id, cheque_date, expense_cheques, liability_cheques, household_id, user_id, updated_at) 
+              SELECT id, check_date, expense_checks, liability_checks, household_id, user_id, updated_at FROM budget_checks`, (copyErr) => {
+        if (!copyErr) {
+          db.run('DROP TABLE budget_checks');
+          console.log('Migrated budget_checks and dropped old table.');
+        } else {
+          console.error('Failed to copy data from budget_checks:', copyErr.message);
+        }
+      });
+    }
+  });
+
+  // 2. budget_extra_payments.check_date -> cheque_date
+  db.all("PRAGMA table_info(budget_extra_payments)", [], (err, rows: any[]) => {
+    if (err || !rows) return;
+    const hasChequeDate = rows.some(r => r.name === 'check_date');
+    if (hasChequeDate) {
+      console.log('Renaming budget_extra_payments.check_date to cheque_date...');
+      db.run('ALTER TABLE budget_extra_payments RENAME COLUMN check_date TO cheque_date', (alterErr) => {
+        if (alterErr) {
+          console.error('Failed to rename check_date in budget_extra_payments:', alterErr.message);
+        } else {
+          console.log('Renamed check_date to cheque_date in budget_extra_payments.');
+        }
+      });
+    }
+  });
+
+  // 3. budget_amortization_overrides.check_date -> cheque_date
+  db.all("PRAGMA table_info(budget_amortization_overrides)", [], (err, rows: any[]) => {
+    if (err || !rows) return;
+    const hasChequeDate = rows.some(r => r.name === 'check_date');
+    if (hasChequeDate) {
+      console.log('Renaming budget_amortization_overrides.check_date to cheque_date...');
+      db.run('ALTER TABLE budget_amortization_overrides RENAME COLUMN check_date TO cheque_date', (alterErr) => {
+        if (alterErr) {
+          console.error('Failed to rename check_date in budget_amortization_overrides:', alterErr.message);
+        } else {
+          console.log('Renamed check_date to cheque_date in budget_amortization_overrides.');
+        }
+      });
+    }
+  });
+};
+runMigrations();
 
 const ensureLiabilityAmortizationTables = () => {
   db.run(
@@ -312,8 +364,8 @@ const getPaymentAnchorDate = (liability: Liability) => {
   return anchor;
 };
 
-const getPeriodIndexFromDate = (liability: Liability, checkDate?: string | null) => {
-  const target = parseLocalDate(checkDate);
+const getPeriodIndexFromDate = (liability: Liability, chequeDate?: string | null) => {
+  const target = parseLocalDate(chequeDate);
   if (!target) return null;
   target.setHours(0, 0, 0, 0);
   let anchor = getPaymentAnchorDate(liability);
@@ -443,11 +495,11 @@ const buildAmortizationInputsForLiability = async (
   userId: number
 ) => {
   const overridesRows = await dbAllAsync(
-    'SELECT liability_id, period, payment, purchase, interest, check_date FROM budget_amortization_overrides WHERE liability_id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+    'SELECT liability_id, period, payment, purchase, interest, cheque_date FROM budget_amortization_overrides WHERE liability_id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
     [liability.id, scopeId, userId]
   );
 
-  const overridesByPeriod = overridesRows.reduce<Record<number, { payment: number; interest: number; purchase?: number; checkDate?: string | null }>>(
+  const overridesByPeriod = overridesRows.reduce<Record<number, { payment: number; interest: number; purchase?: number; chequeDate?: string | null }>>(
     (acc, row: any) => {
       const period = Number(row.period);
       if (!Number.isFinite(period) || period <= 0) return acc;
@@ -455,21 +507,21 @@ const buildAmortizationInputsForLiability = async (
         payment: row.payment,
         interest: row.interest,
         purchase: row.purchase ?? 0,
-        checkDate: row.check_date || null,
+        chequeDate: row.cheque_date || null,
       };
       return acc;
     },
     {}
   );
 
-  const extrasMap = Object.entries(overridesByPeriod).reduce<Record<number, { amount: number; checkDate?: string | null; forceHistorical?: boolean; interest?: number }>>(
+  const extrasMap = Object.entries(overridesByPeriod).reduce<Record<number, { amount: number; chequeDate?: string | null; forceHistorical?: boolean; interest?: number }>>(
     (acc, [periodKey, override]) => {
       const period = Number(periodKey);
       if (!Number.isFinite(period)) return acc;
       const amount = (override.payment || 0) - (override.purchase || 0);
       acc[period] = {
         amount,
-        checkDate: override.checkDate || null,
+        chequeDate: override.chequeDate || null,
         interest: override.interest,
       };
       return acc;
@@ -478,25 +530,23 @@ const buildAmortizationInputsForLiability = async (
   );
 
   const extraRows = await dbAllAsync(
-    'SELECT id, amount, check_date, is_checked FROM budget_extra_payments WHERE liability_id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+    'SELECT id, amount, cheque_date, is_checked FROM budget_extra_payments WHERE liability_id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
     [liability.id, scopeId, userId]
   );
 
-  const mergedExtras = extraRows.reduce<Record<number, { amount: number; checkDate?: string | null; forceHistorical?: boolean; interest?: number }>>(
+  const mergedExtras = extraRows.reduce<Record<number, { amount: number; chequeDate?: string | null; forceHistorical?: boolean; interest?: number }>>(
     (acc, row: any) => {
       if (row.id && isMinimumPaymentId(row.id)) return acc;
 
       const isChecked = row.is_checked !== 0;
       if (!isChecked) return acc;
-
-      const rawPeriod = getPeriodIndexFromDate(liability, row.check_date);
+      const rawPeriod = getPeriodIndexFromDate(liability, row.cheque_date);
       if (rawPeriod === null || rawPeriod === undefined || rawPeriod <= 0) return acc;
       const period = rawPeriod;
       const override = overridesByPeriod[period];
-
       acc[period] = {
         amount: (acc[period]?.amount || 0) + row.amount,
-        checkDate: row.check_date || acc[period]?.checkDate,
+        chequeDate: row.cheque_date || acc[period]?.chequeDate,
         interest: override?.interest,
       };
       return acc;
@@ -1062,10 +1112,10 @@ app.post('/api/reports/trigger-transfer', authenticateToken, async (req: AuthedR
   }
 });
 
-app.get('/api/reports/available-checks', authenticateToken, async (req: AuthedRequest, res) => {
+app.get('/api/reports/available-cheques', authenticateToken, async (req: AuthedRequest, res) => {
   const user = req.user!;
   try {
-    const dates = await getAvailableCheckDates(db, user.id);
+    const dates = await getAvailableChequeDates(db, user.id);
     res.json(dates);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1373,62 +1423,62 @@ app.delete('/api/assets/:id', authenticateToken, (req: AuthedRequest, res) => {
   });
 });
 
-app.get('/api/budget/checks', authenticateToken, (req: AuthedRequest, res) => {
+app.get('/api/budget/cheques', authenticateToken, (req: AuthedRequest, res) => {
   const user = req.user!;
   const scopeId = user.householdId || user.id;
   db.all(
-    'SELECT check_date, expense_checks, liability_checks FROM budget_checks WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
+    'SELECT cheque_date, expense_cheques, liability_cheques FROM budget_cheques WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
     [scopeId, user.id],
     (err, rows) => {
       if (err) {
         return res.status(500).json({ error: err.message });
       }
-      const expenseChecksByCheck: Record<string, Record<string, boolean>> = {};
-      const liabilityChecksByCheck: Record<string, Record<string, boolean>> = {};
+      const expenseChequesByCheque: Record<string, Record<string, boolean>> = {};
+      const liabilityChequesByCheque: Record<string, Record<string, boolean>> = {};
       rows.forEach((row: any) => {
-        if (row.expense_checks) {
+        if (row.expense_cheques) {
           try {
-            expenseChecksByCheck[row.check_date] = JSON.parse(row.expense_checks);
+            expenseChequesByCheque[row.cheque_date] = JSON.parse(row.expense_cheques);
           } catch {
             /* ignore bad rows */
           }
         }
-        if (row.liability_checks) {
+        if (row.liability_cheques) {
           try {
-            liabilityChecksByCheck[row.check_date] = JSON.parse(row.liability_checks);
+            liabilityChequesByCheque[row.cheque_date] = JSON.parse(row.liability_cheques);
           } catch {
             /* ignore bad rows */
           }
         }
       });
-      res.json({ expenseChecksByCheck, liabilityChecksByCheck });
+      res.json({ expenseChequesByCheque, liabilityChequesByCheque });
     }
   );
 });
 
-app.post('/api/budget/checks', authenticateToken, (req: AuthedRequest, res) => {
+app.post('/api/budget/cheques', authenticateToken, (req: AuthedRequest, res) => {
   const user = req.user!;
   const scopeId = user.householdId || user.id;
-  const { checkDate, expenseChecks = {}, liabilityChecks = {} } = req.body as {
-    checkDate?: string;
-    expenseChecks?: Record<string, boolean>;
-    liabilityChecks?: Record<string, boolean>;
+  const { chequeDate, expenseCheques = {}, liabilityCheques = {} } = req.body as {
+    chequeDate?: string;
+    expenseCheques?: Record<string, boolean>;
+    liabilityCheques?: Record<string, boolean>;
   };
 
-  if (!checkDate) {
-    return res.status(400).json({ error: 'checkDate is required' });
+  if (!chequeDate) {
+    return res.status(400).json({ error: 'chequeDate is required' });
   }
 
-  const id = `${scopeId}_${checkDate}`;
+  const id = `${scopeId}_${chequeDate}`;
   const updatedAt = new Date().toISOString();
   db.run(
-    `INSERT OR REPLACE INTO budget_checks (id, check_date, expense_checks, liability_checks, household_id, user_id, updated_at)
+    `INSERT OR REPLACE INTO budget_cheques (id, cheque_date, expense_cheques, liability_cheques, household_id, user_id, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
-      checkDate,
-      JSON.stringify(expenseChecks || {}),
-      JSON.stringify(liabilityChecks || {}),
+      chequeDate,
+      JSON.stringify(expenseCheques || {}),
+      JSON.stringify(liabilityCheques || {}),
       scopeId,
       user.id,
       updatedAt,
@@ -1437,7 +1487,7 @@ app.post('/api/budget/checks', authenticateToken, (req: AuthedRequest, res) => {
       if (err) {
         return res.status(500).json({ error: err.message });
       }
-      res.json({ success: true, checkDate });
+      res.json({ success: true, chequeDate });
     }
   );
 });
@@ -1572,7 +1622,7 @@ app.get('/api/budget/extra-payments', authenticateToken, (req: AuthedRequest, re
   const user = req.user!;
   const scopeId = user.householdId || user.id;
   db.all(
-    'SELECT id, liability_id, amount, check_date, is_checked FROM budget_extra_payments WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
+    'SELECT id, liability_id, amount, cheque_date, is_checked FROM budget_extra_payments WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
     [scopeId, user.id],
     (err, rows) => {
       if (err) {
@@ -1582,7 +1632,7 @@ app.get('/api/budget/extra-payments', authenticateToken, (req: AuthedRequest, re
         id: row.id,
         liabilityId: row.liability_id,
         amount: row.amount,
-        checkDate: row.check_date || null,
+        chequeDate: row.cheque_date || null,
         isChecked: row.is_checked !== 0,
       }));
       res.json({ extras });
@@ -1593,11 +1643,11 @@ app.get('/api/budget/extra-payments', authenticateToken, (req: AuthedRequest, re
 app.post('/api/budget/extra-payments', authenticateToken, (req: AuthedRequest, res) => {
   const user = req.user!;
   const scopeId = user.householdId || user.id;
-  const { id, liabilityId, amount, checkDate, isChecked } = req.body as {
+  const { id, liabilityId, amount, chequeDate, isChecked } = req.body as {
     id: string;
     liabilityId: string;
     amount: number;
-    checkDate?: string | null;
+    chequeDate?: string | null;
     isChecked?: boolean;
   };
 
@@ -1608,9 +1658,9 @@ app.post('/api/budget/extra-payments', authenticateToken, (req: AuthedRequest, r
   const updatedAt = new Date().toISOString();
   const isCheckedInt = (isChecked === undefined || isChecked === true) ? 1 : 0;
   db.run(
-    `INSERT OR REPLACE INTO budget_extra_payments (id, liability_id, amount, check_date, household_id, user_id, updated_at, is_checked)
+    `INSERT OR REPLACE INTO budget_extra_payments (id, liability_id, amount, cheque_date, household_id, user_id, updated_at, is_checked)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, liabilityId, amount, checkDate || null, scopeId, user.id, updatedAt, isCheckedInt],
+    [id, liabilityId, amount, chequeDate || null, scopeId, user.id, updatedAt, isCheckedInt],
     (err) => {
       if (err) {
         return res.status(500).json({ error: err.message });
@@ -1674,7 +1724,7 @@ app.get('/api/budget/amortization-overrides', authenticateToken, (req: AuthedReq
   const user = req.user!;
   const scopeId = user.householdId || user.id;
   db.all(
-    'SELECT id, liability_id, period, payment, purchase, interest, check_date FROM budget_amortization_overrides WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
+    'SELECT id, liability_id, period, payment, purchase, interest, cheque_date FROM budget_amortization_overrides WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
     [scopeId, user.id],
     (err, rows) => {
       if (err) {
@@ -1687,7 +1737,7 @@ app.get('/api/budget/amortization-overrides', authenticateToken, (req: AuthedReq
         payment: row.payment,
         purchase: row.purchase ?? 0,
         interest: row.interest,
-        checkDate: row.check_date || null,
+        chequeDate: row.cheque_date || null,
       }));
       res.json({ overrides });
     }
@@ -1697,14 +1747,14 @@ app.get('/api/budget/amortization-overrides', authenticateToken, (req: AuthedReq
 app.post('/api/budget/amortization-overrides', authenticateToken, (req: AuthedRequest, res) => {
   const user = req.user!;
   const scopeId = user.householdId || user.id;
-  const { id, liabilityId, period, payment, purchase, interest, checkDate } = req.body as {
+  const { id, liabilityId, period, payment, purchase, interest, chequeDate } = req.body as {
     id: string;
     liabilityId: string;
     period: number;
     payment: number;
     purchase?: number;
     interest: number;
-    checkDate?: string | null;
+    chequeDate?: string | null;
   };
 
   if (!id || !liabilityId || !Number.isFinite(period) || !Number.isFinite(payment) || !Number.isFinite(interest)) {
@@ -1713,9 +1763,9 @@ app.post('/api/budget/amortization-overrides', authenticateToken, (req: AuthedRe
 
   const updatedAt = new Date().toISOString();
   db.run(
-    `INSERT OR REPLACE INTO budget_amortization_overrides (id, liability_id, period, payment, purchase, interest, check_date, household_id, user_id, updated_at)
+    `INSERT OR REPLACE INTO budget_amortization_overrides (id, liability_id, period, payment, purchase, interest, cheque_date, household_id, user_id, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, liabilityId, period, payment, purchase ?? 0, interest, checkDate || null, scopeId, user.id, updatedAt],
+    [id, liabilityId, period, payment, purchase ?? 0, interest, chequeDate || null, scopeId, user.id, updatedAt],
     (err) => {
       if (err) {
         return res.status(500).json({ error: err.message });

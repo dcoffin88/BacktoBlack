@@ -143,18 +143,18 @@ export const dbAPI = {
     await fetchJson(`${API_BASE_URL}/assets/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
   },
 
-  getBudgetChecks: async (): Promise<{
-    expenseChecksByCheck: Record<string, Record<string, boolean>>;
-    liabilityChecksByCheck: Record<string, Record<string, boolean>>;
+  getBudgetCheques: async (): Promise<{
+    expenseChequesByCheque: Record<string, Record<string, boolean>>;
+    liabilityChequesByCheque: Record<string, Record<string, boolean>>;
   }> => {
-    return await fetchJson(`${API_BASE_URL}/budget/checks`, { headers: getAuthHeaders() });
+    return await fetchJson(`${API_BASE_URL}/budget/cheques`, { headers: getAuthHeaders() });
   },
-  saveBudgetChecks: async (payload: {
-    checkDate: string;
-    expenseChecks?: Record<string, boolean>;
-    liabilityChecks?: Record<string, boolean>;
+  saveBudgetCheques: async (payload: {
+    chequeDate: string;
+    expenseCheques?: Record<string, boolean>;
+    liabilityCheques?: Record<string, boolean>;
   }) => {
-    await fetchJson(`${API_BASE_URL}/budget/checks`, {
+    await fetchJson(`${API_BASE_URL}/budget/cheques`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify(payload),
@@ -162,7 +162,7 @@ export const dbAPI = {
   },
 
   getExtraPayments: async (): Promise<{
-    extras: Array<{ id: string; liabilityId: string; amount: number; checkDate?: string | null; isChecked?: boolean }>;
+    extras: Array<{ id: string; liabilityId: string; amount: number; chequeDate?: string | null; isChecked?: boolean }>;
   }> => {
     return await fetchJson(`${API_BASE_URL}/budget/extra-payments`, { headers: getAuthHeaders() });
   },
@@ -170,7 +170,7 @@ export const dbAPI = {
     id: string;
     liabilityId: string;
     amount: number;
-    checkDate?: string | null;
+    chequeDate?: string | null;
     isChecked?: boolean;
   }) => {
     await fetchJson(`${API_BASE_URL}/budget/extra-payments`, {
@@ -262,8 +262,8 @@ export const dbAPI = {
     });
   },
 
-  getAvailableChecks: async (): Promise<string[]> => {
-    return await fetchJson<string[]>(`${API_BASE_URL}/reports/available-checks`, { headers: getAuthHeaders() });
+  getAvailableCheques: async (): Promise<string[]> => {
+    return await fetchJson<string[]>(`${API_BASE_URL}/reports/available-cheques`, { headers: getAuthHeaders() });
   },
 
   joinHousehold: async (partnerEmail: string) => {

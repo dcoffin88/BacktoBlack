@@ -110,7 +110,7 @@ export interface AmortizationOverride {
     payment: number;
     interest: number;
     purchase?: number;
-    checkDate?: string | null;
+    chequeDate?: string | null;
 }
 
 export enum ExpenseSplitMethod {
@@ -139,7 +139,7 @@ export interface IncomeSource {
     isPartner: boolean;
     ownerId?: number;
     includeInPlanner?: boolean;
-    includeFirstTwoChecks?: boolean;
+    includeFirstTwoCheques?: boolean;
     splitIncomeAsJoint?: boolean;
     excludeFromSplitting?: boolean;
 }
@@ -201,11 +201,11 @@ export interface ExtraPayment {
     id: string;
     liabilityId: string;
     amount: number;
-    checkDate?: string | null;
+    chequeDate?: string | null;
     isChecked?: boolean;
 }
 
-export interface PaycheckOccurrence {
+export interface PaychequeOccurrence {
     date: Date;
     source: IncomeSource;
     eligibleMonthly: boolean;

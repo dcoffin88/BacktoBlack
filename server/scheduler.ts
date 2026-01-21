@@ -3,7 +3,7 @@ import nodemailer from 'nodemailer';
 import { Database } from 'sqlite3';
 import { Asset, Expense, IncomeSource, Liability, UserSettings, ExtraPayment } from '../types';
 import { ReportGenerator } from './reports/reportGenerator';
-import { generatePaychecks } from '../utils/paycheckLogic';
+import { generatePaycheques } from '../utils/paychequeLogic';
 
 interface UserRow {
     id: number;
@@ -82,8 +82,8 @@ const getPaymentAnchorDate = (liability: Liability) => {
     return anchor;
 };
 
-const getPeriodIndexFromDate = (liability: Liability, checkDate?: string | null) => {
-    const target = parseLocalDate(checkDate);
+const getPeriodIndexFromDate = (liability: Liability, chequeDate?: string | null) => {
+    const target = parseLocalDate(chequeDate);
     if (!target) return null;
     target.setHours(0, 0, 0, 0);
     let anchor = getPaymentAnchorDate(liability);
@@ -310,7 +310,7 @@ const fetchUserData = async (db: Database, user: UserRow) => {
         id: row.id,
         liabilityId: row.liability_id,
         amount: row.amount,
-        checkDate: row.check_date || null,
+        chequeDate: row.cheque_date || null,
         isChecked: row.is_checked !== 0
     }));
 
@@ -467,7 +467,7 @@ export const triggerTransferReportForUser = async (db: Database, userId: number,
     return { success: true, message: `No transfers for ${reportDate.toLocaleDateString()}, no email sent.` };
 };
 
-export const getAvailableCheckDates = async (db: Database, userId: number) => {
+export const getAvailableChequeDates = async (db: Database, userId: number) => {
     const users = await dbAllAsync(db, 'SELECT id, email, household_id FROM users WHERE id = ?', [userId]);
     const user = users[0];
     if (!user) return [];
@@ -483,9 +483,9 @@ export const getAvailableCheckDates = async (db: Database, userId: number) => {
     end.setMonth(end.getMonth() + 3);
 
     const budgetStartDate = settings.startDate ? parseLocalDate(settings.startDate) : null;
-    const paychecks = generatePaychecks(incomes, start, end, { budgetStartDate });
+    const paycheques = generatePaycheques(incomes, start, end, { budgetStartDate });
     const datesSet = new Set<string>();
-    paychecks.forEach(p => datesSet.add(toLocalDateString(p.date)));
+    paycheques.forEach(p => datesSet.add(toLocalDateString(p.date)));
 
     return Array.from(datesSet).sort();
 };

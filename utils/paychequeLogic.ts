@@ -1,4 +1,4 @@
-import { IncomeSource, Expense, Liability, ExtraPayment, PaycheckOccurrence } from "../types";
+import { IncomeSource, Expense, Liability, ExtraPayment, PaychequeOccurrence } from "../types";
 import { getAnnualizedIncomeAmount } from "../server/liabilityAlgorithms";
 
 export const getSemiMonthlyDates = (
@@ -96,15 +96,15 @@ export const getPayDates = (source: IncomeSource, startDate: Date, endDate: Date
     return dates;
 };
 
-export const generatePaychecks = (
+export const generatePaycheques = (
     incomes: IncomeSource[],
     startDate: Date,
     endDate: Date,
     options: {
         budgetStartDate?: Date | null;
     } = {}
-): PaycheckOccurrence[] => {
-    const occurrences: PaycheckOccurrence[] = [];
+): PaychequeOccurrence[] => {
+    const occurrences: PaychequeOccurrence[] = [];
     const monthCountsBySource: Record<string, Record<string, number>> = {};
 
     incomes.forEach((src) => {
@@ -124,7 +124,7 @@ export const generatePaychecks = (
             monthCountsBySource[src.id][monthKey] = currentCount + 1;
 
             const eligibleMonthly =
-                src.includeFirstTwoChecks === true
+                src.includeFirstTwoCheques === true
                     ? currentCount < 2
                     : true;
 
@@ -154,9 +154,9 @@ export const getAnnualizedShareMap = (sources: IncomeSource[]) => {
     return { totalShare, shareById };
 };
 
-export const getPerCheckRatio = (
-    currentPaycheck: PaycheckOccurrence | null,
-    monthPaychecksForCheck: PaycheckOccurrence[],
+export const getPerChequeRatio = (
+    currentPaycheque: PaychequeOccurrence | null,
+    monthPaychequesForCheque: PaychequeOccurrence[],
     budgetedIncomes: IncomeSource[],
     options: {
         useBiWeekly: boolean;
@@ -164,7 +164,7 @@ export const getPerCheckRatio = (
         owner?: 'USER' | 'PARTNER' | 'ALL';
     }
 ) => {
-    if (!currentPaycheck) return 0;
+    if (!currentPaycheque) return 0;
     const { useBiWeekly, excludedIds = new Set<string>(), owner = 'ALL' } = options;
 
     const matchesOwner = (source: IncomeSource) =>
@@ -174,38 +174,38 @@ export const getPerCheckRatio = (
                 ? source.isPartner
                 : !source.isPartner;
 
-    const isEligiblePaycheck = (paycheck: PaycheckOccurrence) => {
+    const isEligiblePaycheque = (paycheque: PaychequeOccurrence) => {
         const passesFrequency = useBiWeekly
-            ? paycheck.eligibleBiWeekly !== false
-            : paycheck.eligibleMonthly !== false;
+            ? paycheque.eligibleBiWeekly !== false
+            : paycheque.eligibleMonthly !== false;
         return (
             passesFrequency &&
-            !excludedIds.has(paycheck.source.id) &&
-            matchesOwner(paycheck.source)
+            !excludedIds.has(paycheque.source.id) &&
+            matchesOwner(paycheque.source)
         );
     };
 
-    const eligiblePaychecks = monthPaychecksForCheck.filter(isEligiblePaycheck);
-    if (eligiblePaychecks.length === 0) return 0;
-    if (!isEligiblePaycheck(currentPaycheck)) return 0;
+    const eligiblePaycheques = monthPaychequesForCheque.filter(isEligiblePaycheque);
+    if (eligiblePaycheques.length === 0) return 0;
+    if (!isEligiblePaycheque(currentPaycheque)) return 0;
 
     const eligibleSources = budgetedIncomes.filter(
         (source) => !excludedIds.has(source.id) && matchesOwner(source)
     );
 
     const { totalShare, shareById } = getAnnualizedShareMap(eligibleSources);
-    if (totalShare <= 0) return 1 / eligiblePaychecks.length;
+    if (totalShare <= 0) return 1 / eligiblePaycheques.length;
 
     const perSource = new Map<string, { share: number; count: number }>();
-    eligiblePaychecks.forEach((paycheck) => {
-        const share = shareById.get(paycheck.source.id) || 0;
-        const existing = perSource.get(paycheck.source.id) || {
+    eligiblePaycheques.forEach((paycheque) => {
+        const share = shareById.get(paycheque.source.id) || 0;
+        const existing = perSource.get(paycheque.source.id) || {
             share,
             count: 0,
         };
         existing.share = share;
         existing.count += 1;
-        perSource.set(paycheck.source.id, existing);
+        perSource.set(paycheque.source.id, existing);
     });
 
     const totalShareInMonth = Array.from(perSource.values()).reduce(
@@ -213,26 +213,26 @@ export const getPerCheckRatio = (
         0
     );
 
-    if (totalShareInMonth <= 0) return 1 / eligiblePaychecks.length;
-    const current = perSource.get(currentPaycheck.source.id);
+    if (totalShareInMonth <= 0) return 1 / eligiblePaycheques.length;
+    const current = perSource.get(currentPaycheque.source.id);
     if (!current || current.count <= 0) return 0;
     return (current.share / current.count) / totalShareInMonth;
 };
 
-export const getPerCheckExpenseAmount = (
+export const getPerChequeExpenseAmount = (
     expense: Expense,
-    currentPaycheck: PaycheckOccurrence | null,
-    monthPaychecksForCheck: PaycheckOccurrence[],
+    currentPaycheque: PaychequeOccurrence | null,
+    monthPaychequesForCheque: PaychequeOccurrence[],
     budgetedIncomes: IncomeSource[],
     userSplitRatio: number
 ) => {
     const excluded = new Set(expense.excludedIncomeSourceIds || []);
-    if (currentPaycheck && excluded.has(currentPaycheck.source.id)) {
+    if (currentPaycheque && excluded.has(currentPaycheque.source.id)) {
         return 0;
     }
 
     const rounded = (value: number) => Math.ceil(value * 100) / 100;
-    const perCheckBase = expense.amount;
+    const perChequeBase = expense.amount;
 
     if (expense.excludeFromSplitting) {
         const owner = expense.owner || "JOINT";
@@ -250,7 +250,7 @@ export const getPerCheckExpenseAmount = (
                             ? expense.amount / 12
                             : expense.amount;
 
-        const eligiblePool = monthPaychecksForCheck.filter((p) => {
+        const eligiblePool = monthPaychequesForCheque.filter((p) => {
             const passesFrequency = useBiWeekly
                 ? p.eligibleBiWeekly !== false
                 : p.eligibleMonthly !== false;
@@ -262,9 +262,9 @@ export const getPerCheckExpenseAmount = (
         });
 
         const isEligibleCurrent =
-            currentPaycheck &&
-            eligiblePool.some((p) => p === currentPaycheck) &&
-            !excluded.has(currentPaycheck.source.id);
+            currentPaycheque &&
+            eligiblePool.some((p) => p === currentPaycheque) &&
+            !excluded.has(currentPaycheque.source.id);
 
         if (!isEligibleCurrent) return 0;
 
@@ -289,25 +289,25 @@ export const getPerCheckExpenseAmount = (
                         : expense.amount;
 
     const getRatio = (useBW: boolean, owner: 'USER' | 'PARTNER' | 'ALL' = 'ALL') =>
-        getPerCheckRatio(currentPaycheck, monthPaychecksForCheck, budgetedIncomes, {
+        getPerChequeRatio(currentPaycheque, monthPaychequesForCheque, budgetedIncomes, {
             useBiWeekly: useBW,
             excludedIds: excluded,
             owner,
         });
 
     const biWeeklyRatioOwnerEff = (() => {
-        const ownerKey = currentPaycheck?.source.isPartner ? "PARTNER" : "USER";
+        const ownerKey = currentPaycheque?.source.isPartner ? "PARTNER" : "USER";
         return getRatio(true, ownerKey);
     })();
 
     const monthlyRatioOwnerEff = (() => {
-        const ownerKey = currentPaycheck?.source.isPartner ? "PARTNER" : "USER";
+        const ownerKey = currentPaycheque?.source.isPartner ? "PARTNER" : "USER";
         return getRatio(false, ownerKey);
     })();
 
     if (useBiWeekly) {
         const monthSources = Array.from(
-            new Map(monthPaychecksForCheck.map((p) => [p.source.id, p.source])).values()
+            new Map(monthPaychequesForCheque.map((p) => [p.source.id, p.source])).values()
         ).filter((s) => !excluded.has(s.id));
 
         const totalAnnualizedEquivalent = monthSources.reduce(
@@ -322,7 +322,7 @@ export const getPerCheckExpenseAmount = (
         );
 
         const isBiWeeklySource = biWeeklySources.some(
-            (source) => source.id === currentPaycheck?.source.id
+            (source) => source.id === currentPaycheque?.source.id
         );
 
         if (!isBiWeeklySource) return 0;
@@ -341,39 +341,39 @@ export const getPerCheckExpenseAmount = (
                     0
                 );
             const sourceShare =
-                getAnnualizedIncomeAmount(currentPaycheck!.source) /
+                getAnnualizedIncomeAmount(currentPaycheque!.source) /
                 totalAnnualizedEquivalent;
 
             const baseShare = sourceShare + monthlyOnlyShare / biWeeklyCount;
             const owner = expense.owner || "JOINT";
 
-            if (owner === "PARTNER" && !currentPaycheck?.source.isPartner) return 0;
-            if (owner === "USER" && currentPaycheck?.source.isPartner) return 0;
+            if (owner === "PARTNER" && !currentPaycheque?.source.isPartner) return 0;
+            if (owner === "USER" && currentPaycheque?.source.isPartner) return 0;
 
-            return perCheckBase * baseShare;
+            return perChequeBase * baseShare;
         }
     }
 
     const owner = expense.owner || "JOINT";
 
     if (owner === "PARTNER") {
-        if (!currentPaycheck?.source.isPartner) return 0;
+        if (!currentPaycheque?.source.isPartner) return 0;
         return useBiWeekly
-            ? perCheckBase * biWeeklyRatioOwnerEff
+            ? perChequeBase * biWeeklyRatioOwnerEff
             : monthlyEquivalent * monthlyRatioOwnerEff;
     }
 
     if (owner === "USER") {
-        if (currentPaycheck?.source.isPartner) return 0;
+        if (currentPaycheque?.source.isPartner) return 0;
         return useBiWeekly
-            ? perCheckBase * biWeeklyRatioOwnerEff
+            ? perChequeBase * biWeeklyRatioOwnerEff
             : monthlyEquivalent * monthlyRatioOwnerEff;
     }
 
-    const userPortion = perCheckBase * userSplitRatio;
-    const partnerPortion = perCheckBase - userPortion;
+    const userPortion = perChequeBase * userSplitRatio;
+    const partnerPortion = perChequeBase - userPortion;
 
-    if (currentPaycheck?.source.isPartner) {
+    if (currentPaycheque?.source.isPartner) {
         return useBiWeekly
             ? partnerPortion * biWeeklyRatioOwnerEff
             : partnerPortion * monthlyRatioOwnerEff;
@@ -385,10 +385,10 @@ export const getPerCheckExpenseAmount = (
 };
 
 
-export const getPerCheckLiabilityAmount = (
+export const getPerChequeLiabilityAmount = (
     liability: Liability & { plannedPayment?: number },
-    currentPaycheck: PaycheckOccurrence | null,
-    monthPaychecksForCheck: PaycheckOccurrence[],
+    currentPaycheque: PaychequeOccurrence | null,
+    monthPaychequesForCheque: PaychequeOccurrence[],
     budgetedIncomes: IncomeSource[],
     extraPayments: ExtraPayment[],
     userSplitRatio: number,
@@ -396,10 +396,10 @@ export const getPerCheckLiabilityAmount = (
         includeUnchecked?: boolean;
     }
 ) => {
-    if (!currentPaycheck) return 0;
+    if (!currentPaycheque) return 0;
     const frequency = liability.paymentFrequency || 'MONTHLY';
     const excluded = new Set<string>(liability.excludedIncomeSourceIds || []);
-    if (excluded.has(currentPaycheck.source.id)) return 0;
+    if (excluded.has(currentPaycheque.source.id)) return 0;
 
     const { includeUnchecked = true } = options || {};
 
@@ -410,12 +410,12 @@ export const getPerCheckLiabilityAmount = (
         return `${y}-${m}-${d}`;
     };
 
-    const checkDateStr = toLocalYMD(currentPaycheck.date);
+    const chequeDateStr = toLocalYMD(currentPaycheque.date);
     const extraAmount = extraPayments
         .filter(p => {
             if (p.id.startsWith('min-')) return false;
             if (p.liabilityId !== liability.id) return false;
-            if (p.checkDate !== checkDateStr) return false;
+            if (p.chequeDate !== chequeDateStr) return false;
             if (!includeUnchecked) {
                 return !!p.isChecked;
             }
@@ -432,7 +432,7 @@ export const getPerCheckLiabilityAmount = (
     const rounded = (value: number) => Math.ceil(value * 100) / 100;
 
     const getRatio = (useBW: boolean, ownerFilter: 'USER' | 'PARTNER' | 'ALL' = 'ALL') =>
-        getPerCheckRatio(currentPaycheck, monthPaychecksForCheck, budgetedIncomes, {
+        getPerChequeRatio(currentPaycheque, monthPaychequesForCheque, budgetedIncomes, {
             useBiWeekly: useBW,
             excludedIds: excluded,
             owner: ownerFilter,
@@ -441,15 +441,15 @@ export const getPerCheckLiabilityAmount = (
     const monthlyRatioEff = getRatio(false);
     const biWeeklyRatioEff = getRatio(true);
 
-    const ownerKey = currentPaycheck?.source.isPartner ? "PARTNER" : "USER";
+    const ownerKey = currentPaycheque?.source.isPartner ? "PARTNER" : "USER";
     const monthlyRatioOwnerEff = getRatio(false, ownerKey);
     const biWeeklyRatioOwnerEff = getRatio(true, ownerKey);
 
     if (useBiWeekly) {
-        if (currentPaycheck?.eligibleBiWeekly === false) return 0;
-        if (owner === "PARTNER" && !currentPaycheck?.source.isPartner)
+        if (currentPaycheque?.eligibleBiWeekly === false) return 0;
+        if (owner === "PARTNER" && !currentPaycheque?.source.isPartner)
             return 0;
-        if (owner === "USER" && currentPaycheck?.source.isPartner)
+        if (owner === "USER" && currentPaycheque?.source.isPartner)
             return 0;
 
         const monthlyAmount = liability.plannedPayment ?? (liability.minPaymentAmount || 0);
@@ -463,7 +463,7 @@ export const getPerCheckLiabilityAmount = (
             if (liability.excludeFromSplitting) {
                 return rounded(perPeriod + extraAmount);
             }
-            const splitRatio = currentPaycheck?.source.isPartner
+            const splitRatio = currentPaycheque?.source.isPartner
                 ? 1 - userSplitRatio
                 : userSplitRatio;
             return rounded(perPeriod * splitRatio + extraAmount);
@@ -472,21 +472,21 @@ export const getPerCheckLiabilityAmount = (
     }
 
     if (!hasAdvanced) {
-        if (currentPaycheck.eligibleMonthly === false) return 0;
+        if (currentPaycheque.eligibleMonthly === false) return 0;
         const monthlyAmount = liability.plannedPayment ?? (liability.minPaymentAmount || 0);
         return rounded(
             monthlyAmount * monthlyRatioEff + extraAmount
         );
     }
 
-    if (owner === "PARTNER" && !currentPaycheck?.source.isPartner) return 0;
-    if (owner === "USER" && currentPaycheck?.source.isPartner) return 0;
+    if (owner === "PARTNER" && !currentPaycheque?.source.isPartner) return 0;
+    if (owner === "USER" && currentPaycheque?.source.isPartner) return 0;
 
     const ratioBase = useBiWeekly ? biWeeklyRatioEff : monthlyRatioEff;
     const ratioOwner = useBiWeekly ? biWeeklyRatioOwnerEff : monthlyRatioOwnerEff;
     const ratio = owner === "JOINT" ? ratioBase : ratioOwner;
 
-    if (!useBiWeekly && currentPaycheck?.eligibleMonthly === false) return 0;
+    if (!useBiWeekly && currentPaycheque?.eligibleMonthly === false) return 0;
 
     const monthlyAmount = liability.plannedPayment ?? (liability.minPaymentAmount || 0);
     return (monthlyAmount * ratio) + extraAmount;

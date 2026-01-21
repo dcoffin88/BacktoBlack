@@ -808,7 +808,7 @@ const ExpenseList: React.FC<ExpenseListProps> = ({
                                         </div>
 
                                         <p className="text-xs text-slate-500">
-                                            Exclude this expense from specific income sources when splitting per-check on the Budget page.
+                                            Exclude this expense from specific income sources when splitting per-cheque on the Budget page.
                                         </p>
                                         <label className="flex items-center space-x-2 text-sm text-slate-700">
                                             <input

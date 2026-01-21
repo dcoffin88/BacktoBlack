@@ -1,6 +1,6 @@
 import { useMemo, useCallback } from 'react';
-import { Asset, Expense, IncomeSource, Liability, UserSettings, PaycheckOccurrence } from '../types';
-import { generatePaychecks, getPerCheckExpenseAmount, getPerCheckLiabilityAmount } from '../utils/paycheckLogic';
+import { Asset, Expense, IncomeSource, Liability, UserSettings, PaychequeOccurrence } from '../types';
+import { generatePaycheques, getPerChequeExpenseAmount, getPerChequeLiabilityAmount } from '../utils/paychequeLogic';
 import { getAnnualizedIncomeAmount, getMinPayment } from '../server/liabilityAlgorithms';
 
 interface PeriodTotalsProps {
@@ -40,18 +40,18 @@ export const usePeriodTotals = ({
         [incomes]
     );
 
-    const paychecks = useMemo(() => {
-        return generatePaychecks(budgetedIncomes, periodStart, periodEnd, {
+    const paycheques = useMemo(() => {
+        return generatePaycheques(budgetedIncomes, periodStart, periodEnd, {
             budgetStartDate
         });
     }, [budgetStartDate, budgetedIncomes, periodStart, periodEnd]);
 
-    const paychecksInPeriod = useMemo(
+    const paychequesInPeriod = useMemo(
         () =>
-            paychecks.filter(
-                (paycheck) => paycheck.date >= periodStart && paycheck.date <= periodEnd
+            paycheques.filter(
+                (paycheque) => paycheque.date >= periodStart && paycheque.date <= periodEnd
             ),
-        [paychecks, periodStart, periodEnd]
+        [paycheques, periodStart, periodEnd]
     );
 
     const userSplitRatio = useMemo(() => {
@@ -75,34 +75,34 @@ export const usePeriodTotals = ({
 
     const getMonthKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}`;
 
-    const monthPaychecksByKey = useMemo(() => {
-        const buckets = new Map<string, PaycheckOccurrence[]>();
-        paychecks.forEach((paycheck) => {
-            const key = getMonthKey(paycheck.date);
+    const monthPaychequesByKey = useMemo(() => {
+        const buckets = new Map<string, PaychequeOccurrence[]>();
+        paycheques.forEach((paycheque) => {
+            const key = getMonthKey(paycheque.date);
             const existing = buckets.get(key);
             if (existing) {
-                existing.push(paycheck);
+                existing.push(paycheque);
                 return;
             }
-            buckets.set(key, [paycheck]);
+            buckets.set(key, [paycheque]);
         });
         return buckets;
-    }, [paychecks]);
+    }, [paycheques]);
 
-    const getMonthPaychecksFor = useCallback(
-        (date: Date) => monthPaychecksByKey.get(getMonthKey(date)) || [],
-        [monthPaychecksByKey]
+    const getMonthPaychequesFor = useCallback(
+        (date: Date) => monthPaychequesByKey.get(getMonthKey(date)) || [],
+        [monthPaychequesByKey]
     );
 
-    const getPerCheckExpenseFor = useCallback((expense: Expense, currentPaycheck: PaycheckOccurrence | null, monthPaychecksForCheck: PaycheckOccurrence[]) => {
-        return getPerCheckExpenseAmount(expense, currentPaycheck, monthPaychecksForCheck, budgetedIncomes, userSplitRatio);
+    const getPerChequeExpenseFor = useCallback((expense: Expense, currentPaycheque: PaychequeOccurrence | null, monthPaychequesForCheque: PaychequeOccurrence[]) => {
+        return getPerChequeExpenseAmount(expense, currentPaycheque, monthPaychequesForCheque, budgetedIncomes, userSplitRatio);
     }, [userSplitRatio, budgetedIncomes]);
 
-    const getPerCheckLiabilityFor = useCallback((liability: Liability & { plannedPayment?: number }, currentPaycheck: PaycheckOccurrence | null, monthPaychecksForCheck: PaycheckOccurrence[]) => {
-        return getPerCheckLiabilityAmount(
+    const getPerChequeLiabilityFor = useCallback((liability: Liability & { plannedPayment?: number }, currentPaycheque: PaychequeOccurrence | null, monthPaychequesForCheque: PaychequeOccurrence[]) => {
+        return getPerChequeLiabilityAmount(
             liability,
-            currentPaycheck,
-            monthPaychecksForCheck,
+            currentPaycheque,
+            monthPaychequesForCheque,
             budgetedIncomes,
             extraPayments,
             userSplitRatio,
@@ -168,27 +168,27 @@ export const usePeriodTotals = ({
 
     const getExpensePeriodTotal = useCallback(
         (expense: Expense) => {
-            return paychecksInPeriod.reduce((sum, paycheck) => {
-                const monthPaychecksForCheck = getMonthPaychecksFor(paycheck.date);
-                return sum + getPerCheckExpenseFor(expense, paycheck, monthPaychecksForCheck);
+            return paychequesInPeriod.reduce((sum, paycheque) => {
+                const monthPaychequesForCheque = getMonthPaychequesFor(paycheque.date);
+                return sum + getPerChequeExpenseFor(expense, paycheque, monthPaychequesForCheque);
             }, 0);
         },
-        [getMonthPaychecksFor, getPerCheckExpenseFor, paychecksInPeriod]
+        [getMonthPaychequesFor, getPerChequeExpenseFor, paychequesInPeriod]
     );
 
     const getLiabilityPeriodTotal = useCallback(
         (liability: typeof liabilityWithMins[number]) => {
-            return paychecksInPeriod.reduce((sum, paycheck) => {
-                const monthPaychecksForCheck = getMonthPaychecksFor(paycheck.date);
-                return sum + getPerCheckLiabilityFor(liability, paycheck, monthPaychecksForCheck);
+            return paychequesInPeriod.reduce((sum, paycheque) => {
+                const monthPaychequesForCheque = getMonthPaychequesFor(paycheque.date);
+                return sum + getPerChequeLiabilityFor(liability, paycheque, monthPaychequesForCheque);
             }, 0);
         },
-        [getMonthPaychecksFor, getPerCheckLiabilityFor, paychecksInPeriod]
+        [getMonthPaychequesFor, getPerChequeLiabilityFor, paychequesInPeriod]
     );
 
     const periodIncomeTotal = useMemo(
-        () => paychecksInPeriod.reduce((sum, paycheck) => sum + paycheck.source.amount, 0),
-        [paychecksInPeriod]
+        () => paychequesInPeriod.reduce((sum, paycheque) => sum + paycheque.source.amount, 0),
+        [paychequesInPeriod]
     );
 
     const periodExpenseTotal = useMemo(
@@ -222,6 +222,6 @@ export const usePeriodTotals = ({
         periodLiabilityTotal,
         periodNet,
         periodCashOut,
-        paychecksInPeriod
+        paychequesInPeriod
     };
 };

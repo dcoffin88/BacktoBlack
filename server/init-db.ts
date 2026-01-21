@@ -78,11 +78,11 @@ db.serialize(() => {
   `);
 
   db.run(`
-    CREATE TABLE IF NOT EXISTS budget_checks (
+    CREATE TABLE IF NOT EXISTS budget_cheques (
       id TEXT PRIMARY KEY,
-      check_date TEXT,
-      expense_checks TEXT,
-      liability_checks TEXT,
+      cheque_date TEXT,
+      expense_cheques TEXT,
+      liability_cheques TEXT,
       household_id TEXT,
       user_id INTEGER,
       updated_at TEXT
@@ -94,7 +94,7 @@ db.serialize(() => {
       id TEXT PRIMARY KEY,
       liability_id TEXT,
       amount REAL,
-      check_date TEXT,
+      cheque_date TEXT,
       household_id TEXT,
       user_id INTEGER,
       updated_at TEXT
@@ -109,7 +109,7 @@ db.serialize(() => {
       payment REAL,
       purchase REAL,
       interest REAL,
-      check_date TEXT,
+      cheque_date TEXT,
       household_id TEXT,
       user_id INTEGER,
       updated_at TEXT
