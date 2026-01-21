@@ -2,11 +2,12 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Liability, StrategyType, STRATEGY_LABELS, BudgetSchedule, PayoffResult } from '../types';
 import { calculatePayoff, getMinPayment } from '../server/liabilityAlgorithms';
+import { calculatePrecisePayoff } from '../utils/precisePayoff';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, 
   BarChart, Bar, Legend, LineChart, Line 
 } from 'recharts';
-import { ChevronDown, Check, ArrowRight, Layers, PieChart, BarChart2, Table, AlertTriangle } from 'lucide-react';
+import { ChevronDown, Check, ArrowRight, Layers, PieChart, BarChart2, Table, AlertTriangle, Info, Calendar } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { dbAPI } from '../server/db';
 
@@ -172,6 +173,7 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
   const [anchorDate, setAnchorDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [hasJustSentSchedule, setHasJustSentSchedule] = useState(false);
   const [showAnchorModal, setShowAnchorModal] = useState(false);
+  
   const { ref: compareChartRef, size: compareChartSize } = useChartDimensions();
   const [strategySimulations, setStrategySimulations] = useState<Record<StrategyType, PayoffResult>>({});
   const [amortizationSchedules, setAmortizationSchedules] = useState<
@@ -505,6 +507,13 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
     }
   }, [customOrderMap, liabilitiesWithDerivedBalance, selectedStrategy]);
 
+  // Precise Calculation Result
+  const preciseResult = useMemo(() => {
+    const strat = selectedStrategy === NO_STRATEGY ? StrategyType.CUSTOM : (selectedStrategy as StrategyType);
+    const effectiveBudget = selectedStrategy === NO_STRATEGY ? 0 : monthlyBudget;
+    return calculatePrecisePayoff(orderedLiabilities, effectiveBudget, strat, anchorDate);
+  }, [orderedLiabilities, monthlyBudget, selectedStrategy, anchorDate]);
+
   const minOnlyResult = useMemo<PayoffResult | null>(() => {
     if (!liabilitiesWithDerivedBalance.length) return null;
     const scheduleEntries = liabilitiesWithDerivedBalance.map((liability) => ({
@@ -592,6 +601,12 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
 
   // Single Simulation Result
   const singleResult = useMemo(() => {
+    // Always prefer precise calculation for the schedule
+    if (preciseResult) {
+      return preciseResult;
+    }
+    
+    // Fallback logic
     if (selectedStrategy === NO_STRATEGY) {
       return minOnlyResult || {
         strategy: StrategyType.CUSTOM,
@@ -602,13 +617,16 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
     }
     const strat = selectedStrategy as StrategyType;
     return strategySimulations[strat] || calculatePayoff(orderedLiabilities, monthlyBudget, strat);
-  }, [orderedLiabilities, monthlyBudget, selectedStrategy, strategySimulations, minOnlyResult]);
+  }, [orderedLiabilities, monthlyBudget, selectedStrategy, strategySimulations, minOnlyResult, preciseResult]);
 
   const strategyMatrixRows = useMemo(() => {
-    const simulation =
-      selectedStrategy === NO_STRATEGY
-        ? minOnlyResult
-        : strategySimulations[selectedStrategy as StrategyType];
+    // Matrix source (Use precise result by default for the schedule view)
+    const simulation = preciseResult
+        ? preciseResult
+        : selectedStrategy === NO_STRATEGY
+            ? minOnlyResult
+            : strategySimulations[selectedStrategy as StrategyType];
+
     if (!simulation?.timeline?.length) return [];
     const lastRemaining: Record<string, number> = {};
     liabilitiesWithDerivedBalance.forEach((liability) => {
@@ -646,17 +664,15 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
         remainingById,
       };
     });
-  }, [liabilitiesWithDerivedBalance, selectedStrategy, strategySimulations, minOnlyResult]);
+  }, [liabilitiesWithDerivedBalance, selectedStrategy, strategySimulations, minOnlyResult, preciseResult]);
 
   const matrixRows = strategyMatrixRows;
-  const matrixPayoffMonths =
-    selectedStrategy === NO_STRATEGY
-      ? minOnlyResult?.monthsToFreedom ?? singleResult.monthsToFreedom
-      : strategySimulations[selectedStrategy as StrategyType]?.monthsToFreedom ?? singleResult.monthsToFreedom;
+  const matrixPayoffMonths = singleResult.monthsToFreedom;
   const strategyLoaded =
-    selectedStrategy === NO_STRATEGY
+    !!preciseResult ||
+    (selectedStrategy === NO_STRATEGY
       ? !!minOnlyResult?.timeline?.length
-      : !!strategySimulations[selectedStrategy as StrategyType];
+      : !!strategySimulations[selectedStrategy as StrategyType]);
 
   // Comparison Results (Calculate all for data table)
   const allStrategies = Object.values(StrategyType);
@@ -690,6 +706,7 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
         };
       }
       const strat = option.key as StrategyType;
+      // We don't use precise mode for comparison table (too slow/complex to render 8 of them on fly)
       const res =
         strategySimulations[strat] ||
         calculatePayoff(orderedLiabilities, monthlyBudget, strat);
@@ -1066,7 +1083,7 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
              <h3 className="font-bold text-slate-900 flex items-center">
                <Table size={18} className="mr-2 text-indigo-600" />
-               Monthly Payment Matrix
+               Monthly Payment Matrix (Projected)
              </h3>
            </div>
            

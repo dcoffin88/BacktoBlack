@@ -506,13 +506,26 @@ const buildAmortizationInputsForLiability = async (
     if (schedule?.timeline?.length) {
       const scheduleMonthIndex = getScheduleMonthIndex(schedule.savedAt);
       const offset = scheduleMonthIndex - 1;
+      const periodsPerYear = getPeriodsPerYear(liability);
+      const periodsPerMonth = periodsPerYear / 12;
       schedule.timeline.forEach((row: any) => {
-        const period = row.month - offset;
-        if (period < 1) return;
+        const monthIndex = row.month - offset;
+        if (monthIndex < 1) return;
         const paymentEntry = row.breakdown?.find((b: any) => b.liabilityId === liability.id);
         const pay = paymentEntry?.payment || 0;
-        if (pay > 0) {
-          planPaymentsMap[period] = pay;
+        if (pay <= 0) return;
+
+        const startPeriod =
+          Math.floor((monthIndex - 1) * periodsPerMonth) + 1;
+        let endPeriod = Math.floor(monthIndex * periodsPerMonth);
+        if (endPeriod < startPeriod) {
+          endPeriod = startPeriod;
+        }
+        const span = Math.max(1, endPeriod - startPeriod + 1);
+        const perPeriodPayment = pay / span;
+
+        for (let period = startPeriod; period <= endPeriod; period++) {
+          planPaymentsMap[period] = (planPaymentsMap[period] || 0) + perPeriodPayment;
         }
       });
     }
