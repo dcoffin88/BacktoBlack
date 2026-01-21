@@ -3619,9 +3619,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 Payment
                                             </th>
                                             <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200 text-right">
-                                                Purchase
-                                            </th>
-                                            <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200 text-right">
                                                 Principal
                                             </th>
                                             <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200 text-right">
@@ -3633,9 +3630,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                             <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200 text-right">
                                                 Balance
                                             </th>
-                                            <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200 text-right">
-                                                Actions
-                                            </th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 bg-white">
@@ -3644,7 +3638,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                             !amortizationData.isInfinite && (
                                                 <tr>
                                                     <td
-                                                        colSpan={6}
+                                                        colSpan={7}
                                                         className="px-6 py-8 text-center text-slate-400"
                                                     >
                                                         Liability is already
@@ -3912,35 +3906,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                                 </>
                                                             )}
                                                         </td>
-                                                        <td className="px-6 py-3 text-sm font-mono text-right text-slate-700">
-                                                            {isEditingRow ? (
-                                                                <input
-                                                                    type="number"
-                                                                    min="0"
-                                                                    step="0.01"
-                                                                    className="w-20 px-2 py-1 border border-slate-300 rounded-md text-right text-sm"
-                                                                    value={
-                                                                        amortizationEditPurchase
-                                                                    }
-                                                                    onChange={(
-                                                                        e
-                                                                    ) =>
-                                                                        setAmortizationEditPurchase(
-                                                                            e
-                                                                                .target
-                                                                                .value
-                                                                        )
-                                                                    }
-                                                                />
-                                                            ) : displayPurchase >
-                                                                0 ? (
-                                                                `$${displayPurchase.toFixed(
-                                                                    2
-                                                                )}`
-                                                            ) : (
-                                                                "-"
-                                                            )}
-                                                        </td>
                                                         <td className="px-6 py-3 text-sm font-mono text-green-600 text-right font-medium">
                                                             $
                                                             {displayPrincipal.toFixed(
@@ -3999,71 +3964,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                             {row.remainingBalance.toFixed(
                                                                 2
                                                             )}
-                                                        </td>
-                                                        <td className="px-4 py-3 text-right text-xs text-slate-500">
-                                                            {hasEditableRow ? (
-                                                                <div className="inline-flex gap-2">
-                                                                    {isEditingRow ? (
-                                                                        <>
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() =>
-                                                                                    saveAmortizationRowEdit(
-                                                                                        row,
-                                                                                        matchingPayment
-                                                                                    )
-                                                                                }
-                                                                                className="px-2 py-1 border border-emerald-200 text-emerald-700 rounded hover:bg-emerald-50"
-                                                                            >
-                                                                                Save
-                                                                            </button>
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={
-                                                                                    cancelEditAmortizationRow
-                                                                                }
-                                                                                className="px-2 py-1 border border-slate-200 rounded hover:bg-slate-50"
-                                                                            >
-                                                                                Cancel
-                                                                            </button>
-                                                                        </>
-                                                                    ) : (
-                                                                        <>
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => {
-                                                                                    startEditAmortizationRow(
-                                                                                        row
-                                                                                    );
-                                                                                }}
-                                                                                className="inline-flex items-center justify-center w-8 h-8 border border-slate-200 rounded hover:bg-slate-50"
-                                                                                aria-label="Edit amortization row"
-                                                                                title="Edit"
-                                                                            >
-                                                                                <Edit2 className="w-4 h-4" />
-                                                                            </button>
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() =>
-                                                                                    matchingPayment
-                                                                                        ? deletePayment(
-                                                                                            matchingPayment.id
-                                                                                        )
-                                                                                        : deleteAmortizationOverrideRow(
-                                                                                            viewingLiability.id,
-                                                                                            row.month
-                                                                                        )
-                                                                                }
-                                                                                className="inline-flex items-center justify-center w-8 h-8 border border-red-200 text-red-600 rounded hover:bg-red-50"
-                                                                                aria-label="Delete amortization row"
-                                                                                title="Delete"
-                                                                            >
-                                                                                <Trash2 className="w-4 h-4" />
-                                                                            </button>
-                                                                        </>
-                                                                    )}
-                                                                </div>
-                                                            ) : null}
                                                         </td>
                                                     </tr>
                                                 );

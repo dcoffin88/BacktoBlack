@@ -31,7 +31,7 @@
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.9.6",
     "recharts": "^3.5.0",
-    "sqlite3": "^5.1.7"
+    "sqlite3": "^5.0.2"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",
@@ -51,5 +51,9 @@
     "typescript": "~5.8.2",
     "vite": "^6.4.1",
     "wait-on": "^9.0.3"
+  },
+  "overrides": {
+    "tar": "^7.2.3",
+    "tough-cookie": "^4.1.3"
   }
 }

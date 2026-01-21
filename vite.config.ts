@@ -13,6 +13,9 @@ export default defineConfig({
       '@': path.resolve(__dirname, './'),
     },
   },
+  build: {
+    chunkSizeWarningLimit: 1000,
+  },
   server: {
     port: 3000,
     proxy: {
