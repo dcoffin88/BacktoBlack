@@ -151,6 +151,13 @@ export interface UserSettings {
     monthlyBudget: number; // Extra money available strictly for liability on top of minimums
     emailReports: boolean;
     email: string;
+    // SMTP Configuration
+    smtpHost?: string;
+    smtpPort?: number;
+    smtpUser?: string;
+    smtpPass?: string;
+    smtpSecure?: boolean;
+
     // Display / terminology preferences
     useSimpleTerms?: boolean; // Loan/Bills naming
     currencySymbol?: string;

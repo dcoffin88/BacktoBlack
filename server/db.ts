@@ -250,6 +250,14 @@ export const dbAPI = {
     });
   },
 
+  testEmailSettings: async (settings: UserSettings, toEmail: string) => {
+    return await fetchJson(`${API_BASE_URL}/settings/test-email`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ ...settings, toEmail }),
+    });
+  },
+
   // HOUSEHOLD
   joinHousehold: async (partnerEmail: string) => {
     const response = await fetch(`${API_BASE_URL}/household/join`, {

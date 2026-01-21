@@ -23,7 +23,7 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
   const [linkingHousehold, setLinkingHousehold] = useState(false);
   const [leavingHousehold, setLeavingHousehold] = useState(false);
   const [invites, setInvites] = useState<Array<{ token: string; status: string; inviterEmail: string; inviteeEmail: string; householdId: string; isIncoming: boolean }>>([]);
-  
+
   // Income Source Modal State
   const [isIncomeModalOpen, setIsIncomeModalOpen] = useState(false);
   const [editingIncomeId, setEditingIncomeId] = useState<string | null>(null);
@@ -64,44 +64,36 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
     setTimeout(() => setSaved(false), 3000);
   };
 
-  const simulateEmailSend = () => {
-    if(!tempSettings.email) return;
-    
-    // Calculate values for the mock email
-    const totalAssets = assets.reduce((sum, a) => sum + a.value, 0);
-    const totalLiability = liabilities.reduce((sum, d) => sum + d.balance, 0);
-    const netWorth = totalAssets - totalLiability;
-
-    alert(`
-      [MOCK EMAIL SENT to ${tempSettings.email}]
-      
-      Subject: Your Monthly BacktoBlack Update
-      
-      Your Financial Health:
-      ----------------------
-      Net Worth: $${netWorth.toLocaleString()}
-      Total Assets: $${totalAssets.toLocaleString()}
-    Total {liabilityLabel}: {currencySymbol}{totalLiability.toLocaleString()}
-      
-      (This is a simulation. No email was actually sent.)
-    `);
+  const testEmailSettings = async () => {
+    if (!tempSettings.email || !tempSettings.smtpHost) {
+      alert("Please configure SMTP settings and enter an email address.");
+      return;
+    }
 
     setEmailSent(true);
-    setTimeout(() => setEmailSent(false), 3000);
+    try {
+      await dbAPI.testEmailSettings(tempSettings, tempSettings.email);
+      alert("Test email sent successfullly! Check your inbox.");
+    } catch (e: any) {
+      console.error(e);
+      alert(`Failed to send test email: ${e.message}`);
+    } finally {
+      setEmailSent(false);
+    }
   };
 
   // Helper for split ratio display
   const getIncomeRatio = () => {
-      const eligibleIncomes = incomes.filter((s) => s.includeInPlanner !== false);
-      const userSources = eligibleIncomes.filter(s => !s.isPartner);
-      const partnerSources = eligibleIncomes.filter(s => s.isPartner);
+    const eligibleIncomes = incomes.filter((s) => s.includeInPlanner !== false);
+    const userSources = eligibleIncomes.filter(s => !s.isPartner);
+    const partnerSources = eligibleIncomes.filter(s => s.isPartner);
 
-      const u = userSources.reduce((sum, source) => sum + getAnnualizedIncomeAmount(source), 0);
-      const p = partnerSources.reduce((sum, source) => sum + getAnnualizedIncomeAmount(source), 0);
+    const u = userSources.reduce((sum, source) => sum + getAnnualizedIncomeAmount(source), 0);
+    const p = partnerSources.reduce((sum, source) => sum + getAnnualizedIncomeAmount(source), 0);
 
-      const total = u + p;
-      if (total === 0) return { u: 50, p: 50 };
-      return { u: (u / total) * 100, p: (p / total) * 100 };
+    const total = u + p;
+    if (total === 0) return { u: 50, p: 50 };
+    return { u: (u / total) * 100, p: (p / total) * 100 };
   };
 
   // --- Real-time Budget Calculation ---
@@ -293,7 +285,7 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
 
   const renderIncomeList = (isPartner: boolean) => {
     const sources = tempSettings.incomeSources.filter(s => s.isPartner === isPartner);
-    
+
     return (
       <div className="space-y-3 mt-3">
         {sources.length === 0 && (
@@ -303,37 +295,37 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
         )}
         {sources.map(source => (
           <div key={source.id} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg shadow-sm hover:border-indigo-300 transition-colors">
-             <div>
-               <p className="font-medium text-slate-800">{source.name}</p>
-               <div className="flex items-center space-x-2 text-xs text-slate-500 mt-0.5">
-                 <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-600 font-medium">
-                   {source.frequency.replace('_', ' ')}
-                 </span>
-                 <span>•</span>
-                 <span>Next: {new Date(source.nextPayDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
-               </div>
-             </div>
-             <div className="flex items-center space-x-4">
-               <span className="font-bold text-emerald-600">
-                 ${source.amount.toLocaleString()}
-               </span>
-               <div className="flex items-center space-x-1">
-                 <button 
-                    type="button"
-                    onClick={() => openIncomeModal(source)}
-                    className="p-1.5 text-slate-400 hover:text-indigo-600 rounded hover:bg-indigo-50 transition-colors"
-                 >
-                   <Edit2 size={16} />
-                 </button>
-                 <button 
-                    type="button"
-                    onClick={() => deleteIncomeSource(source.id)}
-                    className="p-1.5 text-slate-400 hover:text-red-600 rounded hover:bg-red-50 transition-colors"
-                 >
-                   <Trash2 size={16} />
-                 </button>
-               </div>
-             </div>
+            <div>
+              <p className="font-medium text-slate-800">{source.name}</p>
+              <div className="flex items-center space-x-2 text-xs text-slate-500 mt-0.5">
+                <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-600 font-medium">
+                  {source.frequency.replace('_', ' ')}
+                </span>
+                <span>•</span>
+                <span>Next: {new Date(source.nextPayDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+              </div>
+            </div>
+            <div className="flex items-center space-x-4">
+              <span className="font-bold text-emerald-600">
+                ${source.amount.toLocaleString()}
+              </span>
+              <div className="flex items-center space-x-1">
+                <button
+                  type="button"
+                  onClick={() => openIncomeModal(source)}
+                  className="p-1.5 text-slate-400 hover:text-indigo-600 rounded hover:bg-indigo-50 transition-colors"
+                >
+                  <Edit2 size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => deleteIncomeSource(source.id)}
+                  className="p-1.5 text-slate-400 hover:text-red-600 rounded hover:bg-red-50 transition-colors"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            </div>
           </div>
         ))}
         <button
@@ -361,344 +353,415 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
       </div>
 
       <form onSubmit={handleSave} className="space-y-6">
-        
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Left Col: Inputs */}
-            <div className="lg:col-span-2 bg-white p-8 rounded-xl shadow-sm border border-slate-100 space-y-8">
-                {/* Display & Terminology */}
-                <div className="space-y-4">
-                  <div className="flex items-center space-x-2">
-                    <div className="p-2 bg-indigo-100 text-indigo-600 rounded-lg">
-                      <PieChart size={20} />
-                    </div>
-                    <h2 className="text-lg font-bold text-slate-900">Display & Terminology</h2>
+          {/* Left Col: Inputs */}
+          <div className="lg:col-span-2 bg-white p-8 rounded-xl shadow-sm border border-slate-100 space-y-8">
+            {/* Display & Terminology */}
+            <div className="space-y-4">
+              <div className="flex items-center space-x-2">
+                <div className="p-2 bg-indigo-100 text-indigo-600 rounded-lg">
+                  <PieChart size={20} />
+                </div>
+                <h2 className="text-lg font-bold text-slate-900">Display & Terminology</h2>
+              </div>
+              <div className="space-y-3">
+                <label className="flex items-center space-x-3">
+                  <input
+                    type="checkbox"
+                    checked={!!tempSettings.useSimpleTerms}
+                    onChange={e => setTempSettings({ ...tempSettings, useSimpleTerms: e.target.checked })}
+                    className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                  />
+                  <span className="text-sm text-slate-700">Use simplified terms (Loans/Bills instead of Liabilities/Expenses)</span>
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Currency Symbol</label>
+                    <select
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white text-sm"
+                      value={tempSettings.currencySymbol || '$'}
+                      onChange={e => setTempSettings({ ...tempSettings, currencySymbol: e.target.value })}
+                    >
+                      {currencyOptions.map(opt => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
                   </div>
-                  <div className="space-y-3">
-                    <label className="flex items-center space-x-3">
-                      <input
-                        type="checkbox"
-                        checked={!!tempSettings.useSimpleTerms}
-                        onChange={e => setTempSettings({ ...tempSettings, useSimpleTerms: e.target.checked })}
-                        className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                      />
-                      <span className="text-sm text-slate-700">Use simplified terms (Loans/Bills instead of Liabilities/Expenses)</span>
-                    </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Currency Symbol</label>
-                        <select
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white text-sm"
-                          value={tempSettings.currencySymbol || '$'}
-                          onChange={e => setTempSettings({ ...tempSettings, currencySymbol: e.target.value })}
-                        >
-                          {currencyOptions.map(opt => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Preview</label>
-                        <div className="px-3 py-2 border border-slate-200 rounded-lg bg-slate-50 text-sm text-slate-600">
-                          {tempSettings.currencySymbol || '$'} 12,345.67
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="pt-4">
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Monthly Income Display</label>
-                      <select
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white text-sm"
-                        value={tempSettings.monthlyIncomeMode || 'ANNUALIZED'}
-                        onChange={e => setTempSettings({ ...tempSettings, monthlyIncomeMode: e.target.value as MonthlyIncomeMode })}
-                      >
-                        <option value="ANNUALIZED">Annualized (Annual / 12)</option>
-                        <option value="MODE">Mode (most common month)</option>
-                        <option value="MEDIAN">Median (middle month)</option>
-                        <option value="MEAN">Mean (average of 12 months)</option>
-                      </select>
-                      <p className="text-xs text-slate-500 mt-1">Controls how monthly income is calculated across the app (Dashboard, Reports, and Income summaries).</p>
-                    </div>
-
-                    <div className="pt-4 border-t border-slate-100">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <div className="p-2 bg-indigo-100 text-indigo-600 rounded-lg">
-                          <Calendar size={18} />
-                        </div>
-                        <h3 className="text-md font-bold text-slate-900">Budget Timeline</h3>
-                      </div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Start Date</label>
-                      <input
-                        type="date"
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white text-sm"
-                        value={tempSettings.startDate || todayIso}
-                        onChange={e => setTempSettings({ ...tempSettings, startDate: e.target.value })}
-                      />
-                      <p className="text-xs text-slate-500 mt-1">Budget navigation cannot move to paycheques before this date.</p>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Preview</label>
+                    <div className="px-3 py-2 border border-slate-200 rounded-lg bg-slate-50 text-sm text-slate-600">
+                      {tempSettings.currencySymbol || '$'} 12,345.67
                     </div>
                   </div>
                 </div>
 
-                {/* Couple / Joint Mode */}
-                <div className="pt-6 border-t border-slate-100 animate-fade-in">
-                    <div className="flex items-center space-x-2 mb-4">
-                        <div className="p-2 bg-pink-100 text-pink-600 rounded-lg">
-                            <Users size={20} />
-                        </div>
-                        <h2 className="text-lg font-bold text-slate-900">Couple / Joint Mode</h2>
+                <div className="pt-4">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Monthly Income Display</label>
+                  <select
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white text-sm"
+                    value={tempSettings.monthlyIncomeMode || 'ANNUALIZED'}
+                    onChange={e => setTempSettings({ ...tempSettings, monthlyIncomeMode: e.target.value as MonthlyIncomeMode })}
+                  >
+                    <option value="ANNUALIZED">Annualized (Annual / 12)</option>
+                    <option value="MODE">Mode (most common month)</option>
+                    <option value="MEDIAN">Median (middle month)</option>
+                    <option value="MEAN">Mean (average of 12 months)</option>
+                  </select>
+                  <p className="text-xs text-slate-500 mt-1">Controls how monthly income is calculated across the app (Dashboard, Reports, and Income summaries).</p>
+                </div>
+
+                <div className="pt-4 border-t border-slate-100">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <div className="p-2 bg-indigo-100 text-indigo-600 rounded-lg">
+                      <Calendar size={18} />
                     </div>
-                    
-					          {/* Incoming Invites */}
-					          {invites.filter(i => i.isIncoming).length > 0 && (
-					            <div className="bg-white p-4 rounded-lg border border-pink-200 shadow-sm space-y-3 mb-4">
-						            <p className="text-sm font-bold text-slate-800">Incoming Partner Invites</p>
-						            {invites.filter(i => i.isIncoming).map(invite => (
-						              <div key={invite.token} className="flex items-center justify-between text-sm border border-pink-100 rounded-lg px-3 py-2">
-							              <div className="text-left">
-							                <p className="font-medium text-slate-800">From {invite.inviterEmail}</p>
-							              </div>
-							              <div className="flex items-center space-x-2">
-							                <button
-								                type="button"
-								                onClick={() => acceptInvite(invite.token)}
-								                disabled={linkingHousehold}
-								                className={`px-3 py-1.5 rounded-lg text-xs font-semibold text-white ${linkingHousehold ? 'bg-pink-300' : 'bg-pink-600 hover:bg-pink-700'}`}
-							                >
-								                {linkingHousehold ? 'Linking...' : 'Accept'}
-							                </button>
-							                <button
-								                type="button"
-								                onClick={() => declineInvite(invite.token)}
-								                disabled={linkingHousehold}
-								                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 disabled:opacity-60 disabled:cursor-not-allowed"
-							                >
-								                Decline
-							                </button>
-							              </div>
-						              </div>
-						            ))}
-					            </div>
-					          )}
-					
-                    {pendingOutboundInvite && (
-                      <div className="mb-3 px-4 py-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800 flex items-center justify-between">
-                        <span>Waiting for partner ({pendingOutboundInvite.inviteeEmail}) to accept...</span>
+                    <h3 className="text-md font-bold text-slate-900">Budget Timeline</h3>
+                  </div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Start Date</label>
+                  <input
+                    type="date"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white text-sm"
+                    value={tempSettings.startDate || todayIso}
+                    onChange={e => setTempSettings({ ...tempSettings, startDate: e.target.value })}
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Budget navigation cannot move to paycheques before this date.</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Couple / Joint Mode */}
+            <div className="pt-6 border-t border-slate-100 animate-fade-in">
+              <div className="flex items-center space-x-2 mb-4">
+                <div className="p-2 bg-pink-100 text-pink-600 rounded-lg">
+                  <Users size={20} />
+                </div>
+                <h2 className="text-lg font-bold text-slate-900">Couple / Joint Mode</h2>
+              </div>
+
+              {/* Incoming Invites */}
+              {invites.filter(i => i.isIncoming).length > 0 && (
+                <div className="bg-white p-4 rounded-lg border border-pink-200 shadow-sm space-y-3 mb-4">
+                  <p className="text-sm font-bold text-slate-800">Incoming Partner Invites</p>
+                  {invites.filter(i => i.isIncoming).map(invite => (
+                    <div key={invite.token} className="flex items-center justify-between text-sm border border-pink-100 rounded-lg px-3 py-2">
+                      <div className="text-left">
+                        <p className="font-medium text-slate-800">From {invite.inviterEmail}</p>
+                      </div>
+                      <div className="flex items-center space-x-2">
                         <button
                           type="button"
-                          onClick={() => cancelInvite(pendingOutboundInvite.token)}
+                          onClick={() => acceptInvite(invite.token)}
                           disabled={linkingHousehold}
-                          className="ml-3 px-3 py-1.5 text-xs font-semibold rounded-lg border border-amber-300 text-amber-800 hover:bg-amber-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold text-white ${linkingHousehold ? 'bg-pink-300' : 'bg-pink-600 hover:bg-pink-700'}`}
                         >
-                          Cancel
+                          {linkingHousehold ? 'Linking...' : 'Accept'}
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => declineInvite(invite.token)}
+                          disabled={linkingHousehold}
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          Decline
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {pendingOutboundInvite && (
+                <div className="mb-3 px-4 py-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800 flex items-center justify-between">
+                  <span>Waiting for partner ({pendingOutboundInvite.inviteeEmail}) to accept...</span>
+                  <button
+                    type="button"
+                    onClick={() => cancelInvite(pendingOutboundInvite.token)}
+                    disabled={linkingHousehold}
+                    className="ml-3 px-3 py-1.5 text-xs font-semibold rounded-lg border border-amber-300 text-amber-800 hover:bg-amber-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+
+              <div className="flex items-center space-x-3 mb-4">
+                <input
+                  type="checkbox"
+                  id="enablePartner"
+                  checked={isHouseholdMember || !!pendingOutboundInvite || tempSettings.enablePartner}
+                  onChange={e => {
+                    if (isHouseholdMember || pendingOutboundInvite) return;
+                    setTempSettings({ ...tempSettings, enablePartner: e.target.checked });
+                  }}
+                  disabled={isHouseholdMember || !!pendingOutboundInvite}
+                  className="w-5 h-5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                />
+                <label htmlFor="enablePartner" className={`text-slate-700 font-medium select-none cursor-pointer ${(isHouseholdMember || !!pendingOutboundInvite) ? 'cursor-not-allowed text-slate-500' : ''}`}>
+                  Link Partner Income & Expenses
+                </label>
+              </div>
+
+              {(tempSettings.enablePartner || pendingOutboundInvite || isHouseholdMember) && (
+                <div className="bg-pink-50/50 p-5 rounded-xl border border-pink-100 animate-fade-in space-y-6">
+
+                  {!isHouseholdMember && !pendingOutboundInvite && !invites.filter(i => i.isIncoming).length ? (
+                    <div className="bg-white p-6 rounded-xl border border-pink-100 text-center space-y-4 shadow-sm">
+                      <div className="bg-pink-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto">
+                        <Users className="text-pink-600" size={24} />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-slate-800">Link Partner Account</h3>
+                        <p className="text-sm text-slate-500 mt-1">Invite your partner to automatically sync income and expenses.</p>
+                      </div>
+                      <div className="flex flex-col sm:flex-row max-w-md mx-auto gap-2">
+                        <input
+                          type="email"
+                          placeholder="partner@email.com"
+                          className="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 outline-none"
+                          value={tempSettings.partnerEmail || ''}
+                          onChange={e => setTempSettings({ ...tempSettings, partnerEmail: e.target.value })}
+                        />
+                        <button
+                          type="button"
+                          onClick={linkHousehold}
+                          disabled={linkingHousehold || !!pendingOutboundInvite || isHouseholdMember}
+                          className={`bg-pink-600 text-white px-6 py-2 rounded-lg font-medium transition-colors ${(linkingHousehold || !!pendingOutboundInvite || isHouseholdMember) ? 'opacity-60 cursor-not-allowed' : 'hover:bg-pink-700'}`}
+                        >
+                          {linkingHousehold ? 'Linking...' : 'Link'}
+                        </button>
+                      </div>
+                      <p className="text-xs text-slate-400">Or manually enter details below.</p>
+                    </div>
+                  ) : isHouseholdMember ? (
+                    <div className="flex justify-between items-center p-4 bg-white rounded-lg border border-pink-200 shadow-sm">
+                      <div className="flex items-center space-x-3">
+                        <div className="bg-green-100 p-2 rounded-full">
+                          <CheckCircle size={16} className="text-green-600" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-800">Household Active</p>
+                          <p className="text-xs text-slate-500">Sharing data with partner</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={leaveHousehold}
+                        disabled={leavingHousehold}
+                        className="text-xs text-red-500 hover:text-red-700 font-medium px-3 py-1 bg-red-50 rounded-full hover:bg-red-100 transition-colors"
+                      >
+                        {leavingHousehold ? 'Leaving...' : 'Leave Household'}
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {/* Expense Splitting Settings */}
+                  <div className="border-t border-pink-200 pt-4">
+                    <div className="flex items-center space-x-2 mb-3">
+                      <PieChart size={16} className="text-pink-600" />
+                      <h3 className="text-sm font-bold text-slate-800">Expense Splitting Strategy</h3>
+                    </div>
+
+                    <div className="flex flex-col space-y-3 mb-4">
+                      <label className="flex items-center space-x-3 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="splitMethod"
+                          value={ExpenseSplitMethod.EQUAL}
+                          checked={tempSettings.expenseSplitMethod === ExpenseSplitMethod.EQUAL || !tempSettings.expenseSplitMethod}
+                          onChange={() => setTempSettings({ ...tempSettings, expenseSplitMethod: ExpenseSplitMethod.EQUAL })}
+                          className="w-4 h-4 text-pink-600 focus:ring-pink-500 border-gray-300"
+                        />
+                        <span className="text-sm text-slate-700">50/50 Split</span>
+                      </label>
+                      <label className="flex items-center space-x-3 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="splitMethod"
+                          value={ExpenseSplitMethod.PERCENTAGE}
+                          checked={tempSettings.expenseSplitMethod === ExpenseSplitMethod.PERCENTAGE}
+                          onChange={() => setTempSettings({ ...tempSettings, expenseSplitMethod: ExpenseSplitMethod.PERCENTAGE })}
+                          className="w-4 h-4 text-pink-600 focus:ring-pink-500 border-gray-300"
+                        />
+                        <span className="text-sm text-slate-700">Fixed Percentage</span>
+                      </label>
+                      <label className="flex items-center space-x-3 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="splitMethod"
+                          value={ExpenseSplitMethod.INCOME}
+                          checked={tempSettings.expenseSplitMethod === ExpenseSplitMethod.INCOME}
+                          onChange={() => setTempSettings({ ...tempSettings, expenseSplitMethod: ExpenseSplitMethod.INCOME })}
+                          className="w-4 h-4 text-pink-600 focus:ring-pink-500 border-gray-300"
+                        />
+                        <span className="text-sm text-slate-700">Income Weighted</span>
+                      </label>
+                    </div>
+
+                    {/* Controls for Specific Methods */}
+                    {tempSettings.expenseSplitMethod === ExpenseSplitMethod.PERCENTAGE && (
+                      <div className="bg-white p-3 rounded-lg border border-pink-100">
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Your Share</label>
+                        <div className="flex items-center space-x-3">
+                          <input
+                            type="range"
+                            min="0" max="100" step="1"
+                            value={tempSettings.userSplitPercentage || 50}
+                            onChange={e => setTempSettings({ ...tempSettings, userSplitPercentage: parseInt(e.target.value) })}
+                            className="w-full h-2 bg-pink-100 rounded-lg appearance-none cursor-pointer accent-pink-600"
+                          />
+                          <span className="text-sm font-bold text-slate-900 w-12 text-right">{tempSettings.userSplitPercentage || 50}%</span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1 text-right">Partner pays {100 - (tempSettings.userSplitPercentage || 50)}%</p>
                       </div>
                     )}
 
-                    <div className="flex items-center space-x-3 mb-4">
-                        <input 
-                        type="checkbox" 
-                        id="enablePartner"
-                        checked={isHouseholdMember || !!pendingOutboundInvite || tempSettings.enablePartner}
-                        onChange={e => {
-                          if (isHouseholdMember || pendingOutboundInvite) return;
-                          setTempSettings({...tempSettings, enablePartner: e.target.checked});
-                        }}
-                        disabled={isHouseholdMember || !!pendingOutboundInvite}
-                        className="w-5 h-5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-                        />
-                        <label htmlFor="enablePartner" className={`text-slate-700 font-medium select-none cursor-pointer ${(isHouseholdMember || !!pendingOutboundInvite) ? 'cursor-not-allowed text-slate-500' : ''}`}>
-                            Link Partner Income & Expenses
-                        </label>
-                    </div>
-
-                    {(tempSettings.enablePartner || pendingOutboundInvite || isHouseholdMember) && (
-                        <div className="bg-pink-50/50 p-5 rounded-xl border border-pink-100 animate-fade-in space-y-6">
-                            
-                            {!isHouseholdMember && !pendingOutboundInvite && !invites.filter(i => i.isIncoming).length ? (
-                                <div className="bg-white p-6 rounded-xl border border-pink-100 text-center space-y-4 shadow-sm">
-                                    <div className="bg-pink-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto">
-                                        <Users className="text-pink-600" size={24} />
-                                    </div>
-                                    <div>
-                                        <h3 className="font-bold text-slate-800">Link Partner Account</h3>
-                                        <p className="text-sm text-slate-500 mt-1">Invite your partner to automatically sync income and expenses.</p>
-                                    </div>
-                                    <div className="flex flex-col sm:flex-row max-w-md mx-auto gap-2">
-                                        <input 
-                                            type="email" 
-                                            placeholder="partner@email.com"
-                                            className="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 outline-none"
-                                            value={tempSettings.partnerEmail || ''}
-                                            onChange={e => setTempSettings({...tempSettings, partnerEmail: e.target.value})}
-                                        />
-                                        <button 
-                                            type="button"
-                                            onClick={linkHousehold}
-                                            disabled={linkingHousehold || !!pendingOutboundInvite || isHouseholdMember}
-                                            className={`bg-pink-600 text-white px-6 py-2 rounded-lg font-medium transition-colors ${(linkingHousehold || !!pendingOutboundInvite || isHouseholdMember) ? 'opacity-60 cursor-not-allowed' : 'hover:bg-pink-700'}`}
-                                        >
-                                            {linkingHousehold ? 'Linking...' : 'Link'}
-                                        </button>
-                                    </div>
-                                    <p className="text-xs text-slate-400">Or manually enter details below.</p>
-                                </div>
-                            ) : isHouseholdMember ? (
-                                <div className="flex justify-between items-center p-4 bg-white rounded-lg border border-pink-200 shadow-sm">
-                                    <div className="flex items-center space-x-3">
-                                        <div className="bg-green-100 p-2 rounded-full">
-                                            <CheckCircle size={16} className="text-green-600" />
-                                        </div>
-                                        <div>
-                                            <p className="text-sm font-bold text-slate-800">Household Active</p>
-                                            <p className="text-xs text-slate-500">Sharing data with partner</p>
-                                        </div>
-                                    </div>
-                                    <button 
-                                        type="button"
-                                        onClick={leaveHousehold}
-                                        disabled={leavingHousehold}
-                                        className="text-xs text-red-500 hover:text-red-700 font-medium px-3 py-1 bg-red-50 rounded-full hover:bg-red-100 transition-colors"
-                                    >
-                                        {leavingHousehold ? 'Leaving...' : 'Leave Household'}
-                                    </button>
-                                </div>
-                            ) : null}
-
-                            {/* Expense Splitting Settings */}
-                            <div className="border-t border-pink-200 pt-4">
-                                <div className="flex items-center space-x-2 mb-3">
-                                    <PieChart size={16} className="text-pink-600"/>
-                                    <h3 className="text-sm font-bold text-slate-800">Expense Splitting Strategy</h3>
-                                </div>
-                                
-                                <div className="flex flex-col space-y-3 mb-4">
-                                    <label className="flex items-center space-x-3 cursor-pointer">
-                                        <input 
-                                            type="radio" 
-                                            name="splitMethod"
-                                            value={ExpenseSplitMethod.EQUAL}
-                                            checked={tempSettings.expenseSplitMethod === ExpenseSplitMethod.EQUAL || !tempSettings.expenseSplitMethod}
-                                            onChange={() => setTempSettings({...tempSettings, expenseSplitMethod: ExpenseSplitMethod.EQUAL})}
-                                            className="w-4 h-4 text-pink-600 focus:ring-pink-500 border-gray-300"
-                                        />
-                                        <span className="text-sm text-slate-700">50/50 Split</span>
-                                    </label>
-                                    <label className="flex items-center space-x-3 cursor-pointer">
-                                        <input 
-                                            type="radio" 
-                                            name="splitMethod"
-                                            value={ExpenseSplitMethod.PERCENTAGE}
-                                            checked={tempSettings.expenseSplitMethod === ExpenseSplitMethod.PERCENTAGE}
-                                            onChange={() => setTempSettings({...tempSettings, expenseSplitMethod: ExpenseSplitMethod.PERCENTAGE})}
-                                            className="w-4 h-4 text-pink-600 focus:ring-pink-500 border-gray-300"
-                                        />
-                                        <span className="text-sm text-slate-700">Fixed Percentage</span>
-                                    </label>
-                                    <label className="flex items-center space-x-3 cursor-pointer">
-                                        <input 
-                                            type="radio" 
-                                            name="splitMethod"
-                                            value={ExpenseSplitMethod.INCOME}
-                                            checked={tempSettings.expenseSplitMethod === ExpenseSplitMethod.INCOME}
-                                            onChange={() => setTempSettings({...tempSettings, expenseSplitMethod: ExpenseSplitMethod.INCOME})}
-                                            className="w-4 h-4 text-pink-600 focus:ring-pink-500 border-gray-300"
-                                        />
-                                        <span className="text-sm text-slate-700">Income Weighted</span>
-                                    </label>
-                                </div>
-
-                                {/* Controls for Specific Methods */}
-                                {tempSettings.expenseSplitMethod === ExpenseSplitMethod.PERCENTAGE && (
-                                    <div className="bg-white p-3 rounded-lg border border-pink-100">
-                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Your Share</label>
-                                        <div className="flex items-center space-x-3">
-                                            <input 
-                                                type="range" 
-                                                min="0" max="100" step="1"
-                                                value={tempSettings.userSplitPercentage || 50}
-                                                onChange={e => setTempSettings({...tempSettings, userSplitPercentage: parseInt(e.target.value)})}
-                                                className="w-full h-2 bg-pink-100 rounded-lg appearance-none cursor-pointer accent-pink-600"
-                                            />
-                                            <span className="text-sm font-bold text-slate-900 w-12 text-right">{tempSettings.userSplitPercentage || 50}%</span>
-                                        </div>
-                                        <p className="text-xs text-slate-500 mt-1 text-right">Partner pays {100 - (tempSettings.userSplitPercentage || 50)}%</p>
-                                    </div>
-                                )}
-
-                                {tempSettings.expenseSplitMethod === ExpenseSplitMethod.INCOME && (
-                                    <div className="bg-white p-3 rounded-lg border border-pink-100">
-                                        <div className="text-center text-xs text-slate-500 mt-1">
-                                            Based on income sources entered above: <br/>
-                                            <strong className="text-slate-900">{getIncomeRatio().u.toFixed(1)}%</strong> You / <strong className="text-slate-900">{getIncomeRatio().p.toFixed(1)}%</strong> Partner
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
+                    {tempSettings.expenseSplitMethod === ExpenseSplitMethod.INCOME && (
+                      <div className="bg-white p-3 rounded-lg border border-pink-100">
+                        <div className="text-center text-xs text-slate-500 mt-1">
+                          Based on income sources entered above: <br />
+                          <strong className="text-slate-900">{getIncomeRatio().u.toFixed(1)}%</strong> You / <strong className="text-slate-900">{getIncomeRatio().p.toFixed(1)}%</strong> Partner
                         </div>
+                      </div>
                     )}
+                  </div>
                 </div>
+              )}
             </div>
+          </div>
 
-            {/* Right Col: Calculations & Notifications */}
-            <div className="space-y-6">
-                
-                  {/* Calculation Summary Card moved to Dashboard */}
+          {/* Right Col: Calculations & Notifications */}
+          <div className="space-y-6">
 
-                {/* Notifications */}
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-                    <div className="flex items-center space-x-2 mb-4">
-                        <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
-                        <Mail size={18} />
-                        </div>
-                        <h2 className="text-md font-bold text-slate-900">Email Reports</h2>
+            {/* Calculation Summary Card moved to Dashboard */}
+
+            {/* Notifications */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+              <div className="flex items-center space-x-2 mb-4">
+                <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
+                  <Mail size={18} />
+                </div>
+                <h2 className="text-md font-bold text-slate-900">Email Reports</h2>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="checkbox"
+                    id="emailReports"
+                    checked={tempSettings.emailReports}
+                    onChange={e => setTempSettings({ ...tempSettings, emailReports: e.target.checked })}
+                    className="w-5 h-5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                  />
+                  <label htmlFor="emailReports" className="text-sm text-slate-700 font-medium select-none">Enable Monthly Summary (includes Net Worth)</label>
+                </div>
+
+                {tempSettings.emailReports && (
+                  <div className="animate-fade-in space-y-4 pt-2">
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-slate-500">Recipient Email</label>
+                      <input
+                        required
+                        type="email"
+                        value={tempSettings.email}
+                        onChange={e => setTempSettings({ ...tempSettings, email: e.target.value })}
+                        placeholder="you@example.com"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
                     </div>
-                    
-                    <div className="space-y-4">
-                        <div className="flex items-center space-x-3">
-                            <input 
-                            type="checkbox" 
-                            id="emailReports"
-                            checked={tempSettings.emailReports}
-                            onChange={e => setTempSettings({...tempSettings, emailReports: e.target.checked})}
-                            className="w-5 h-5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+
+                    <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
+                      <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wide">SMTP Configuration</h3>
+
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="col-span-2 space-y-1">
+                          <label className="block text-xs font-medium text-slate-500">Host</label>
+                          <input
+                            type="text"
+                            value={tempSettings.smtpHost || ''}
+                            onChange={e => setTempSettings({ ...tempSettings, smtpHost: e.target.value })}
+                            placeholder="smtp.gmail.com"
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-xs font-medium text-slate-500">Port</label>
+                          <input
+                            type="number"
+                            value={tempSettings.smtpPort || ''}
+                            onChange={e => setTempSettings({ ...tempSettings, smtpPort: parseInt(e.target.value) })}
+                            placeholder="587"
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="block text-xs font-medium text-slate-500">Username</label>
+                          <input
+                            type="text"
+                            value={tempSettings.smtpUser || ''}
+                            onChange={e => setTempSettings({ ...tempSettings, smtpUser: e.target.value })}
+                            placeholder="user@email.com"
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-xs font-medium text-slate-500">Password</label>
+                          <div className="relative">
+                            <input
+                              type="password"
+                              value={tempSettings.smtpPass || ''}
+                              onChange={e => setTempSettings({ ...tempSettings, smtpPass: e.target.value })}
+                              placeholder="App Password"
+                              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                             />
-                            <label htmlFor="emailReports" className="text-sm text-slate-700 font-medium select-none">Enable Monthly Summary (includes Net Worth)</label>
-                        </div>
-
-                        {tempSettings.emailReports && (
-                            <div className="animate-fade-in space-y-3 pt-2">
-                                <label className="block text-xs font-medium text-slate-500">Email Address</label>
-                                <div className="flex space-x-2">
-                                <input 
-                                    required
-                                    type="email" 
-                                    value={tempSettings.email}
-                                    onChange={e => setTempSettings({...tempSettings, email: e.target.value})}
-                                    placeholder="you@example.com"
-                                    className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                                />
-                                <button 
-                                    type="button"
-                                    onClick={simulateEmailSend}
-                                    disabled={!tempSettings.email || emailSent}
-                                    className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-medium flex items-center transition-colors disabled:opacity-50"
-                                >
-                                    {emailSent ? 'Sent!' : 'Test'}
-                                    {!emailSent && <Send size={12} className="ml-1" />}
-                                </button>
-                                </div>
+                            <div className="absolute right-2 top-2 text-slate-400">
+                              <Lock size={14} />
                             </div>
-                        )}
-                    </div>
-                </div>
+                          </div>
+                        </div>
+                      </div>
 
-                {/* Save Button (Sticky on mobile, static on desktop) */}
-                <button 
-                    type="submit" 
-                    className={`w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-indigo-200 transition-all flex justify-center items-center ${saved ? 'bg-green-600 hover:bg-green-700' : ''}`}
-                >
-                    {saved ? 'Changes Saved' : 'Save Settings'}
-                </button>
+                      <div className="flex items-center justify-between pt-2">
+                        <label className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            checked={tempSettings.smtpSecure || false}
+                            onChange={e => setTempSettings({ ...tempSettings, smtpSecure: e.target.checked })}
+                            className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                          />
+                          <span className="text-xs text-slate-600">Use Secure Connection (TLS)</span>
+                        </label>
+
+                        <button
+                          type="button"
+                          onClick={testEmailSettings}
+                          disabled={!tempSettings.smtpHost || !tempSettings.email || emailSent}
+                          className="px-3 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded-md text-xs font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                        >
+                          {emailSent ? 'Sending...' : 'Test Connection'}
+                          {!emailSent && <Send size={12} className="ml-1.5" />}
+                        </button>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-400 italic">
+                      Note: For Gmail, you likely need to create an "App Password" if 2FA is enabled.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
+
+            {/* Save Button (Sticky on mobile, static on desktop) */}
+            <button
+              type="submit"
+              className={`w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-indigo-200 transition-all flex justify-center items-center ${saved ? 'bg-green-600 hover:bg-green-700' : ''}`}
+            >
+              {saved ? 'Changes Saved' : 'Save Settings'}
+            </button>
+          </div>
         </div>
       </form>
 
@@ -706,91 +769,91 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
       {isIncomeModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-fade-in-up">
-             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                <h3 className="text-lg font-bold text-slate-900">
-                  {editingIncomeId ? 'Edit Income' : 'Add Income'}
-                </h3>
-                <button onClick={() => setIsIncomeModalOpen(false)} className="text-slate-400 hover:text-slate-600">
-                  <X size={20} />
-                </button>
-             </div>
-             <div className="p-6 space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Source Name</label>
-                  <input 
-                    type="text" 
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                    placeholder="e.g. Paycheque 1"
-                    value={incomeFormData.name}
-                    onChange={e => setIncomeFormData({...incomeFormData, name: e.target.value})}
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="text-lg font-bold text-slate-900">
+                {editingIncomeId ? 'Edit Income' : 'Add Income'}
+              </h3>
+              <button onClick={() => setIsIncomeModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Source Name</label>
+                <input
+                  type="text"
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                  placeholder="e.g. Paycheque 1"
+                  value={incomeFormData.name}
+                  onChange={e => setIncomeFormData({ ...incomeFormData, name: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Net Amount (Take-Home)</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2 text-slate-400">$</span>
+                  <input
+                    type="number"
+                    className="w-full pl-8 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                    placeholder="2000.00"
+                    value={incomeFormData.amount || ''}
+                    onChange={e => setIncomeFormData({ ...incomeFormData, amount: parseFloat(e.target.value) })}
                   />
                 </div>
-                
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                   <label className="block text-sm font-medium text-slate-700 mb-1">Net Amount (Take-Home)</label>
-                   <div className="relative">
-                      <span className="absolute left-3 top-2 text-slate-400">$</span>
-                      <input 
-                        type="number" 
-                        className="w-full pl-8 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                        placeholder="2000.00"
-                        value={incomeFormData.amount || ''}
-                        onChange={e => setIncomeFormData({...incomeFormData, amount: parseFloat(e.target.value)})}
-                      />
-                   </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Frequency</label>
-                      <select 
-                        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white text-sm"
-                        value={incomeFormData.frequency}
-                        onChange={e => setIncomeFormData({...incomeFormData, frequency: e.target.value as PayFrequency})}
-                      >
-                        <option value="WEEKLY">Weekly (52/yr)</option>
-                        <option value="BI_WEEKLY">Bi-Weekly (26/yr)</option>
-                        <option value="SEMI_MONTHLY">Semi-Monthly (24/yr)</option>
-                        <option value="MONTHLY">Monthly (12/yr)</option>
-                        <option value="ANNUAL">Annual (1/yr)</option>
-                      </select>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Next Pay Date</label>
-                         <div className="relative">
-                          <input 
-                              type="date" 
-                              className="w-full px-4 py-2 pl-4 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
-                              value={incomeFormData.nextPayDate}
-                              onChange={e => setIncomeFormData({...incomeFormData, nextPayDate: e.target.value})}
-                          />
-                        </div>
-                    </div>
-                </div>
-                
-                <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 text-xs text-slate-500">
-                    <p>
-                       <strong>Note:</strong> "Semi-Monthly" usually means 15th & 30th. "Bi-Weekly" means every other Friday (for example).
-                    </p>
-                </div>
-
-                <div className="pt-2 flex justify-end space-x-3">
-                  <button 
-                    type="button" 
-                    onClick={() => setIsIncomeModalOpen(false)}
-                    className="px-4 py-2 text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg font-medium transition-colors"
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Frequency</label>
+                  <select
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white text-sm"
+                    value={incomeFormData.frequency}
+                    onChange={e => setIncomeFormData({ ...incomeFormData, frequency: e.target.value as PayFrequency })}
                   >
-                    Cancel
-                  </button>
-                  <button 
-                    type="button" 
-                    onClick={saveIncomeSource}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium shadow-md transition-colors"
-                  >
-                    Save
-                  </button>
+                    <option value="WEEKLY">Weekly (52/yr)</option>
+                    <option value="BI_WEEKLY">Bi-Weekly (26/yr)</option>
+                    <option value="SEMI_MONTHLY">Semi-Monthly (24/yr)</option>
+                    <option value="MONTHLY">Monthly (12/yr)</option>
+                    <option value="ANNUAL">Annual (1/yr)</option>
+                  </select>
                 </div>
-             </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Next Pay Date</label>
+                  <div className="relative">
+                    <input
+                      type="date"
+                      className="w-full px-4 py-2 pl-4 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                      value={incomeFormData.nextPayDate}
+                      onChange={e => setIncomeFormData({ ...incomeFormData, nextPayDate: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 text-xs text-slate-500">
+                <p>
+                  <strong>Note:</strong> "Semi-Monthly" usually means 15th & 30th. "Bi-Weekly" means every other Friday (for example).
+                </p>
+              </div>
+
+              <div className="pt-2 flex justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setIsIncomeModalOpen(false)}
+                  className="px-4 py-2 text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg font-medium transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveIncomeSource}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium shadow-md transition-colors"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

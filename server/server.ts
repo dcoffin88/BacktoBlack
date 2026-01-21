@@ -5,6 +5,7 @@ import { Liability, Expense, Asset, UserSettings, IncomeSource, BudgetSchedule, 
 import { calculateIndividualAmortization, AmortizationRow, calculatePayoff } from './liabilityAlgorithms';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import nodemailer from 'nodemailer';
 import { randomUUID } from 'crypto';
 
 const app = express();
@@ -1910,6 +1911,45 @@ app.post('/api/settings', authenticateToken, (req: AuthedRequest, res) => {
     });
   } else {
     persist(null);
+  }
+});
+
+app.post('/api/settings/test-email', authenticateToken, async (req: AuthedRequest, res) => {
+  const user = req.user!;
+  const { smtpHost, smtpPort, smtpUser, smtpPass, smtpSecure, toEmail } = req.body;
+
+  if (!smtpHost || !smtpPort || !smtpUser || !smtpPass || !toEmail) {
+    return res.status(400).json({ error: 'Missing required SMTP configuration or recipient email' });
+  }
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: Number(smtpPort),
+      secure: smtpSecure || false, // true for 465, false for other ports
+      auth: {
+        user: smtpUser,
+        pass: smtpPass,
+      },
+      tls: {
+        rejectUnauthorized: false // Often needed for local/self-signed certs or some providers
+      }
+    });
+
+    await transporter.verify();
+
+    await transporter.sendMail({
+      from: `"BacktoBlack" <${smtpUser}>`,
+      to: toEmail,
+      subject: 'BacktoBlack SMTP Test',
+      text: 'This is a test email from your BacktoBlack instance using the configured SMTP settings.',
+      html: '<p>This is a test email from your <strong>BacktoBlack</strong> instance using the configured SMTP settings.</p>',
+    });
+
+    res.json({ success: true, message: 'Test email sent successfully' });
+  } catch (error: any) {
+    console.error('SMTP Test Error:', error);
+    res.status(500).json({ error: error.message || 'Failed to send test email' });
   }
 });
 
