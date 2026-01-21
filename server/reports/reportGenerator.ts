@@ -320,7 +320,7 @@ const generateTransferReport = async (data: ReportData, date: Date) => {
                 <h3 style="margin: 0; font-size: 14px; font-weight: 700; color: #4338ca; text-transform: uppercase; letter-spacing: 0.025em;">Automated Transfers</h3>
             </div>
             ${Array.from(transferGroups.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([account, data]) => `
-                <div style="border-bottom: 1px solid #e2e8f0; padding: 16px; background-color: #f1f5f9; display: flex; align-items: baseline;">
+                <div style="border-bottom: 1px solid #e2e8f0; padding: 16px; display: flex; align-items: baseline;">
                      <span style="font-weight: 600; color: #334155;">To: ${account}</span>
                      <div style="flex-grow: 1; margin: 0 8px; border-bottom: 1px dotted #cbd5e1; height: 14px;"></div>
                      <span style="font-weight: 700; color: #0f172a;">${formatCurrency(data.total, currencySymbol)}</span>
