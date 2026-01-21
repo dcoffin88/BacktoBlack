@@ -502,7 +502,7 @@ const buildAmortizationInputsForLiability = async (
   const overridesByPeriod = overridesRows.reduce<Record<number, { payment: number; interest: number; purchase?: number; chequeDate?: string | null }>>(
     (acc, row: any) => {
       const period = Number(row.period);
-      if (!Number.isFinite(period) || period <= 0) return acc;
+      if (!Number.isFinite(period)) return acc;
       acc[period] = {
         payment: row.payment,
         interest: row.interest,
@@ -541,7 +541,7 @@ const buildAmortizationInputsForLiability = async (
       const isChecked = row.is_checked !== 0;
       if (!isChecked) return acc;
       const rawPeriod = getPeriodIndexFromDate(liability, row.cheque_date);
-      if (rawPeriod === null || rawPeriod === undefined || rawPeriod <= 0) return acc;
+      if (rawPeriod === null || rawPeriod === undefined) return acc;
       const period = rawPeriod;
       const override = overridesByPeriod[period];
       acc[period] = {
