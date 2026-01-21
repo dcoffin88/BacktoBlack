@@ -3,9 +3,9 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Liability, StrategyType, STRATEGY_LABELS, BudgetSchedule, PayoffResult } from '../types';
 import { calculatePayoff, getMinPayment } from '../server/liabilityAlgorithms';
 import { calculatePrecisePayoff } from '../utils/precisePayoff';
-import { 
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, 
-  BarChart, Bar, Legend, LineChart, Line 
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  BarChart, Bar, Legend, LineChart, Line
 } from 'recharts';
 import { ChevronDown, Check, ArrowRight, Layers, PieChart, BarChart2, Table, AlertTriangle, Info, Calendar } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -160,20 +160,18 @@ const getPeriodIndexFromDate = (liability: Liability, checkDate?: string | null)
   return period;
 };
 
-const NO_STRATEGY = 'NONE' as const;
-type StrategySelection = StrategyType | typeof NO_STRATEGY;
-const NO_STRATEGY_LABEL = 'Minimum Payments Only';
+type StrategySelection = StrategyType;
 
 const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget }) => {
   const [activeTab, setActiveTab] = useState<'simulate' | 'compare' | 'schedule'>('schedule');
-  const [selectedStrategy, setSelectedStrategy] = useState<StrategySelection>(NO_STRATEGY);
+  const [selectedStrategy, setSelectedStrategy] = useState<StrategySelection>(StrategyType.SNOWBALL);
   const [customOrderMap, setCustomOrderMap] = useState<Record<string, number>>({});
   const [chartsReady, setChartsReady] = useState(false);
   const [scheduleSavedAt, setScheduleSavedAt] = useState<string | null>(null);
   const [anchorDate, setAnchorDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [hasJustSentSchedule, setHasJustSentSchedule] = useState(false);
   const [showAnchorModal, setShowAnchorModal] = useState(false);
-  
+
   const { ref: compareChartRef, size: compareChartSize } = useChartDimensions();
   const [strategySimulations, setStrategySimulations] = useState<Record<StrategyType, PayoffResult>>({});
   const [amortizationSchedules, setAmortizationSchedules] = useState<
@@ -194,10 +192,10 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
       }
     >
   >({});
-  
+
   // For Comparison Mode
   const [compareSelection, setCompareSelection] = useState<StrategySelection[]>([
-    StrategyType.SNOWBALL, 
+    StrategyType.SNOWBALL,
     StrategyType.AVALANCHE
   ]);
 
@@ -235,21 +233,17 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
           const d = new Date(remote.schedule.savedAt);
           if (!Number.isNaN(d.getTime())) {
             setAnchorDate(d.toISOString().split('T')[0]);
-            if (remote.schedule.strategyLabel === NO_STRATEGY_LABEL) {
-              setSelectedStrategy(NO_STRATEGY);
-              return;
-            }
             if (remote.schedule.strategy && STRATEGY_LABELS[remote.schedule.strategy]) {
               setSelectedStrategy(remote.schedule.strategy as StrategyType);
               return;
             }
           }
         }
-        setSelectedStrategy(NO_STRATEGY);
+        setSelectedStrategy(StrategyType.SNOWBALL);
       } catch {
         if (active) {
           setScheduleSavedAt(null);
-          setSelectedStrategy(NO_STRATEGY);
+          setSelectedStrategy(StrategyType.SNOWBALL);
         }
       }
     };
@@ -466,8 +460,6 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
       return getMinPayment(liability, liability.balance, monthlyInterest, 0);
     };
     switch (selectedStrategy) {
-      case NO_STRATEGY:
-        return list;
       case StrategyType.SNOWBALL:
         return list.sort((a, b) => a.balance - b.balance);
       case StrategyType.AVALANCHE:
@@ -509,95 +501,12 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
 
   // Precise Calculation Result
   const preciseResult = useMemo(() => {
-    const strat = selectedStrategy === NO_STRATEGY ? StrategyType.CUSTOM : (selectedStrategy as StrategyType);
-    const effectiveBudget = selectedStrategy === NO_STRATEGY ? 0 : monthlyBudget;
+    const strat = selectedStrategy as StrategyType;
+    const effectiveBudget = monthlyBudget;
     return calculatePrecisePayoff(orderedLiabilities, effectiveBudget, strat, anchorDate);
   }, [orderedLiabilities, monthlyBudget, selectedStrategy, anchorDate]);
 
-  const minOnlyResult = useMemo<PayoffResult | null>(() => {
-    if (!liabilitiesWithDerivedBalance.length) return null;
-    const scheduleEntries = liabilitiesWithDerivedBalance.map((liability) => ({
-      id: liability.id,
-      name: liability.name,
-      timeline: amortizationSchedules[liability.id]?.timeline || [],
-    }));
-    const maxMonth = scheduleEntries.reduce((max, entry) => {
-      return entry.timeline.reduce((innerMax, row) => (row.month > innerMax ? row.month : innerMax), max);
-    }, 0);
-    if (!maxMonth) return null;
 
-    const prevRemaining: Record<string, number> = {};
-    liabilitiesWithDerivedBalance.forEach((liability) => {
-      prevRemaining[liability.id] = liability.balance || 0;
-    });
-    const zeroMinById = liabilitiesWithDerivedBalance.reduce<Record<string, boolean>>((acc, liability) => {
-      acc[liability.id] =
-        (liability.minPaymentAmount || 0) <= 0 &&
-        (liability.minPaymentPercentage || 0) <= 0 &&
-        (liability.minPaymentFloor || 0) <= 0 &&
-        !liability.minPaymentPlusInterest &&
-        !liability.minPaymentPlusFees;
-      return acc;
-    }, {});
-
-    let totalInterestPaid = 0;
-    const timeline = [];
-    for (let month = 1; month <= maxMonth; month += 1) {
-      let totalPaid = 0;
-      let totalBalance = 0;
-      let liabilitiesRemaining = 0;
-      let nonZeroMinRemaining = 0;
-      const paidOffNames: string[] = [];
-      const breakdown = scheduleEntries.map((entry) => {
-        const row = entry.timeline.find((item) => item.month === month);
-        const extra = row?.extraPayment || 0;
-        const payment = row?.payment ? Math.max(0, row.payment - extra) : 0;
-        const remaining = Math.max(0, row?.remainingBalance ?? prevRemaining[entry.id] ?? 0);
-        const interest = row?.interest || 0;
-        const isZeroMin = zeroMinById[entry.id];
-
-        totalPaid += payment;
-        totalBalance += remaining;
-        totalInterestPaid += interest;
-
-        const previous = prevRemaining[entry.id] ?? remaining;
-        if (previous > 0.01 && remaining <= 0.01) {
-          paidOffNames.push(entry.name);
-        }
-        prevRemaining[entry.id] = remaining;
-        if (remaining > 0.01) {
-          liabilitiesRemaining += 1;
-          if (!isZeroMin) nonZeroMinRemaining += 1;
-        }
-
-        return {
-          liabilityId: entry.id,
-          name: entry.name,
-          interest,
-          payment,
-          balance: remaining,
-        };
-      });
-
-      timeline.push({
-        month,
-        totalBalance,
-        totalInterestPaid,
-        liabilitiesRemaining,
-        paidOffNames,
-        breakdown,
-      });
-
-      if (nonZeroMinRemaining === 0) break;
-    }
-
-    return {
-      strategy: StrategyType.CUSTOM,
-      monthsToFreedom: timeline.length,
-      totalInterestPaid,
-      timeline,
-    };
-  }, [amortizationSchedules, liabilitiesWithDerivedBalance]);
 
   // Single Simulation Result
   const singleResult = useMemo(() => {
@@ -605,27 +514,18 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
     if (preciseResult) {
       return preciseResult;
     }
-    
+
     // Fallback logic
-    if (selectedStrategy === NO_STRATEGY) {
-      return minOnlyResult || {
-        strategy: StrategyType.CUSTOM,
-        monthsToFreedom: 0,
-        totalInterestPaid: 0,
-        timeline: [],
-      };
-    }
+    // Fallback logic
     const strat = selectedStrategy as StrategyType;
     return strategySimulations[strat] || calculatePayoff(orderedLiabilities, monthlyBudget, strat);
-  }, [orderedLiabilities, monthlyBudget, selectedStrategy, strategySimulations, minOnlyResult, preciseResult]);
+  }, [orderedLiabilities, monthlyBudget, selectedStrategy, strategySimulations, preciseResult]);
 
   const strategyMatrixRows = useMemo(() => {
     // Matrix source (Use precise result by default for the schedule view)
     const simulation = preciseResult
-        ? preciseResult
-        : selectedStrategy === NO_STRATEGY
-            ? minOnlyResult
-            : strategySimulations[selectedStrategy as StrategyType];
+      ? preciseResult
+      : strategySimulations[selectedStrategy as StrategyType];
 
     if (!simulation?.timeline?.length) return [];
     const lastRemaining: Record<string, number> = {};
@@ -647,14 +547,14 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
         totalPaid += paid;
       });
 
-    liabilitiesWithDerivedBalance.forEach((liability) => {
-      if (paymentsById[liability.id] === undefined) {
-        paymentsById[liability.id] = 0;
-      }
-      if (remainingById[liability.id] === undefined) {
-        remainingById[liability.id] = Math.max(0, lastRemaining[liability.id] || 0);
-      }
-    });
+      liabilitiesWithDerivedBalance.forEach((liability) => {
+        if (paymentsById[liability.id] === undefined) {
+          paymentsById[liability.id] = 0;
+        }
+        if (remainingById[liability.id] === undefined) {
+          remainingById[liability.id] = Math.max(0, lastRemaining[liability.id] || 0);
+        }
+      });
 
       return {
         month: row.month,
@@ -664,21 +564,18 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
         remainingById,
       };
     });
-  }, [liabilitiesWithDerivedBalance, selectedStrategy, strategySimulations, minOnlyResult, preciseResult]);
+  }, [liabilitiesWithDerivedBalance, selectedStrategy, strategySimulations, preciseResult]);
 
   const matrixRows = strategyMatrixRows;
   const matrixPayoffMonths = singleResult.monthsToFreedom;
   const strategyLoaded =
     !!preciseResult ||
-    (selectedStrategy === NO_STRATEGY
-      ? !!minOnlyResult?.timeline?.length
-      : !!strategySimulations[selectedStrategy as StrategyType]);
+    !!strategySimulations[selectedStrategy as StrategyType];
 
   // Comparison Results (Calculate all for data table)
   const allStrategies = Object.values(StrategyType);
   const compareOptions = useMemo(
     () => [
-      { key: NO_STRATEGY as StrategySelection, label: NO_STRATEGY_LABEL, color: '#f97316' },
       ...allStrategies.map((strategy) => ({
         key: strategy as StrategySelection,
         label: STRATEGY_LABELS[strategy],
@@ -689,22 +586,6 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
   );
   const comparisonResults = useMemo(() => {
     return compareOptions.map((option) => {
-      if (option.key === NO_STRATEGY) {
-        const res = minOnlyResult || {
-          strategy: StrategyType.CUSTOM,
-          monthsToFreedom: 0,
-          totalInterestPaid: 0,
-          timeline: [],
-        };
-        return {
-          strategy: option.key,
-          label: option.label,
-          interest: res.totalInterestPaid,
-          months: res.monthsToFreedom,
-          timeline: res.timeline,
-          color: option.color,
-        };
-      }
       const strat = option.key as StrategyType;
       // We don't use precise mode for comparison table (too slow/complex to render 8 of them on fly)
       const res =
@@ -719,7 +600,7 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
         color: option.color,
       };
     });
-  }, [compareOptions, minOnlyResult, orderedLiabilities, monthlyBudget, strategySimulations]);
+  }, [compareOptions, orderedLiabilities, monthlyBudget, strategySimulations]);
 
   // Best/Worst for stats
   const bestInterest = comparisonResults.reduce((min, cur) => cur.interest < min.interest ? cur : min, comparisonResults[0]);
@@ -762,7 +643,7 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
       return next;
     });
   };
-  
+
   const handleCustomOrderChange = (id: string, value: number) => {
     setCustomOrderMap(prev => ({ ...prev, [id]: value }));
   };
@@ -788,9 +669,9 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
         ? `${anchorDate}T12:00:00.000Z` // use midday UTC to avoid timezone shifting the date back
         : new Date().toISOString();
     const payload: BudgetSchedule = {
-      strategy: selectedStrategy === NO_STRATEGY ? StrategyType.CUSTOM : (selectedStrategy as StrategyType),
+      strategy: selectedStrategy as StrategyType,
       strategyLabel:
-        selectedStrategy === NO_STRATEGY ? NO_STRATEGY_LABEL : STRATEGY_LABELS[selectedStrategy as StrategyType],
+        STRATEGY_LABELS[selectedStrategy as StrategyType],
       savedAt: anchorIso,
       monthlyBudget,
       timeline: singleResult.timeline
@@ -830,12 +711,11 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
     <div className="w-full md:w-1/3">
       <label className="block text-sm font-medium text-slate-700 mb-2">Strategy</label>
       <div className="relative">
-        <select 
+        <select
           value={selectedStrategy}
           onChange={(e) => setSelectedStrategy(e.target.value as StrategySelection)}
           className="w-full appearance-none bg-slate-50 border border-slate-300 text-slate-900 rounded-lg px-4 py-3 pr-8 focus:ring-2 focus:ring-indigo-500 outline-none"
         >
-          <option value={NO_STRATEGY}>{NO_STRATEGY_LABEL}</option>
           {allStrategies.map((strat) => (
             <option key={strat} value={strat}>{STRATEGY_LABELS[strat]}</option>
           ))}
@@ -847,45 +727,43 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
 
   return (
     <div className="space-y-8">
-        <div className="flex flex-col md:flex-row md:items-center md:space-x-3 space-y-3 md:space-y-0">
-          <div className="flex items-center space-x-3">
-            <div className="p-2 bg-indigo-500 text-white rounded-lg">
-              <PieChart size={20} />
-            </div>
-            <div>
-              <h1 className="text-3xl font-bold text-slate-900">
-                Strategy Lab
-              </h1>
-            </div>
+      <div className="flex flex-col md:flex-row md:items-center md:space-x-3 space-y-3 md:space-y-0">
+        <div className="flex items-center space-x-3">
+          <div className="p-2 bg-indigo-500 text-white rounded-lg">
+            <PieChart size={20} />
           </div>
-
-          {/* Tab Switcher */}
-          <div className="bg-slate-100 p-1.5 rounded-lg flex space-x-1 overflow-x-auto max-w-full md:ml-auto">
-            <button
-              onClick={() => setActiveTab('schedule')}
-              className={`flex items-center space-x-2 px-4 py-1.5 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
-                activeTab === 'schedule' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Table size={16} />
-              <span>Schedule</span>
-            </button>
-            <button
-              onClick={() => setActiveTab('compare')}
-              className={`flex items-center space-x-2 px-4 py-1.5 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
-                activeTab === 'compare' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Layers size={16} />
-              <span>Compare</span>
-            </button>
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900">
+              Strategy Lab
+            </h1>
           </div>
         </div>
+
+        {/* Tab Switcher */}
+        <div className="bg-slate-100 p-1.5 rounded-lg flex space-x-1 overflow-x-auto max-w-full md:ml-auto">
+          <button
+            onClick={() => setActiveTab('schedule')}
+            className={`flex items-center space-x-2 px-4 py-1.5 text-sm font-medium rounded-md transition-all whitespace-nowrap ${activeTab === 'schedule' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+          >
+            <Table size={16} />
+            <span>Schedule</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('compare')}
+            className={`flex items-center space-x-2 px-4 py-1.5 text-sm font-medium rounded-md transition-all whitespace-nowrap ${activeTab === 'compare' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+          >
+            <Layers size={16} />
+            <span>Compare</span>
+          </button>
+        </div>
+      </div>
 
       {activeTab === 'compare' && (
         <div className="space-y-6 animate-fade-in">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
+
             {/* Control Panel */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
               <h3 className="font-bold text-slate-900 mb-4 flex items-center">
@@ -894,16 +772,15 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
               </h3>
               <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
                 {compareOptions.map(option => (
-                  <label 
-                    key={option.key} 
-                    className={`flex items-start p-3 rounded-lg border cursor-pointer transition-all ${
-                      compareSelection.includes(option.key) 
-                        ? 'bg-indigo-50 border-indigo-200' 
-                        : 'bg-white border-slate-100 hover:border-slate-200'
-                    }`}
+                  <label
+                    key={option.key}
+                    className={`flex items-start p-3 rounded-lg border cursor-pointer transition-all ${compareSelection.includes(option.key)
+                      ? 'bg-indigo-50 border-indigo-200'
+                      : 'bg-white border-slate-100 hover:border-slate-200'
+                      }`}
                   >
-                    <input 
-                      type="checkbox" 
+                    <input
+                      type="checkbox"
                       className="mt-1 w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 border-gray-300"
                       checked={compareSelection.includes(option.key)}
                       onChange={() => toggleComparisonStrategy(option.key)}
@@ -912,14 +789,12 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
                       <span className={`block text-sm font-bold ${compareSelection.includes(option.key) ? 'text-indigo-900' : 'text-slate-700'}`}>
                         {option.label}
                       </span>
-                      {option.key !== NO_STRATEGY && (
-                        <span className="block text-xs text-slate-500 mt-0.5">
-                          {option.key === StrategyType.SNOWBALL && "Smallest Balance First"}
-                          {option.key === StrategyType.AVALANCHE && "Highest Interest Rate First"}
-                          {option.key === StrategyType.CFI && "Optimizes Cash Flow"}
-                          {option.key === StrategyType.CUSTOM && "Your manual priority order"}
-                        </span>
-                      )}
+                      <span className="block text-xs text-slate-500 mt-0.5">
+                        {option.key === StrategyType.SNOWBALL && "Smallest Balance First"}
+                        {option.key === StrategyType.AVALANCHE && "Highest Interest Rate First"}
+                        {option.key === StrategyType.CFI && "Optimizes Cash Flow"}
+                        {option.key === StrategyType.CUSTOM && "Your manual priority order"}
+                      </span>
                     </div>
                   </label>
                 ))}
@@ -937,20 +812,20 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
                     data={comparisonChartData}
                   >
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis 
-                      dataKey="month" 
-                      tickLine={false} 
-                      axisLine={false} 
+                    <XAxis
+                      dataKey="month"
+                      tickLine={false}
+                      axisLine={false}
                       tick={{ fill: '#94a3b8', fontSize: 12 }}
                       tickFormatter={(val) => `M${val}`}
                     />
-                    <YAxis 
-                      tickLine={false} 
-                      axisLine={false} 
+                    <YAxis
+                      tickLine={false}
+                      axisLine={false}
                       tick={{ fill: '#94a3b8', fontSize: 12 }}
-                      tickFormatter={(val) => `$${val/1000}k`}
+                      tickFormatter={(val) => `$${val / 1000}k`}
                     />
-                    <Tooltip 
+                    <Tooltip
                       contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                       formatter={(value: number) => [`$${value.toFixed(0)}`]}
                     />
@@ -958,11 +833,11 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
                     {comparisonResults
                       .filter(r => compareSelection.includes(r.strategy))
                       .map(r => (
-                        <Line 
+                        <Line
                           key={r.strategy}
-                          type="monotone" 
-                          dataKey={r.label} 
-                          stroke={r.color} 
+                          type="monotone"
+                          dataKey={r.label}
+                          stroke={r.color}
                           strokeWidth={2}
                           dot={false}
                           activeDot={{ r: 6 }}
@@ -977,187 +852,187 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
 
           {/* Comparison Table */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50">
-               <h3 className="font-bold text-slate-900">Performance Matrix</h3>
-             </div>
-             <div className="overflow-x-auto">
-               <table className="w-full text-left border-collapse">
-                 <thead>
-                   <tr className="bg-white border-b border-slate-100">
-                     <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Strategy</th>
-                     <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Time to Freedom</th>
-                     <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Total Interest</th>
-                     <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Cost Difference</th>
-                   </tr>
-                 </thead>
-                 <tbody className="divide-y divide-slate-100">
-                   {comparisonResults.sort((a,b) => a.interest - b.interest).map((res) => {
-                     const isSelected = compareSelection.includes(res.strategy);
-                     const diff = res.interest - bestInterest.interest;
-                     
-                     return (
-                       <tr key={res.strategy} className={`transition-colors ${isSelected ? 'bg-indigo-50/30' : 'hover:bg-slate-50'}`}>
-                         <td className="px-6 py-4">
-                           <div className="flex items-center">
-                             <div className="w-3 h-3 rounded-full mr-3" style={{ backgroundColor: res.color }}></div>
-                             <span className={`text-sm font-medium ${isSelected ? 'text-indigo-900' : 'text-slate-700'}`}>
-                               {res.label}
-                               {res.strategy === bestInterest.strategy && (
-                                 <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-                                   Cheapest
-                                 </span>
-                               )}
-                               {res.strategy === bestTime.strategy && res.strategy !== bestInterest.strategy && (
-                                 <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
-                                   Fastest
-                                 </span>
-                               )}
-                             </span>
-                           </div>
-                         </td>
-                         <td className="px-6 py-4 text-right text-sm text-slate-700">
-                           {Math.floor(res.months / 12)}y {res.months % 12}m
-                         </td>
-                         <td className="px-6 py-4 text-right text-sm font-bold text-slate-900">
-                           ${res.interest.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                         </td>
-                         <td className="px-6 py-4 text-right text-sm text-slate-500">
-                           {diff === 0 ? '-' : `+$${diff.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
-                         </td>
-                       </tr>
-                     );
-                   })}
-                 </tbody>
-               </table>
-             </div>
+            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50">
+              <h3 className="font-bold text-slate-900">Performance Matrix</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-white border-b border-slate-100">
+                    <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Strategy</th>
+                    <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Time to Freedom</th>
+                    <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Total Interest</th>
+                    <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Cost Difference</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {comparisonResults.sort((a, b) => a.interest - b.interest).map((res) => {
+                    const isSelected = compareSelection.includes(res.strategy);
+                    const diff = res.interest - bestInterest.interest;
+
+                    return (
+                      <tr key={res.strategy} className={`transition-colors ${isSelected ? 'bg-indigo-50/30' : 'hover:bg-slate-50'}`}>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center">
+                            <div className="w-3 h-3 rounded-full mr-3" style={{ backgroundColor: res.color }}></div>
+                            <span className={`text-sm font-medium ${isSelected ? 'text-indigo-900' : 'text-slate-700'}`}>
+                              {res.label}
+                              {res.strategy === bestInterest.strategy && (
+                                <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                                  Cheapest
+                                </span>
+                              )}
+                              {res.strategy === bestTime.strategy && res.strategy !== bestInterest.strategy && (
+                                <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                                  Fastest
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-right text-sm text-slate-700">
+                          {Math.floor(res.months / 12)}y {res.months % 12}m
+                        </td>
+                        <td className="px-6 py-4 text-right text-sm font-bold text-slate-900">
+                          ${res.interest.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        </td>
+                        <td className="px-6 py-4 text-right text-sm text-slate-500">
+                          {diff === 0 ? '-' : `+$${diff.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
 
       {activeTab === 'schedule' && (
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 animate-fade-in">
-            <div className="flex flex-col md:flex-row justify-between mb-8 gap-6">
-              <StrategySelector />
-              <div className="w-full md:w-2/3 flex flex-col md:flex-row items-end md:items-center justify-end gap-4 md:gap-6">
-                <div className="flex flex-col items-end gap-2 w-full md:w-auto">
-                  <div className="text-right">
-                    <p className="text-slate-500 text-sm">Total Payoff Time</p>
-                    {strategyLoaded ? (
-                      <p className="text-xl font-bold text-slate-900">
-                        {Math.floor(matrixPayoffMonths / 12)}y {matrixPayoffMonths % 12}m
-                      </p>
-                    ) : (
-                      <div className="ml-auto mt-2 h-6 w-24 rounded bg-slate-100 animate-pulse" />
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
+          <div className="flex flex-col md:flex-row justify-between mb-8 gap-6">
+            <StrategySelector />
+            <div className="w-full md:w-2/3 flex flex-col md:flex-row items-end md:items-center justify-end gap-4 md:gap-6">
+              <div className="flex flex-col items-end gap-2 w-full md:w-auto">
+                <div className="text-right">
+                  <p className="text-slate-500 text-sm">Total Payoff Time</p>
+                  {strategyLoaded ? (
+                    <p className="text-xl font-bold text-slate-900">
+                      {Math.floor(matrixPayoffMonths / 12)}y {matrixPayoffMonths % 12}m
+                    </p>
+                  ) : (
+                    <div className="ml-auto mt-2 h-6 w-24 rounded bg-slate-100 animate-pulse" />
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAnchorModal(true)}
+                    className="inline-flex items-center px-4 py-2 rounded-lg bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-700 transition-colors"
+                  >
+                    <ArrowRight size={16} className="mr-2" />
+                    Send schedule to Budget
+                  </button>
+                  {scheduleSavedAt && (
                     <button
                       type="button"
-                      onClick={() => setShowAnchorModal(true)}
-                      className="inline-flex items-center px-4 py-2 rounded-lg bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-700 transition-colors"
+                      onClick={handleClearSchedule}
+                      className="inline-flex items-center px-3 py-2 rounded-lg border border-slate-200 text-slate-600 text-sm font-semibold hover:border-slate-300 hover:text-slate-800 transition-colors"
                     >
-                      <ArrowRight size={16} className="mr-2" />
-                      Send schedule to Budget
+                      Clear saved schedule
                     </button>
-                    {scheduleSavedAt && (
-                      <button
-                        type="button"
-                        onClick={handleClearSchedule}
-                        className="inline-flex items-center px-3 py-2 rounded-lg border border-slate-200 text-slate-600 text-sm font-semibold hover:border-slate-300 hover:text-slate-800 transition-colors"
-                      >
-                        Clear saved schedule
-                      </button>
-                    )}
-                  </div>
+                  )}
                 </div>
               </div>
             </div>
-            {scheduleSavedAt && hasJustSentSchedule && (
-              <div className="mb-6 px-4 py-3 bg-emerald-50 border border-emerald-100 rounded-lg text-sm text-emerald-800 flex items-center justify-between">
-                <span>
-                  Schedule sent to Budget using <strong>{selectedStrategy === NO_STRATEGY ? NO_STRATEGY_LABEL : STRATEGY_LABELS[selectedStrategy as StrategyType]}</strong>. Month 1 is anchored to {new Date(scheduleSavedAt).toLocaleDateString()}.
-                </span>
+          </div>
+          {scheduleSavedAt && hasJustSentSchedule && (
+            <div className="mb-6 px-4 py-3 bg-emerald-50 border border-emerald-100 rounded-lg text-sm text-emerald-800 flex items-center justify-between">
+              <span>
+                Schedule sent to Budget using <strong>{STRATEGY_LABELS[selectedStrategy as StrategyType]}</strong>. Month 1 is anchored to {new Date(scheduleSavedAt).toLocaleDateString()}.
+              </span>
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+            <h3 className="font-bold text-slate-900 flex items-center">
+              <Table size={18} className="mr-2 text-indigo-600" />
+              Monthly Payment Matrix (Projected)
+            </h3>
+          </div>
+
+          <div className="overflow-x-auto border border-slate-200 rounded-lg max-h-[600px] overflow-y-auto relative">
+            {!strategyLoaded ? (
+              <div className="p-6 space-y-3">
+                {Array.from({ length: 6 }).map((_, idx) => (
+                  <div key={idx} className="h-5 w-full rounded bg-slate-100 animate-pulse" />
+                ))}
               </div>
+            ) : (
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
+                  <tr>
+                    <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200 sticky left-0 bg-slate-50 z-20 shadow-[1px_0_0_0_#e2e8f0]">Month</th>
+                    <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200 text-right bg-slate-50">Total Paid</th>
+                    {orderedMatrixLiabilities.map(d => (
+                      <th key={d.id} className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200 text-right min-w-[100px] bg-slate-50">
+                        {d.name}
+                      </th>
+                    ))}
+                    <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200 text-right bg-slate-50">Remaining</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-mono">
+                  {matrixRows.map((row) => {
+                    return (
+                      <tr key={row.month} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-4 py-3 text-sm font-bold text-slate-700 sticky left-0 bg-white shadow-[1px_0_0_0_#e2e8f0] group-hover:bg-slate-50">
+                          {row.month}
+                        </td>
+                        <td className="px-4 py-3 text-sm font-bold text-indigo-700 text-right">
+                          ${row.totalPaid.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                        </td>
+                        {orderedMatrixLiabilities.map(d => {
+                          const paid = row.paymentsById[d.id] || 0;
+                          const remaining = row.remainingById[d.id] || 0;
+                          const isPaidOff = remaining < 0.01;
+                          const isZeroMin =
+                            (d.minPaymentAmount || 0) <= 0 &&
+                            (d.minPaymentPercentage || 0) <= 0 &&
+                            (d.minPaymentFloor || 0) <= 0 &&
+                            !d.minPaymentPlusInterest &&
+                            !d.minPaymentPlusFees;
+
+                          return (
+                            <td key={d.id} className="px-4 py-3 text-sm text-right border-l border-slate-50">
+                              {paid > 0 ? (
+                                <span className="text-slate-700">${paid.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                              ) : (
+                                isPaidOff ? (
+                                  <span className="text-green-500 text-xs font-bold">PAID</span>
+                                ) : isZeroMin && remaining > 0.01 ? (
+                                  <span className="inline-flex items-center text-amber-600 text-xs font-semibold">
+                                    <AlertTriangle size={12} className="mr-1" />
+                                    MIN $0
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-300">-</span>
+                                )
+                              )}
+                            </td>
+                          );
+                        })}
+                        <td className="px-4 py-3 text-sm font-mono text-slate-500 text-right bg-slate-50/50">
+                          ${row.totalRemaining.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             )}
-           
-           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-             <h3 className="font-bold text-slate-900 flex items-center">
-               <Table size={18} className="mr-2 text-indigo-600" />
-               Monthly Payment Matrix (Projected)
-             </h3>
-           </div>
-           
-           <div className="overflow-x-auto border border-slate-200 rounded-lg max-h-[600px] overflow-y-auto relative">
-             {!strategyLoaded ? (
-               <div className="p-6 space-y-3">
-                 {Array.from({ length: 6 }).map((_, idx) => (
-                   <div key={idx} className="h-5 w-full rounded bg-slate-100 animate-pulse" />
-                 ))}
-               </div>
-             ) : (
-               <table className="w-full text-left border-collapse">
-                 <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
-                   <tr>
-                     <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200 sticky left-0 bg-slate-50 z-20 shadow-[1px_0_0_0_#e2e8f0]">Month</th>
-                     <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200 text-right bg-slate-50">Total Paid</th>
-                     {orderedMatrixLiabilities.map(d => (
-                       <th key={d.id} className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200 text-right min-w-[100px] bg-slate-50">
-                         {d.name}
-                       </th>
-                     ))}
-                     <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200 text-right bg-slate-50">Remaining</th>
-                   </tr>
-                 </thead>
-                 <tbody className="divide-y divide-slate-100 font-mono">
-                    {matrixRows.map((row) => {
-                       return (
-                         <tr key={row.month} className="hover:bg-slate-50 transition-colors">
-                           <td className="px-4 py-3 text-sm font-bold text-slate-700 sticky left-0 bg-white shadow-[1px_0_0_0_#e2e8f0] group-hover:bg-slate-50">
-                             {row.month}
-                           </td>
-                           <td className="px-4 py-3 text-sm font-bold text-indigo-700 text-right">
-                             ${row.totalPaid.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                           </td>
-                           {orderedMatrixLiabilities.map(d => {
-                              const paid = row.paymentsById[d.id] || 0;
-                              const remaining = row.remainingById[d.id] || 0;
-                              const isPaidOff = remaining < 0.01;
-                              const isZeroMin =
-                                (d.minPaymentAmount || 0) <= 0 &&
-                                (d.minPaymentPercentage || 0) <= 0 &&
-                                (d.minPaymentFloor || 0) <= 0 &&
-                                !d.minPaymentPlusInterest &&
-                                !d.minPaymentPlusFees;
-                              
-                              return (
-                                <td key={d.id} className="px-4 py-3 text-sm text-right border-l border-slate-50">
-                                  {paid > 0 ? (
-                                    <span className="text-slate-700">${paid.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
-                                  ) : (
-                                    isPaidOff ? (
-                                      <span className="text-green-500 text-xs font-bold">PAID</span>
-                                    ) : isZeroMin && remaining > 0.01 ? (
-                                      <span className="inline-flex items-center text-amber-600 text-xs font-semibold">
-                                        <AlertTriangle size={12} className="mr-1" />
-                                        MIN $0
-                                      </span>
-                                    ) : (
-                                      <span className="text-slate-300">-</span>
-                                    )
-                                  )}
-                                </td>
-                              );
-                           })}
-                           <td className="px-4 py-3 text-sm font-mono text-slate-500 text-right bg-slate-50/50">
-                             ${row.totalRemaining.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                           </td>
-                         </tr>
-                       );
-                    })}
-                 </tbody>
-               </table>
-             )}
-           </div>
+          </div>
         </div>
       )}
 

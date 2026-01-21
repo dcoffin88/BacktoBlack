@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Asset, Expense, IncomeSource, Liability, UserSettings } from '../types';
-import { calculateMonthlyIncome, getMinPayment, AmortizationRow } from '../server/liabilityAlgorithms';
+import { calculateMonthlyIncome, getMinPayment, AmortizationRow, getAnnualizedIncomeAmount } from '../server/liabilityAlgorithms';
+import { generatePaychecks, getPerCheckExpenseAmount, getPerCheckLiabilityAmount, PaycheckOccurrence } from '../utils/paycheckLogic';
 import { dbAPI } from '../server/db';
 import { CalendarRange, ChevronDown, ChevronUp, Calculator, ArrowRightLeft, Receipt, FileText, Wallet } from 'lucide-react';
 
@@ -36,11 +37,14 @@ type AmortizationDataView = {
   months: number;
 };
 
-type PaycheckOccurrence = {
-  date: Date;
-  source: IncomeSource;
-  eligibleMonthly: boolean;
-  eligibleBiWeekly: boolean;
+
+
+type ExtraPayment = {
+  id: string;
+  liabilityId: string;
+  amount: number;
+  checkDate?: string | null;
+  isChecked?: boolean;
 };
 
 const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, incomes, settings }) => {
@@ -57,6 +61,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
   const [selectedCheckKey, setSelectedCheckKey] = useState<string | null>(null);
   const [amortizationSchedules, setAmortizationSchedules] = useState<Record<string, AmortizationDataView>>({});
   const [amortizationLoaded, setAmortizationLoaded] = useState(false);
+  const [allExtraPayments, setAllExtraPayments] = useState<ExtraPayment[]>([]);
   const budgetStartDate = useMemo(() => {
     if (!settings.startDate) return null;
     const parsed = new Date(settings.startDate);
@@ -101,6 +106,12 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
       setAmortizationLoaded(true);
     };
     loadAmortizations();
+    dbAPI.getExtraPayments().then((response) => {
+      if (active && response?.extras) {
+        setAllExtraPayments(response.extras);
+      }
+    });
+
     return () => {
       active = false;
     };
@@ -250,18 +261,18 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
       return (settings.userSplitPercentage || 50) / 100;
     }
     if (settings.expenseSplitMethod === 'INCOME') {
-      const mine = calculateMonthlyIncome(
-        budgetedIncomes.filter((i) => !i.isPartner)
-      );
-      const partner = calculateMonthlyIncome(
-        budgetedIncomes.filter((i) => i.isPartner)
-      );
+      const mine = budgetedIncomes
+        .filter((i) => !i.isPartner && !i.excludeFromSplitting)
+        .reduce((sum, source) => sum + getAnnualizedIncomeAmount(source), 0);
+      const partner = budgetedIncomes
+        .filter((i) => i.isPartner && !i.excludeFromSplitting)
+        .reduce((sum, source) => sum + getAnnualizedIncomeAmount(source), 0);
       const total = mine + partner;
       if (total <= 0) return 0.5;
       return mine / total;
     }
     return 0.5;
-  }, [budgetedIncomes, monthlyIncomeMode, settings]);
+  }, [budgetedIncomes, settings]);
 
   const formatCurrency = (value: number) =>
     `${currencySymbol}${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -273,143 +284,10 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
   };
 
   const paychecks = useMemo(() => {
-    const today = new Date();
-    const windowYears = 20;
-    const start = new Date(today.getFullYear() - windowYears, 0, 1);
-    const end = new Date(today.getFullYear() + windowYears, 11, 31);
-    const startBoundary =
-      budgetStartDate && budgetStartDate.getTime() > start.getTime()
-        ? budgetStartDate
-        : start;
-
-    const getSemiMonthlyDates = (
-      anchorDay: number,
-      startDate: Date,
-      endDate: Date
-    ): Date[] => {
-      const dates: Date[] = [];
-      const day1Base = anchorDay <= 15 ? anchorDay : anchorDay - 15;
-      const day2Base = anchorDay <= 15 ? anchorDay + 15 : anchorDay;
-      const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
-      const endCursor = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
-
-      while (cursor <= endCursor) {
-        const year = cursor.getFullYear();
-        const month = cursor.getMonth();
-        const lastDay = new Date(year, month + 1, 0).getDate();
-        const day1 = Math.min(Math.max(day1Base, 1), lastDay);
-        const day2 = Math.min(Math.max(day2Base, 1), lastDay);
-        const first = new Date(year, month, day1);
-        const second = new Date(year, month, day2);
-
-        if (first >= startDate && first <= endDate) {
-          dates.push(first);
-        }
-        if (second.getTime() !== first.getTime() && second >= startDate && second <= endDate) {
-          dates.push(second);
-        }
-
-        cursor.setMonth(cursor.getMonth() + 1);
-      }
-
-      return dates.sort((a, b) => a.getTime() - b.getTime());
-    };
-
-    const getPayDates = (
-      source: IncomeSource,
-      startDate: Date,
-      endDate: Date
-    ): Date[] => {
-      const dates: Date[] = [];
-      const [y, m, d] = source.nextPayDate.split('-').map(Number);
-      const seed = new Date(y, m - 1, d);
-      if (Number.isNaN(seed.getTime())) return [];
-      if (source.frequency === 'SEMI_MONTHLY') {
-        return getSemiMonthlyDates(seed.getDate(), startDate, endDate);
-      }
-      let current = new Date(seed);
-
-      let iterations = 0;
-      while (current > startDate && iterations < 5000) {
-        const prev = new Date(current);
-        switch (source.frequency) {
-          case 'WEEKLY':
-            prev.setDate(prev.getDate() - 7);
-            break;
-          case 'BI_WEEKLY':
-            prev.setDate(prev.getDate() - 14);
-            break;
-          case 'MONTHLY':
-            prev.setMonth(prev.getMonth() - 1);
-            break;
-          case 'ANNUAL':
-            prev.setFullYear(prev.getFullYear() - 1);
-            break;
-          default:
-            prev.setDate(prev.getDate() - 30);
-        }
-        if (prev < startDate) break;
-        current = prev;
-        iterations += 1;
-      }
-
-      iterations = 0;
-      while (current <= endDate && iterations < 5000) {
-        if (current >= startDate) {
-          dates.push(new Date(current));
-        }
-        iterations += 1;
-        switch (source.frequency) {
-          case 'WEEKLY':
-            current.setDate(current.getDate() + 7);
-            break;
-          case 'BI_WEEKLY':
-            current.setDate(current.getDate() + 14);
-            break;
-          case 'MONTHLY':
-            current.setMonth(current.getMonth() + 1);
-            break;
-          case 'ANNUAL':
-            current.setFullYear(current.getFullYear() + 1);
-            break;
-          default:
-            current.setDate(current.getDate() + 30);
-        }
-      }
-      return dates;
-    };
-
-    const monthCountsBySource: Record<string, Record<string, number>> = {};
-    const occurrences: {
-      date: Date;
-      source: IncomeSource;
-      eligibleMonthly: boolean;
-      eligibleBiWeekly: boolean;
-    }[] = [];
-    budgetedIncomes.forEach((src) => {
-      const dates = getPayDates(src, startBoundary, end).sort(
-        (a, b) => a.getTime() - b.getTime()
-      );
-      monthCountsBySource[src.id] = monthCountsBySource[src.id] || {};
-      dates.forEach((date) => {
-        const monthKey = `${date.getFullYear()}-${date.getMonth()}`;
-        const currentCount = monthCountsBySource[src.id][monthKey] || 0;
-        monthCountsBySource[src.id][monthKey] = currentCount + 1;
-
-        const eligibleMonthly =
-          src.includeFirstTwoChecks === true ? currentCount < 2 : true;
-
-        occurrences.push({
-          date,
-          source: src,
-          eligibleMonthly,
-          eligibleBiWeekly: true,
-        });
-      });
+    return generatePaychecks(budgetedIncomes, periodRange.start, periodRange.end, {
+      budgetStartDate
     });
-
-    return occurrences.sort((a, b) => a.date.getTime() - b.date.getTime());
-  }, [budgetStartDate, budgetedIncomes]);
+  }, [budgetStartDate, budgetedIncomes, periodRange]);
 
   const paychecksInPeriod = useMemo(
     () =>
@@ -502,273 +380,11 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     return monthPaychecksByKey.get(key) || paychecks;
   }, [monthPaychecksByKey, paychecks, selectedTransfer]);
 
-  const getRatiosForPaycheck = useCallback(
-    (currentPaycheck: PaycheckOccurrence | null, monthPaychecksForCheck: PaycheckOccurrence[]) => {
-      if (!currentPaycheck) {
-        return {
-          monthlyRatio: 0,
-          biWeeklyRatio: 0,
-          monthlyRatioOwner: 0,
-          biWeeklyRatioOwner: 0,
-        };
-      }
-      const totalMonthlyIncomeIncluded = monthPaychecksForCheck
-        .filter((paycheck) => paycheck.eligibleMonthly !== false)
-        .reduce((sum, paycheck) => sum + paycheck.source.amount, 0);
-      const totalBiWeeklyIncomeIncluded = monthPaychecksForCheck
-        .filter((paycheck) => paycheck.eligibleBiWeekly !== false)
-        .reduce((sum, paycheck) => sum + paycheck.source.amount, 0);
-      const totalAnyIncomeIncluded = monthPaychecksForCheck.reduce(
-        (sum, paycheck) => sum + paycheck.source.amount,
-        0
-      );
-      const monthlyPool =
-        totalMonthlyIncomeIncluded > 0 ? totalMonthlyIncomeIncluded : totalAnyIncomeIncluded;
-      const biWeeklyPool =
-        totalBiWeeklyIncomeIncluded > 0 ? totalBiWeeklyIncomeIncluded : totalAnyIncomeIncluded;
 
-      const monthlyPoolUser = monthPaychecksForCheck
-        .filter((paycheck) => paycheck.eligibleMonthly !== false && !paycheck.source.isPartner)
-        .reduce((sum, paycheck) => sum + paycheck.source.amount, 0);
-      const monthlyPoolPartner = monthPaychecksForCheck
-        .filter((paycheck) => paycheck.eligibleMonthly !== false && paycheck.source.isPartner)
-        .reduce((sum, paycheck) => sum + paycheck.source.amount, 0);
-      const biWeeklyPoolUser = monthPaychecksForCheck
-        .filter((paycheck) => paycheck.eligibleBiWeekly !== false && !paycheck.source.isPartner)
-        .reduce((sum, paycheck) => sum + paycheck.source.amount, 0);
-      const biWeeklyPoolPartner = monthPaychecksForCheck
-        .filter((paycheck) => paycheck.eligibleBiWeekly !== false && paycheck.source.isPartner)
-        .reduce((sum, paycheck) => sum + paycheck.source.amount, 0);
-
-      const monthlyRatio =
-        currentPaycheck.eligibleMonthly !== false && monthlyPool > 0
-          ? (currentPaycheck.source.amount || 0) / monthlyPool
-          : 0;
-      const biWeeklyRatio =
-        currentPaycheck.eligibleBiWeekly !== false && biWeeklyPool > 0
-          ? (currentPaycheck.source.amount || 0) / biWeeklyPool
-          : 0;
-
-      const monthlyRatioOwner =
-        currentPaycheck.eligibleMonthly === false
-          ? 0
-          : currentPaycheck.source.isPartner
-          ? monthlyPoolPartner > 0
-            ? (currentPaycheck.source.amount || 0) / monthlyPoolPartner
-            : monthlyRatio
-          : monthlyPoolUser > 0
-          ? (currentPaycheck.source.amount || 0) / monthlyPoolUser
-          : monthlyRatio;
-
-      const biWeeklyRatioOwner =
-        currentPaycheck.eligibleBiWeekly === false
-          ? 0
-          : currentPaycheck.source.isPartner
-          ? biWeeklyPoolPartner > 0
-            ? (currentPaycheck.source.amount || 0) / biWeeklyPoolPartner
-            : biWeeklyRatio
-          : biWeeklyPoolUser > 0
-          ? (currentPaycheck.source.amount || 0) / biWeeklyPoolUser
-          : biWeeklyRatio;
-
-      return { monthlyRatio, biWeeklyRatio, monthlyRatioOwner, biWeeklyRatioOwner };
-    },
-    []
-  );
 
   const getPerCheckExpenseFor = useCallback((expense: Expense, currentPaycheck: PaycheckOccurrence | null, monthPaychecksForCheck: PaycheckOccurrence[]) => {
-    if (!currentPaycheck) return 0;
-    const excluded = new Set(expense.excludedIncomeSourceIds || []);
-    if (excluded.has(currentPaycheck.source.id)) return 0;
-
-    const useBiWeekly =
-      expense.frequency === 'BI_WEEKLY' || expense.frequency === 'WEEKLY';
-    const monthlyEquivalent =
-      expense.frequency === 'BI_WEEKLY'
-        ? expense.amount * 2
-        : expense.frequency === 'WEEKLY'
-        ? expense.amount * (52 / 12)
-        : expense.frequency === 'QUARTERLY'
-        ? expense.amount / 3
-        : expense.frequency === 'ANNUAL'
-        ? expense.amount / 12
-        : expense.amount;
-
-    if (expense.excludeFromSplitting) {
-      const owner = expense.owner || 'JOINT';
-      const eligiblePool = monthPaychecksForCheck.filter((paycheck) => {
-        const passesFrequency = useBiWeekly
-          ? paycheck.eligibleBiWeekly !== false
-          : paycheck.eligibleMonthly !== false;
-        if (!passesFrequency) return false;
-        if (excluded.has(paycheck.source.id)) return false;
-        if (owner === 'PARTNER') return paycheck.source.isPartner;
-        if (owner === 'USER') return !paycheck.source.isPartner;
-        return true;
-      });
-
-      const isEligibleCurrent =
-        currentPaycheck &&
-        eligiblePool.some((paycheck) => paycheck === currentPaycheck) &&
-        !excluded.has(currentPaycheck.source.id);
-
-      if (!isEligibleCurrent) return 0;
-      if (useBiWeekly) {
-        return expense.amount;
-      }
-      const count = eligiblePool.length || 1;
-      return monthlyEquivalent / count;
-    }
-
-    const eligibleMonthlyUser = monthPaychecksForCheck.filter(
-      (paycheck) =>
-        paycheck.eligibleMonthly !== false &&
-        !paycheck.source.isPartner &&
-        !excluded.has(paycheck.source.id)
-    );
-    const eligibleMonthlyPartner = monthPaychecksForCheck.filter(
-      (paycheck) =>
-        paycheck.eligibleMonthly !== false &&
-        paycheck.source.isPartner &&
-        !excluded.has(paycheck.source.id)
-    );
-    const eligibleBiWeeklyUser = monthPaychecksForCheck.filter(
-      (paycheck) =>
-        paycheck.eligibleBiWeekly !== false &&
-        !paycheck.source.isPartner &&
-        !excluded.has(paycheck.source.id)
-    );
-    const eligibleBiWeeklyPartner = monthPaychecksForCheck.filter(
-      (paycheck) =>
-        paycheck.eligibleBiWeekly !== false &&
-        paycheck.source.isPartner &&
-        !excluded.has(paycheck.source.id)
-    );
-
-    const monthlyPoolUserEff = eligibleMonthlyUser.reduce(
-      (sum, paycheck) => sum + paycheck.source.amount,
-      0
-    );
-    const monthlyPoolPartnerEff = eligibleMonthlyPartner.reduce(
-      (sum, paycheck) => sum + paycheck.source.amount,
-      0
-    );
-    const monthlyPoolEff = monthlyPoolUserEff + monthlyPoolPartnerEff;
-
-    const biWeeklyPoolUserEff = eligibleBiWeeklyUser.reduce(
-      (sum, paycheck) => sum + paycheck.source.amount,
-      0
-    );
-    const biWeeklyPoolPartnerEff = eligibleBiWeeklyPartner.reduce(
-      (sum, paycheck) => sum + paycheck.source.amount,
-      0
-    );
-    const biWeeklyPoolEff = biWeeklyPoolUserEff + biWeeklyPoolPartnerEff;
-
-    const monthlyRatioEff =
-      currentPaycheck &&
-      currentPaycheck.eligibleMonthly !== false &&
-      !excluded.has(currentPaycheck.source.id) &&
-      monthlyPoolEff > 0
-        ? (currentPaycheck.source.amount || 0) / monthlyPoolEff
-        : 0;
-    const biWeeklyRatioEff =
-      currentPaycheck &&
-      currentPaycheck.eligibleBiWeekly !== false &&
-      !excluded.has(currentPaycheck.source.id) &&
-      biWeeklyPoolEff > 0
-        ? (currentPaycheck.source.amount || 0) / biWeeklyPoolEff
-        : 0;
-
-    const monthlyRatioOwnerEff =
-      currentPaycheck?.eligibleMonthly === false ||
-      !currentPaycheck ||
-      excluded.has(currentPaycheck.source.id)
-        ? 0
-        : currentPaycheck.source.isPartner
-        ? monthlyPoolPartnerEff > 0
-          ? (currentPaycheck.source.amount || 0) / monthlyPoolPartnerEff
-          : monthlyRatioEff
-        : monthlyPoolUserEff > 0
-        ? (currentPaycheck.source.amount || 0) / monthlyPoolUserEff
-        : monthlyRatioEff;
-
-    const biWeeklyRatioOwnerEff =
-      currentPaycheck?.eligibleBiWeekly === false ||
-      !currentPaycheck ||
-      excluded.has(currentPaycheck.source.id)
-        ? 0
-        : currentPaycheck.source.isPartner
-        ? biWeeklyPoolPartnerEff > 0
-          ? (currentPaycheck.source.amount || 0) / biWeeklyPoolPartnerEff
-          : biWeeklyRatioEff
-        : biWeeklyPoolUserEff > 0
-        ? (currentPaycheck.source.amount || 0) / biWeeklyPoolUserEff
-        : biWeeklyRatioEff;
-
-    const owner = expense.owner || 'JOINT';
-    const perCheckBase = expense.amount;
-
-    if (useBiWeekly) {
-      const monthSources = Array.from(
-        new Map(monthPaychecksForCheck.map((p) => [p.source.id, p.source])).values()
-      ).filter((source) => !excluded.has(source.id));
-      const totalMonthlyEquivalent = monthSources.reduce(
-        (sum, source) => sum + calculateMonthlyIncome([source]),
-        0
-      );
-      const biWeeklySources = monthSources.filter(
-        (source) =>
-          source.frequency === 'BI_WEEKLY' || source.frequency === 'WEEKLY'
-      );
-      const isBiWeeklySource = biWeeklySources.some(
-        (source) => source.id === currentPaycheck?.source.id
-      );
-      if (!isBiWeeklySource) return 0;
-      if (totalMonthlyEquivalent > 0) {
-        const biWeeklyCount = biWeeklySources.length || 1;
-        const monthlyOnlyShare = monthSources
-          .filter(
-            (source) =>
-              source.frequency !== 'BI_WEEKLY' && source.frequency !== 'WEEKLY'
-          )
-          .reduce(
-            (sum, source) =>
-              sum + calculateMonthlyIncome([source]) / totalMonthlyEquivalent,
-            0
-          );
-        const sourceShare =
-          calculateMonthlyIncome([currentPaycheck.source]) / totalMonthlyEquivalent;
-        const baseShare = sourceShare + monthlyOnlyShare / biWeeklyCount;
-        if (owner === 'PARTNER' && !currentPaycheck?.source.isPartner) return 0;
-        if (owner === 'USER' && currentPaycheck?.source.isPartner) return 0;
-        return perCheckBase * baseShare;
-      }
-    }
-    if (owner === 'PARTNER') {
-      if (!currentPaycheck?.source.isPartner) return 0;
-      return useBiWeekly
-        ? perCheckBase * biWeeklyRatioOwnerEff
-        : monthlyEquivalent * monthlyRatioOwnerEff;
-    }
-    if (owner === 'USER') {
-      if (currentPaycheck?.source.isPartner) return 0;
-      return useBiWeekly
-        ? perCheckBase * biWeeklyRatioOwnerEff
-        : monthlyEquivalent * monthlyRatioOwnerEff;
-    }
-
-    const userPortion = perCheckBase * userSplitRatio;
-    const partnerPortion = perCheckBase - userPortion;
-    if (currentPaycheck?.source.isPartner) {
-      return useBiWeekly
-        ? partnerPortion * biWeeklyRatioOwnerEff
-        : partnerPortion * monthlyRatioOwnerEff;
-    }
-    return useBiWeekly
-      ? userPortion * biWeeklyRatioOwnerEff
-      : userPortion * monthlyRatioOwnerEff;
-  }, [userSplitRatio]);
+    return getPerCheckExpenseAmount(expense, currentPaycheck, monthPaychecksForCheck, budgetedIncomes, userSplitRatio);
+  }, [userSplitRatio, budgetedIncomes]);
 
   const getPerCheckExpense = (expense: Expense) => {
     const currentPaycheck = selectedTransfer?.paycheck || null;
@@ -778,140 +394,16 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
   };
 
   const getPerCheckLiabilityFor = useCallback((liability: typeof liabilityWithMins[number], currentPaycheck: PaycheckOccurrence | null, monthPaychecksForCheck: PaycheckOccurrence[]) => {
-    if (!currentPaycheck) return 0;
-    const excluded = new Set(liability.excludedIncomeSourceIds || []);
-    if (excluded.has(currentPaycheck.source.id)) return 0;
-    const useBiWeekly =
-      liability.scheduledFrequency === 'BI_WEEKLY' ||
-      liability.scheduledFrequency === 'WEEKLY';
-    const hasAdvanced =
-      liability.excludeFromSplitting ||
-      (liability.excludedIncomeSourceIds || []).length > 0;
-    const owner = liability.owner || 'JOINT';
-    const ratios = getRatiosForPaycheck(currentPaycheck, monthPaychecksForCheck);
-
-    if (useBiWeekly) {
-      if (currentPaycheck?.eligibleBiWeekly === false) return 0;
-      if (owner === 'PARTNER' && !currentPaycheck?.source.isPartner) return 0;
-      if (owner === 'USER' && currentPaycheck?.source.isPartner) return 0;
-
-      const perPeriod =
-        liability.scheduledFrequency === 'WEEKLY'
-          ? (liability.plannedPayment || 0) * (12 / 52)
-          : (liability.plannedPayment || 0) * (12 / 26);
-
-      if (owner === 'JOINT') {
-        if (liability.excludeFromSplitting) {
-          return perPeriod;
-        }
-        const splitRatio = currentPaycheck?.source.isPartner
-          ? 1 - userSplitRatio
-          : userSplitRatio;
-        return perPeriod * splitRatio;
-      }
-      return perPeriod;
-    }
-
-    if (!hasAdvanced) {
-      if (currentPaycheck.eligibleMonthly === false) return 0;
-      return (liability.plannedPayment || 0) * ratios.monthlyRatio;
-    }
-
-    const eligibleMonthlyUser = monthPaychecksForCheck.filter(
-      (p) =>
-        p.eligibleMonthly !== false &&
-        !p.source.isPartner &&
-        !excluded.has(p.source.id)
+    return getPerCheckLiabilityAmount(
+      liability,
+      currentPaycheck,
+      monthPaychecksForCheck,
+      budgetedIncomes,
+      allExtraPayments,
+      userSplitRatio,
+      { includeUnchecked: false }
     );
-    const eligibleMonthlyPartner = monthPaychecksForCheck.filter(
-      (p) =>
-        p.eligibleMonthly !== false &&
-        p.source.isPartner &&
-        !excluded.has(p.source.id)
-    );
-    const eligibleBiWeeklyUser = monthPaychecksForCheck.filter(
-      (p) =>
-        p.eligibleBiWeekly !== false &&
-        !p.source.isPartner &&
-        !excluded.has(p.source.id)
-    );
-    const eligibleBiWeeklyPartner = monthPaychecksForCheck.filter(
-      (p) =>
-        p.eligibleBiWeekly !== false &&
-        p.source.isPartner &&
-        !excluded.has(p.source.id)
-    );
-
-    const monthlyPoolUserEff = eligibleMonthlyUser.reduce(
-      (sum, p) => sum + p.source.amount,
-      0
-    );
-    const monthlyPoolPartnerEff = eligibleMonthlyPartner.reduce(
-      (sum, p) => sum + p.source.amount,
-      0
-    );
-    const monthlyPoolEff = monthlyPoolUserEff + monthlyPoolPartnerEff;
-
-    const biWeeklyPoolUserEff = eligibleBiWeeklyUser.reduce(
-      (sum, p) => sum + p.source.amount,
-      0
-    );
-    const biWeeklyPoolPartnerEff = eligibleBiWeeklyPartner.reduce(
-      (sum, p) => sum + p.source.amount,
-      0
-    );
-    const biWeeklyPoolEff = biWeeklyPoolUserEff + biWeeklyPoolPartnerEff;
-
-    const monthlyRatioEff =
-      currentPaycheck &&
-      currentPaycheck.eligibleMonthly !== false &&
-      !excluded.has(currentPaycheck.source.id) &&
-      monthlyPoolEff > 0
-        ? (currentPaycheck.source.amount || 0) / monthlyPoolEff
-        : 0;
-    const biWeeklyRatioEff =
-      currentPaycheck &&
-      currentPaycheck.eligibleBiWeekly !== false &&
-      !excluded.has(currentPaycheck.source.id) &&
-      biWeeklyPoolEff > 0
-        ? (currentPaycheck.source.amount || 0) / biWeeklyPoolEff
-        : 0;
-
-    const monthlyRatioOwnerEff =
-      currentPaycheck?.eligibleMonthly === false ||
-      !currentPaycheck ||
-      excluded.has(currentPaycheck.source.id)
-        ? 0
-        : currentPaycheck.source.isPartner
-        ? monthlyPoolPartnerEff > 0
-          ? (currentPaycheck.source.amount || 0) / monthlyPoolPartnerEff
-          : monthlyRatioEff
-        : monthlyPoolUserEff > 0
-        ? (currentPaycheck.source.amount || 0) / monthlyPoolUserEff
-        : monthlyRatioEff;
-
-    const biWeeklyRatioOwnerEff =
-      currentPaycheck?.eligibleBiWeekly === false ||
-      !currentPaycheck ||
-      excluded.has(currentPaycheck.source.id)
-        ? 0
-        : currentPaycheck.source.isPartner
-        ? biWeeklyPoolPartnerEff > 0
-          ? (currentPaycheck.source.amount || 0) / biWeeklyPoolPartnerEff
-          : biWeeklyRatioEff
-        : biWeeklyPoolUserEff > 0
-        ? (currentPaycheck.source.amount || 0) / biWeeklyPoolUserEff
-        : biWeeklyRatioEff;
-
-    if (owner === 'PARTNER' && !currentPaycheck?.source.isPartner) return 0;
-    if (owner === 'USER' && currentPaycheck?.source.isPartner) return 0;
-
-    const ratioBase = useBiWeekly ? biWeeklyRatioEff : monthlyRatioEff;
-    const ratioOwner = useBiWeekly ? biWeeklyRatioOwnerEff : monthlyRatioOwnerEff;
-    const ratio = owner === 'JOINT' ? ratioBase : ratioOwner;
-    if (!useBiWeekly && currentPaycheck?.eligibleMonthly === false) return 0;
-    return (liability.plannedPayment || 0) * ratio;
-  }, [getRatiosForPaycheck, userSplitRatio]);
+  }, [userSplitRatio, budgetedIncomes, allExtraPayments]);
 
   const getPerCheckLiability = (liability: typeof liabilityWithMins[number]) => {
     const currentPaycheck = selectedTransfer?.paycheck || null;
@@ -1235,7 +727,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
                           <span className="font-semibold">-{formatCurrency(row.total)}</span>
                         )}
                       </div>
-                    {expandedReport === 'budget' && (
+                      {expandedReport === 'budget' && (
                         <div className="space-y-1 pl-6 text-xs text-slate-400">
                           {row.items.map((liability) => {
                             const amount = getLiabilityPeriodTotal(liability);
@@ -1254,7 +746,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
                           </div>
                         </div>
                       )}
-                   </div>
+                    </div>
                   ))}
                 </div>
               )}
@@ -1262,26 +754,26 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
             <div>
               {expandedReport !== 'budget' ? (
                 <div className="space-y-1 flex items-center justify-end border-t border-slate-100">
-                {balancesReady ? (
-                  <span className="font-semibold">-{formatCurrency(periodLiabilityTotal)}</span>
-                ) : (
-                  <div className="h-4 w-24 rounded bg-slate-100 animate-pulse" />
-                )}
-              </div>
-            ) : (
-              <span aria-hidden="true" />
-            )}
-          </div>
-          <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-            <span className="font-semibold text-slate-700">Remaining</span>
-            {balancesReady ? (
-              <span className={`font-semibold ${periodNet >= 0 ? 'text-indigo-600' : 'text-red-600'}`}>
-                {formatCurrency(periodNet)}
-              </span>
-            ) : (
-              <div className="h-4 w-24 rounded bg-slate-100 animate-pulse" />
-            )}
-          </div>
+                  {balancesReady ? (
+                    <span className="font-semibold">-{formatCurrency(periodLiabilityTotal)}</span>
+                  ) : (
+                    <div className="h-4 w-24 rounded bg-slate-100 animate-pulse" />
+                  )}
+                </div>
+              ) : (
+                <span aria-hidden="true" />
+              )}
+            </div>
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+              <span className="font-semibold text-slate-700">Remaining</span>
+              {balancesReady ? (
+                <span className={`font-semibold ${periodNet >= 0 ? 'text-indigo-600' : 'text-red-600'}`}>
+                  {formatCurrency(periodNet)}
+                </span>
+              ) : (
+                <div className="h-4 w-24 rounded bg-slate-100 animate-pulse" />
+              )}
+            </div>
           </div>
         </div>
 

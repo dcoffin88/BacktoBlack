@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Liability, Expense, Asset, StrategyType, STRATEGY_LABELS, UserSettings, IncomeSource, BudgetSchedule, PayoffResult } from '../types';
-import { calculatePayoff, getMinPayment, calculateMonthlyIncomeByMode, AmortizationRow } from '../server/liabilityAlgorithms';
+import { calculatePayoff, getMinPayment, calculateMonthlyIncomeByMode, AmortizationRow, getAnnualizedIncomeAmount } from '../server/liabilityAlgorithms';
+import { generatePaychecks, getPerCheckExpenseAmount, getPerCheckLiabilityAmount, PaycheckOccurrence } from '../utils/paycheckLogic';
 import { Link } from 'react-router-dom';
 import { ArrowRight, TrendingUp, Calendar, Wallet, LayoutDashboard, DollarSign, Receipt, Landmark, Calculator, AlertTriangle } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
@@ -58,6 +59,9 @@ type AmortizationOverride = {
   purchase?: number;
   checkDate?: string | null;
 };
+
+
+
 
 const parseLocalDate = (value?: string | null) => {
   if (!value) return null;
@@ -200,6 +204,34 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonthIndex = now.getMonth();
+
+  const userSplitRatio = useMemo(() => {
+    if (!userSettings?.enablePartner) return 1;
+    if (userSettings.expenseSplitMethod === 'PERCENTAGE') {
+      return (userSettings.userSplitPercentage || 50) / 100;
+    }
+    if (userSettings.expenseSplitMethod === 'INCOME') {
+      const mine = incomes
+        .filter((i) => i.includeInPlanner !== false && !i.isPartner && !i.excludeFromSplitting)
+        .reduce((sum, source) => sum + getAnnualizedIncomeAmount(source), 0);
+      const partner = incomes
+        .filter((i) => i.includeInPlanner !== false && i.isPartner && !i.excludeFromSplitting)
+        .reduce((sum, source) => sum + getAnnualizedIncomeAmount(source), 0);
+      const total = mine + partner;
+      if (total <= 0) return 0.5;
+      return mine / total;
+    }
+    return 0.5;
+  }, [incomes, userSettings]);
+
+  const getExpenseShare = useCallback((expense: Expense) => {
+    if (!userSettings?.enablePartner) return 1;
+    const owner = expense.owner || "JOINT";
+    if (owner === "USER") return 1;
+    if (owner === "PARTNER") return 0;
+    return userSplitRatio;
+  }, [userSettings?.enablePartner, userSplitRatio]);
+
   const scheduleBalanceById = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -295,36 +327,12 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
     });
     return total;
   };
-  const totalMinPayment = liabilities.reduce((sum, d) => {
-    const scheduled = getMonthlyPaymentFromSchedule(d);
-    if (scheduled !== null) return sum + scheduled;
-    const currentBalance = getDisplayBalance(d);
-    const monthlyInterest = currentBalance * (d.interestRate / 100 / 12);
-    const estFee = d.isFeeMonthly ? (d.annualFee / 12) : 0;
-    return sum + getMinPayment(d, currentBalance, monthlyInterest, estFee);
-  }, 0);
-  const avgInterest = liabilities.length > 0 
-    ? liabilities.reduce((sum, d) => sum + d.interestRate, 0) / liabilities.length 
+
+  const avgInterest = liabilities.length > 0
+    ? liabilities.reduce((sum, d) => sum + d.interestRate, 0) / liabilities.length
     : 0;
 
-  // Expense Calculations
-  const totalMonthlyExpenses = expenses.reduce((sum, b) => {
-    const multiplier =
-      b.frequency === 'BI_WEEKLY'
-        ? 2
-        : b.frequency === 'WEEKLY'
-        ? 52 / 12
-        : b.frequency === 'QUARTERLY'
-        ? 1 / 3
-        : b.frequency === 'ANNUAL'
-        ? 1 / 12
-        : 1;
-    return sum + b.amount * multiplier;
-  }, 0);
-  
-  // Asset Calculations
-  const totalAssets = assets.reduce((sum, a) => sum + a.value, 0);
-  const netWorth = totalAssets - totalLiability;
+  // Core Data & Paycheck Generation
   const budgetedIncomes = incomes.filter((i) => i.includeInPlanner !== false);
   const budgetStartDate = useMemo(() => {
     if (!userSettings?.startDate) return null;
@@ -332,135 +340,73 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
     if (Number.isNaN(parsed.getTime())) return null;
     return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
   }, [userSettings?.startDate]);
-  const activeLiabilities = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return liabilities.filter((liability) => {
-      if (!liability.startDate) return true;
-      const start = new Date(`${liability.startDate}T12:00:00`);
-      if (Number.isNaN(start.getTime())) return true;
-      start.setHours(0, 0, 0, 0);
-      return start <= today;
-    });
-  }, [liabilities]);
-  const currentMonthLiabilityMins = useMemo(() => {
-    return activeLiabilities.reduce((sum, l) => {
-      const scheduled = getMonthlyPaymentFromSchedule(l);
-      if (scheduled !== null) return sum + scheduled;
-      const currentBalance = getDisplayBalance(l);
-      const monthlyInterest = currentBalance * (l.interestRate / 100 / 12);
-      const estFee = l.isFeeMonthly ? l.annualFee / 12 : 0;
-      return sum + getMinPayment(l, currentBalance, monthlyInterest, estFee);
-    }, 0);
-  }, [activeLiabilities, amortizationSchedules]);
-  const currentMonthIncome = useMemo(() => {
-    if (budgetedIncomes.length === 0) return 0;
+
+  const currentMonthPaychecks = useMemo(() => {
+    if (budgetedIncomes.length === 0) return [];
+
+    // Calculate periodStart and periodEnd same as before
     const periodStart = new Date(currentYear, currentMonthIndex, 1);
     const periodEnd = new Date(currentYear, currentMonthIndex + 1, 0);
-    const startBoundary =
-      budgetStartDate && budgetStartDate.getTime() > periodStart.getTime()
-        ? budgetStartDate
-        : periodStart;
 
-    const getSemiMonthlyDates = (
-      anchorDay: number,
-      startDate: Date,
-      endDate: Date
-    ): Date[] => {
-      const dates: Date[] = [];
-      const day1Base = anchorDay <= 15 ? anchorDay : anchorDay - 15;
-      const day2Base = anchorDay <= 15 ? anchorDay + 15 : anchorDay;
-      const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
-      const endCursor = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
-
-      while (cursor <= endCursor) {
-        const year = cursor.getFullYear();
-        const month = cursor.getMonth();
-        const lastDay = new Date(year, month + 1, 0).getDate();
-        const day1 = Math.min(Math.max(day1Base, 1), lastDay);
-        const day2 = Math.min(Math.max(day2Base, 1), lastDay);
-        const first = new Date(year, month, day1);
-        const second = new Date(year, month, day2);
-
-        if (first >= startDate && first <= endDate) {
-          dates.push(first);
-        }
-        if (second.getTime() !== first.getTime() && second >= startDate && second <= endDate) {
-          dates.push(second);
-        }
-
-        cursor.setMonth(cursor.getMonth() + 1);
-      }
-
-      return dates.sort((a, b) => a.getTime() - b.getTime());
-    };
-
-    const getPayDates = (source: IncomeSource, startDate: Date, endDate: Date): Date[] => {
-      if (!source.nextPayDate) return [];
-      const [y, m, d] = source.nextPayDate.split('-').map(Number);
-      const seed = new Date(y, m - 1, d);
-      if (Number.isNaN(seed.getTime())) return [];
-      if (source.frequency === 'SEMI_MONTHLY') {
-        return getSemiMonthlyDates(seed.getDate(), startDate, endDate);
-      }
-
-      let current = new Date(seed);
-      const dates: Date[] = [];
-      let iterations = 0;
-      while (current > startDate && iterations < 5000) {
-        const prev = new Date(current);
-        switch (source.frequency) {
-          case 'WEEKLY':
-            prev.setDate(prev.getDate() - 7);
-            break;
-          case 'BI_WEEKLY':
-            prev.setDate(prev.getDate() - 14);
-            break;
-          case 'MONTHLY':
-            prev.setMonth(prev.getMonth() - 1);
-            break;
-          case 'ANNUAL':
-            prev.setFullYear(prev.getFullYear() - 1);
-            break;
-          default:
-            prev.setDate(prev.getDate() - 30);
-        }
-        if (prev < startDate) break;
-        current = prev;
-        iterations += 1;
-      }
-
-      iterations = 0;
-      while (current <= endDate && iterations < 5000) {
-        if (current >= startDate) {
-          dates.push(new Date(current));
-        }
-        iterations += 1;
-        switch (source.frequency) {
-          case 'WEEKLY':
-            current.setDate(current.getDate() + 7);
-            break;
-          case 'BI_WEEKLY':
-            current.setDate(current.getDate() + 14);
-            break;
-          case 'MONTHLY':
-            current.setMonth(current.getMonth() + 1);
-            break;
-          case 'ANNUAL':
-            current.setFullYear(current.getFullYear() + 1);
-            break;
-          default:
-            current.setDate(current.getDate() + 30);
-        }
-      }
-      return dates;
-    };
-
-    return budgetedIncomes.reduce((sum, source) => {
-      const count = getPayDates(source, startBoundary, periodEnd).length;
-      return sum + count * source.amount;
-    }, 0);
+    return generatePaychecks(budgetedIncomes, periodStart, periodEnd, {
+      budgetStartDate
+    });
   }, [budgetStartDate, budgetedIncomes, currentMonthIndex, currentYear]);
+
+  const currentMonthIncome = useMemo(() => {
+    return currentMonthPaychecks.reduce((sum, p) => sum + p.source.amount, 0);
+  }, [currentMonthPaychecks]);
+
+  const getPerCheckExpenseFor = useCallback((expense: Expense, currentPaycheck: PaycheckOccurrence | null, monthPaychecksForCheck: PaycheckOccurrence[]) => {
+    return getPerCheckExpenseAmount(expense, currentPaycheck, monthPaychecksForCheck, budgetedIncomes, userSplitRatio);
+  }, [userSplitRatio, budgetedIncomes]);
+
+  const getPerCheckLiabilityFor = useCallback(
+    (
+      liability: Liability,
+      currentPaycheck: PaycheckOccurrence | null,
+      monthPaychecksForCheck: PaycheckOccurrence[]
+    ) => {
+      return getPerCheckLiabilityAmount(
+        liability,
+        currentPaycheck,
+        monthPaychecksForCheck,
+        budgetedIncomes,
+        extraPayments,
+        userSplitRatio
+      );
+    },
+    [userSplitRatio, budgetedIncomes, extraPayments]
+  );
+
+  // Expense Calculations
+  const totalMonthlyExpenses = useMemo(() => {
+    let total = 0;
+    expenses.forEach((expense) => {
+      currentMonthPaychecks.forEach((paycheck) => {
+        total += getPerCheckExpenseFor(expense, paycheck, currentMonthPaychecks);
+      });
+    });
+    return total;
+  }, [expenses, currentMonthPaychecks, getPerCheckExpenseFor]);
+
+  // Asset Calculations
+  const totalAssets = assets.reduce((sum, a) => sum + a.value, 0);
+  const netWorth = totalAssets - totalLiability;
+
+
+  const currentMonthLiabilityMins = useMemo(() => {
+    let total = 0;
+    liabilities.forEach((liability) => {
+      currentMonthPaychecks.forEach((paycheck) => {
+        total += getPerCheckLiabilityFor(liability, paycheck, currentMonthPaychecks);
+      });
+    });
+    return total;
+  }, [liabilities, currentMonthPaychecks, getPerCheckLiabilityFor]);
+
+  const totalMinPayment = currentMonthLiabilityMins; // Use the same consistency
+
   const totalPartnerIncome = calculateMonthlyIncomeByMode(
     budgetedIncomes.filter((i) => i.isPartner),
     monthlyIncomeMode
@@ -659,18 +605,18 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
           You haven't added any financial info yet. Let's get started by adding your loans, expenses, or assets to see your path to freedom.
         </p>
         <div className="flex flex-wrap justify-center gap-4">
-            <Link to="/liabilities" className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-full font-medium transition-all shadow-lg hover:shadow-indigo-500/30 flex items-center">
-                Add {liabilityLabel} <ArrowRight className="ml-2" size={18} />
-            </Link>
-             <Link to="/expenses" className="bg-white text-indigo-700 border border-indigo-200 hover:bg-indigo-50 px-6 py-3 rounded-full font-medium transition-all flex items-center">
-                Add {expensePlural}
-            </Link>
-            <Link to="/assets" className="bg-white text-green-700 border border-green-200 hover:bg-green-50 px-6 py-3 rounded-full font-medium transition-all flex items-center">
-                Add Assets
-            </Link>
-            <Link to="/income" className="bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50 px-6 py-3 rounded-full font-medium transition-all flex items-center">
-                Add Income
-            </Link>
+          <Link to="/liabilities" className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-full font-medium transition-all shadow-lg hover:shadow-indigo-500/30 flex items-center">
+            Add {liabilityLabel} <ArrowRight className="ml-2" size={18} />
+          </Link>
+          <Link to="/expenses" className="bg-white text-indigo-700 border border-indigo-200 hover:bg-indigo-50 px-6 py-3 rounded-full font-medium transition-all flex items-center">
+            Add {expensePlural}
+          </Link>
+          <Link to="/assets" className="bg-white text-green-700 border border-green-200 hover:bg-green-50 px-6 py-3 rounded-full font-medium transition-all flex items-center">
+            Add Assets
+          </Link>
+          <Link to="/income" className="bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50 px-6 py-3 rounded-full font-medium transition-all flex items-center">
+            Add Income
+          </Link>
         </div>
       </div>
     );
@@ -689,28 +635,28 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Link to="/assets" className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-          <StatCard 
+          <StatCard
             title="Net Worth"
-            value={`${currencySymbol}${netWorth.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`} 
+            value={`${currencySymbol}${netWorth.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
             loading={!balancesReady}
           />
         </Link>
         <Link to="/liabilities" className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-          <StatCard 
+          <StatCard
             title={`Total ${liabilityLabel}`}
-            value={`${currencySymbol}${totalLiability.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} 
+            value={`${currencySymbol}${totalLiability.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             loading={!balancesReady}
           />
         </Link>
         <Link to="/liabilities" className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-          <StatCard 
+          <StatCard
             title="Credit Available"
             value={formatCurrency(creditAvailable, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             loading={!balancesReady}
           />
         </Link>
         <Link to="/strategy" className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-          <StatCard 
+          <StatCard
             title={`${liabilityLabel} Free Date`}
             value={
               (savedPlan?.timeline?.length ? scheduleMonths : (minOnlyMonths || safeProjection.monthsToFreedom)) === 0
@@ -748,35 +694,35 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
               >
                 <defs>
                   <linearGradient id="colorBalance" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.1}/>
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.1} />
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis 
-                  dataKey="month" 
-                  tickLine={false} 
-                  axisLine={false} 
+                <XAxis
+                  dataKey="month"
+                  tickLine={false}
+                  axisLine={false}
                   tick={{ fill: '#94a3b8', fontSize: 12 }}
                   tickFormatter={(val) => `M${val}`}
                 />
-                <YAxis 
-                  tickLine={false} 
-                  axisLine={false} 
+                <YAxis
+                  tickLine={false}
+                  axisLine={false}
                   tick={{ fill: '#94a3b8', fontSize: 12 }}
-                  tickFormatter={(val) => `$${val/1000}k`}
+                  tickFormatter={(val) => `$${val / 1000}k`}
                 />
-                <Tooltip 
+                <Tooltip
                   contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                   formatter={(value: number) => [`$${value.toFixed(0)}`, 'Balance']}
                 />
-                <Area 
-                  type="monotone" 
-                  dataKey="totalBalance" 
-                  stroke="#6366f1" 
+                <Area
+                  type="monotone"
+                  dataKey="totalBalance"
+                  stroke="#6366f1"
                   strokeWidth={3}
-                  fillOpacity={1} 
-                  fill="url(#colorBalance)" 
+                  fillOpacity={1}
+                  fill="url(#colorBalance)"
                 />
               </AreaChart>
             )}
@@ -790,9 +736,9 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
           <div className={`bg-white p-6 rounded-xl shadow-sm border ${isDeficit ? 'border-red-200' : 'border-slate-100'} space-y-4`}>
             <div className="flex items-center justify-between">
               <Link to="/reports">
-              <div className="flex items-center space-x-2">
-                  <h3 className="text-lg font-bold text-slate-900">{currentMonthLabel} Breakdown</h3><p className="ml-1 text-xs text-indigo-400 hover:text-indigo-600"><ArrowRight size={10}/></p>
-              </div>
+                <div className="flex items-center space-x-2">
+                  <h3 className="text-lg font-bold text-slate-900">{currentMonthLabel} Breakdown</h3><p className="ml-1 text-xs text-indigo-400 hover:text-indigo-600"><ArrowRight size={10} /></p>
+                </div>
               </Link>
             </div>
             {!balancesReady ? (
@@ -823,7 +769,7 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
                   <div className="flex justify-between items-center text-sm">
                     <Link to="/income">
                       <span className="text-slate-500 flex items-center">
-                        Income <p className="ml-1 text-xs text-indigo-400 hover:text-indigo-600"><ArrowRight size={10}/></p>
+                        Income <p className="ml-1 text-xs text-indigo-400 hover:text-indigo-600"><ArrowRight size={10} /></p>
                       </span>
                     </Link>
                     <span className="font-bold text-emerald-600">+{formatCurrency(currentMonthIncome, { maximumFractionDigits: 0 })}</span>
@@ -831,7 +777,7 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
                   <div className="flex justify-between items-center text-sm">
                     <Link to="/expenses">
                       <span className="text-slate-500 flex items-center">
-                        {expensePlural} <p className="ml-1 text-xs text-indigo-400 hover:text-indigo-600"><ArrowRight size={10}/></p>
+                        {expensePlural} <p className="ml-1 text-xs text-indigo-400 hover:text-indigo-600"><ArrowRight size={10} /></p>
                       </span>
                     </Link>
                     <span className="font-medium text-slate-700">-{formatCurrency(totalMonthlyExpenses)}</span>
@@ -839,7 +785,7 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
                   <div className="flex justify-between items-center text-sm pb-3 border-b border-slate-100">
                     <Link to="/liabilities">
                       <span className="text-slate-500 flex items-center">
-                        {liabilityLabel} Minimums <p className="ml-1 text-xs text-indigo-400 hover:text-indigo-600"><ArrowRight size={10}/></p>
+                        {liabilityLabel} Minimums <p className="ml-1 text-xs text-indigo-400 hover:text-indigo-600"><ArrowRight size={10} /></p>
                       </span>
                     </Link>
                     <span className="font-medium text-slate-700">-{formatCurrency(currentMonthLiabilityMins)}</span>
@@ -864,50 +810,50 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
                 </div>
               </>
             )}
-            
-            
+
+
             {/* Quick Stats: Assets vs Liabilities */}
             {assets.length > 0 && liabilities.length > 0 && (
-               <div className="mt-8 pt-6 border-t border-slate-100">
-                  <h4 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Health Check</h4>
-                  {!balancesReady ? (
-                    <div className="space-y-3">
-                      <div className="flex items-center space-x-2 text-sm">
-                        <div className="h-4 w-16 rounded bg-slate-100 animate-pulse" />
-                        <div className="flex-1 h-2 rounded bg-slate-100 animate-pulse" />
-                        <div className="h-4 w-16 rounded bg-slate-100 animate-pulse" />
-                      </div>
-                      <div className="flex items-center space-x-2 text-sm">
-                        <div className="h-4 w-20 rounded bg-slate-100 animate-pulse" />
-                        <div className="flex-1 h-2 rounded bg-slate-100 animate-pulse" />
-                        <div className="h-4 w-16 rounded bg-slate-100 animate-pulse" />
-                      </div>
+              <div className="mt-8 pt-6 border-t border-slate-100">
+                <h4 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Health Check</h4>
+                {!balancesReady ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center space-x-2 text-sm">
+                      <div className="h-4 w-16 rounded bg-slate-100 animate-pulse" />
+                      <div className="flex-1 h-2 rounded bg-slate-100 animate-pulse" />
+                      <div className="h-4 w-16 rounded bg-slate-100 animate-pulse" />
                     </div>
-                  ) : (
-                    <>
-                      <div className="flex items-center space-x-2 text-sm">
-                          <span className="w-16 text-slate-500">Assets</span>
-                          <div className="flex-1 bg-slate-100 rounded-full h-2">
-                              <div 
-                                className="bg-green-500 h-2 rounded-full" 
-                                style={{ width: `${Math.min(100, (totalAssets / (totalAssets + totalLiability)) * 100)}%` }}
-                              ></div>
-                          </div>
-                          <span className="text-xs font-bold text-slate-900">{currencySymbol}{totalAssets.toLocaleString(undefined, {notation: 'compact'})}</span>
+                    <div className="flex items-center space-x-2 text-sm">
+                      <div className="h-4 w-20 rounded bg-slate-100 animate-pulse" />
+                      <div className="flex-1 h-2 rounded bg-slate-100 animate-pulse" />
+                      <div className="h-4 w-16 rounded bg-slate-100 animate-pulse" />
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center space-x-2 text-sm">
+                      <span className="w-16 text-slate-500">Assets</span>
+                      <div className="flex-1 bg-slate-100 rounded-full h-2">
+                        <div
+                          className="bg-green-500 h-2 rounded-full"
+                          style={{ width: `${Math.min(100, (totalAssets / (totalAssets + totalLiability)) * 100)}%` }}
+                        ></div>
                       </div>
-                       <div className="flex items-center space-x-2 text-sm mt-2">
-                          <span className="w-16 text-slate-500">{liabilityPlural}</span>
-                          <div className="flex-1 bg-slate-100 rounded-full h-2">
-                              <div 
-                                className="bg-red-500 h-2 rounded-full" 
-                                style={{ width: `${Math.min(100, (totalLiability / (totalAssets + totalLiability)) * 100)}%` }}
-                              ></div>
-                          </div>
-                          <span className="text-xs font-bold text-slate-900">{currencySymbol}{totalLiability.toLocaleString(undefined, {notation: 'compact'})}</span>
+                      <span className="text-xs font-bold text-slate-900">{currencySymbol}{totalAssets.toLocaleString(undefined, { notation: 'compact' })}</span>
+                    </div>
+                    <div className="flex items-center space-x-2 text-sm mt-2">
+                      <span className="w-16 text-slate-500">{liabilityPlural}</span>
+                      <div className="flex-1 bg-slate-100 rounded-full h-2">
+                        <div
+                          className="bg-red-500 h-2 rounded-full"
+                          style={{ width: `${Math.min(100, (totalLiability / (totalAssets + totalLiability)) * 100)}%` }}
+                        ></div>
                       </div>
-                    </>
-                  )}
-               </div>
+                      <span className="text-xs font-bold text-slate-900">{currencySymbol}{totalLiability.toLocaleString(undefined, { notation: 'compact' })}</span>
+                    </div>
+                  </>
+                )}
+              </div>
             )}
           </div>
         </div>
