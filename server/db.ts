@@ -2,7 +2,7 @@ import { Liability, Expense, Asset, UserSettings, IncomeSource, UserProfile, Bud
 import { AmortizationRow } from './liabilityAlgorithms';
 
 const API_BASE_URL = '/api';
-type ApiPayload = { error?: string; [key: string]: any };
+type ApiPayload = { error?: string;[key: string]: any };
 
 const getAuthHeaders = () => {
   const token = localStorage.getItem('token');
@@ -171,7 +171,7 @@ export const dbAPI = {
   },
 
   getExtraPayments: async (): Promise<{
-    extras: Array<{ id: string; liabilityId: string; amount: number; checkDate?: string | null }>;
+    extras: Array<{ id: string; liabilityId: string; amount: number; checkDate?: string | null; isChecked?: boolean }>;
   }> => {
     return await fetchJson(`${API_BASE_URL}/budget/extra-payments`, { headers: getAuthHeaders() });
   },
@@ -180,6 +180,7 @@ export const dbAPI = {
     liabilityId: string;
     amount: number;
     checkDate?: string | null;
+    isChecked?: boolean;
   }) => {
     await fetchJson(`${API_BASE_URL}/budget/extra-payments`, {
       method: 'POST',

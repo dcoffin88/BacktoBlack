@@ -37,6 +37,7 @@ type ExtraPayment = {
     liabilityId: string;
     amount: number;
     checkDate?: string | null;
+    isChecked?: boolean;
 };
 
 const Budget: React.FC<BudgetProps> = ({
@@ -145,27 +146,27 @@ const Budget: React.FC<BudgetProps> = ({
                 if (schedule?.savedAt) {
                     const savedDate = new Date(schedule.savedAt);
                     const today = new Date();
-                if (Number.isNaN(savedDate.getTime())) {
+                    if (Number.isNaN(savedDate.getTime())) {
+                        setScheduleMonthIndex(null);
+                        return;
+                    }
+                    const savedMonthCount =
+                        savedDate.getFullYear() * 12 + savedDate.getMonth();
+                    const currentMonthCount =
+                        today.getFullYear() * 12 + today.getMonth();
+                    const rawMonthIndex =
+                        currentMonthCount - savedMonthCount + 1;
+                    setScheduleMonthIndex(
+                        rawMonthIndex >= 1
+                            ? Math.min(
+                                schedule.timeline?.length || 1,
+                                rawMonthIndex
+                            )
+                            : null
+                    );
+                } else {
                     setScheduleMonthIndex(null);
-                    return;
                 }
-                const savedMonthCount =
-                    savedDate.getFullYear() * 12 + savedDate.getMonth();
-                const currentMonthCount =
-                    today.getFullYear() * 12 + today.getMonth();
-                const rawMonthIndex =
-                    currentMonthCount - savedMonthCount + 1;
-                setScheduleMonthIndex(
-                    rawMonthIndex >= 1
-                        ? Math.min(
-                              schedule.timeline?.length || 1,
-                              rawMonthIndex
-                          )
-                        : null
-                );
-            } else {
-                setScheduleMonthIndex(null);
-            }
             } catch {
                 if (active) {
                     setBudgetSchedule(null);
@@ -215,12 +216,12 @@ const Budget: React.FC<BudgetProps> = ({
             b.frequency === "BI_WEEKLY"
                 ? b.amount * 2
                 : b.frequency === "WEEKLY"
-                ? b.amount * (52 / 12)
-                : b.frequency === "QUARTERLY"
-                ? b.amount / 3
-                : b.frequency === "ANNUAL"
-                ? b.amount / 12
-                : b.amount;
+                    ? b.amount * (52 / 12)
+                    : b.frequency === "QUARTERLY"
+                        ? b.amount / 3
+                        : b.frequency === "ANNUAL"
+                            ? b.amount / 12
+                            : b.amount;
         return sum + monthlyEquivalent * getExpenseShare(b);
     }, 0);
 
@@ -420,7 +421,7 @@ const Budget: React.FC<BudgetProps> = ({
         const y = a.getFullYear();
         const m = a.getMonth();
         const lastDay = new Date(y, m + 1, 0);
-    
+
         return liabilities.filter((liability) => {
             if (!liability.startDate) return true;
             const start = new Date(`${liability.startDate}T12:00:00`);
@@ -539,6 +540,7 @@ const Budget: React.FC<BudgetProps> = ({
             liabilityId: liability.id,
             amount: rounded,
             checkDate: currentCheckKey,
+            isChecked: true,
         };
         setExtraPayments((prev) => {
             const filtered = prev.filter((p) => p.id !== payload.id);
@@ -604,6 +606,7 @@ const Budget: React.FC<BudgetProps> = ({
             liabilityId: extraForm.liabilityId,
             amount: extraForm.amount,
             checkDate: currentCheckKey,
+            isChecked: false,
         };
         setExtraPayments((prev) => [...prev, newPayment]);
         setExtraForm({ liabilityId: "", amount: 0 });
@@ -617,6 +620,17 @@ const Budget: React.FC<BudgetProps> = ({
         dbAPI.deleteExtraPayment(id).catch(() => {
             /* ignore failures; no local fallback */
         });
+    };
+
+    const toggleExtraPayment = async (extra: ExtraPayment) => {
+        const nextState = !extra.isChecked;
+        const updated = { ...extra, isChecked: nextState };
+        setExtraPayments(prev => prev.map(p => p.id === extra.id ? updated : p));
+        try {
+            await dbAPI.saveExtraPayment(updated);
+        } catch {
+            /* ignore */
+        }
     };
 
     const extrasForCurrentCheck = useMemo(
@@ -651,8 +665,8 @@ const Budget: React.FC<BudgetProps> = ({
             e.frequency === "QUARTERLY"
                 ? 1 / 3
                 : e.frequency === "MONTHLY"
-                ? 1
-                : 0;
+                    ? 1
+                    : 0;
         return sum + e.amount * multiplier * getExpenseShare(e);
     }, 0);
     const biWeeklyExpensesTotal = expenses
@@ -716,8 +730,8 @@ const Budget: React.FC<BudgetProps> = ({
             owner === "ALL"
                 ? true
                 : owner === "PARTNER"
-                ? source.isPartner
-                : !source.isPartner;
+                    ? source.isPartner
+                    : !source.isPartner;
         const isEligiblePaycheck = (paycheck: (typeof monthPaychecks)[number]) => {
             const passesFrequency = useBiWeekly
                 ? paycheck.eligibleBiWeekly !== false
@@ -796,12 +810,12 @@ const Budget: React.FC<BudgetProps> = ({
                 expense.frequency === "BI_WEEKLY"
                     ? expense.amount * 2
                     : expense.frequency === "WEEKLY"
-                    ? expense.amount * (52 / 12)
-                    : expense.frequency === "QUARTERLY"
-                    ? expense.amount / 3
-                    : expense.frequency === "ANNUAL"
-                    ? expense.amount / 12
-                    : expense.amount;
+                        ? expense.amount * (52 / 12)
+                        : expense.frequency === "QUARTERLY"
+                            ? expense.amount / 3
+                            : expense.frequency === "ANNUAL"
+                                ? expense.amount / 12
+                                : expense.amount;
 
             const eligiblePool = monthPaychecks.filter((p) => {
                 const passesFrequency = useBiWeekly
@@ -858,12 +872,12 @@ const Budget: React.FC<BudgetProps> = ({
             expense.frequency === "BI_WEEKLY"
                 ? expense.amount * 2
                 : expense.frequency === "WEEKLY"
-                ? expense.amount * (52 / 12)
-                : expense.frequency === "QUARTERLY"
-                ? expense.amount / 3
-                : expense.frequency === "ANNUAL"
-                ? expense.amount / 12
-                : expense.amount;
+                    ? expense.amount * (52 / 12)
+                    : expense.frequency === "QUARTERLY"
+                        ? expense.amount / 3
+                        : expense.frequency === "ANNUAL"
+                            ? expense.amount / 12
+                            : expense.amount;
         const perCheckBase = expense.amount;
 
         const rounded = (value: number) => Math.ceil(value * 100) / 100;
@@ -1115,9 +1129,9 @@ const Budget: React.FC<BudgetProps> = ({
                                 {currencySymbol}
                                 {currentExpenseTotal.toLocaleString(
                                     undefined,
-                                    { 
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
+                                    {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
                                     }
                                 )}
                             </p>
@@ -1133,9 +1147,9 @@ const Budget: React.FC<BudgetProps> = ({
                                 {currencySymbol}
                                 {currentLiabilityTotal.toLocaleString(
                                     undefined,
-                                    { 
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
+                                    {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
                                     }
                                 )}
                             </p>
@@ -1148,18 +1162,17 @@ const Budget: React.FC<BudgetProps> = ({
                                 Remaining
                             </p>
                             <p
-                                className={`text-s sm:text-xl font-bold ${
-                                    currentLeftOver >= 0
-                                        ? "text-emerald-700"
-                                        : "text-red-600"
-                                }`}
+                                className={`text-s sm:text-xl font-bold ${currentLeftOver >= 0
+                                    ? "text-emerald-700"
+                                    : "text-red-600"
+                                    }`}
                             >
                                 {currencySymbol}
                                 {currentLeftOver.toLocaleString(
                                     undefined,
-                                    { 
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
+                                    {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
                                     }
                                 )}
                             </p>
@@ -1175,11 +1188,10 @@ const Budget: React.FC<BudgetProps> = ({
                                     )
                                 }
                                 disabled={currentPaycheckIndex === 0}
-                                className={`p-2 rounded-md border ${
-                                    currentPaycheckIndex === 0
-                                        ? "text-slate-300 border-slate-200 cursor-not-allowed"
-                                        : "text-indigo-600 border-indigo-200 hover:bg-indigo-50"
-                                }`}
+                                className={`p-2 rounded-md border ${currentPaycheckIndex === 0
+                                    ? "text-slate-300 border-slate-200 cursor-not-allowed"
+                                    : "text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                                    }`}
                                 aria-label="Previous paycheck"
                             >
                                 <ChevronLeft size={16} />
@@ -1198,12 +1210,11 @@ const Budget: React.FC<BudgetProps> = ({
                                     currentPaycheckIndex ===
                                     currentMonthPaychecks.length - 1
                                 }
-                                className={`p-2 rounded-md border ${
-                                    currentPaycheckIndex ===
+                                className={`p-2 rounded-md border ${currentPaycheckIndex ===
                                     currentMonthPaychecks.length - 1
-                                        ? "text-slate-300 border-slate-200 cursor-not-allowed"
-                                        : "text-indigo-600 border-indigo-200 hover:bg-indigo-50"
-                                }`}
+                                    ? "text-slate-300 border-slate-200 cursor-not-allowed"
+                                    : "text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                                    }`}
                                 aria-label="Next paycheck"
                             >
                                 <ChevronRight size={16} />
@@ -1371,12 +1382,12 @@ const Budget: React.FC<BudgetProps> = ({
                                         checked={
                                             !!liabilityChecks[liability.id]
                                         }
-                                            onChange={() =>
-                                                toggleLiability(liability)
-                                            }
-                                        />
-                                    </label>
-                                ))
+                                        onChange={() =>
+                                            toggleLiability(liability)
+                                        }
+                                    />
+                                </label>
+                            ))
                         )}
                     </div>
                 </div>
@@ -1414,9 +1425,9 @@ const Budget: React.FC<BudgetProps> = ({
                                 .slice()
                                 .sort((a, b) => a.name.localeCompare(b.name))
                                 .map((l) => (
-                                <option key={l.id} value={l.id}>
-                                    {l.name}
-                                </option>
+                                    <option key={l.id} value={l.id}>
+                                        {l.name}
+                                    </option>
                                 ))}
                         </select>
                     </div>
@@ -1455,18 +1466,31 @@ const Budget: React.FC<BudgetProps> = ({
                                 liabilities.find((l) => l.id === p.liabilityId) ||
                                 null;
                             return (
-                                <div
+                                <label
                                     key={p.id}
-                                    className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-lg"
+                                    className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-100 transition-colors"
                                 >
-                                    <div>
-                                        <p className="font-medium text-slate-900">
-                                            {liability?.name || "Liability"}
-                                        </p>
-                                        <p className="text-xs text-slate-400">
-                                            Extra payment
-                                        </p>
+                                    <div className="flex items-center space-x-3">
+                                        {p.isChecked ? (
+                                            <CheckSquare className="text-green-600" />
+                                        ) : (
+                                            <Square className="text-slate-400" />
+                                        )}
+                                        <div>
+                                            <p className="font-medium text-slate-900">
+                                                {liability?.name || "Liability"}
+                                            </p>
+                                            <p className="text-xs text-slate-400">
+                                                Extra payment
+                                            </p>
+                                        </div>
                                     </div>
+                                    <input
+                                        type="checkbox"
+                                        className="hidden"
+                                        checked={!!p.isChecked}
+                                        onChange={() => toggleExtraPayment(p)}
+                                    />
                                     <div className="flex items-center space-x-3">
                                         <p className="font-semibold text-emerald-700">
                                             {currencySymbol}
@@ -1474,13 +1498,16 @@ const Budget: React.FC<BudgetProps> = ({
                                         </p>
                                         <button
                                             type="button"
-                                            onClick={() => deleteExtraPayment(p.id)}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                deleteExtraPayment(p.id);
+                                            }}
                                             className="text-xs text-red-500 hover:text-red-700 font-semibold"
                                         >
                                             Delete
                                         </button>
                                     </div>
-                                </div>
+                                </label>
                             );
                         })}
                     </div>

@@ -85,6 +85,26 @@ const ensureBudgetExtrasTable = () => {
 };
 ensureBudgetExtrasTable();
 
+const ensureBudgetExtrasCheckedColumn = () => {
+  db.all('PRAGMA table_info(budget_extra_payments)', (tableErr, rows) => {
+    if (tableErr) {
+      console.error('Failed to inspect budget_extra_payments table:', tableErr.message);
+      return;
+    }
+    const hasChecked = rows.some((r: any) => r.name === 'is_checked');
+    if (!hasChecked) {
+      db.run('ALTER TABLE budget_extra_payments ADD COLUMN is_checked INTEGER DEFAULT 1', (alterErr) => {
+        if (alterErr) {
+          console.error('Failed to add is_checked column to budget_extra_payments table:', alterErr.message);
+        } else {
+          console.log('Added is_checked column to budget_extra_payments table.');
+        }
+      });
+    }
+  });
+};
+ensureBudgetExtrasCheckedColumn();
+
 const ensureBudgetAmortizationOverridesTable = () => {
   db.run(
     `CREATE TABLE IF NOT EXISTS budget_amortization_overrides (
@@ -456,13 +476,17 @@ const buildAmortizationInputsForLiability = async (
   );
 
   const extraRows = await dbAllAsync(
-    'SELECT id, amount, check_date FROM budget_extra_payments WHERE liability_id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+    'SELECT id, amount, check_date, is_checked FROM budget_extra_payments WHERE liability_id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
     [liability.id, scopeId, userId]
   );
 
   const mergedExtras = extraRows.reduce<Record<number, { amount: number; checkDate?: string | null; forceHistorical?: boolean; interest?: number }>>(
     (acc, row: any) => {
       if (row.id && isMinimumPaymentId(row.id)) return acc;
+
+      const isChecked = row.is_checked !== 0;
+      if (!isChecked) return acc;
+
       const rawPeriod = getPeriodIndexFromDate(liability, row.check_date);
       if (rawPeriod === null || rawPeriod === undefined || rawPeriod <= 0) return acc;
       const period = rawPeriod;
@@ -905,7 +929,7 @@ app.post('/api/register', async (req, res) => {
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
     const householdId = generateHouseholdId();
-    db.run('INSERT INTO users (email, password, household_id) VALUES (?, ?, ?)', [email, hashedPassword, householdId], function(err) {
+    db.run('INSERT INTO users (email, password, household_id) VALUES (?, ?, ?)', [email, hashedPassword, householdId], function (err) {
       if (err) {
         console.error(err);
         if (err.message.includes('UNIQUE constraint failed')) {
@@ -980,7 +1004,7 @@ app.get('/api/profile', authenticateToken, (req, res) => {
 app.put('/api/profile', authenticateToken, (req, res) => {
   const user = req.user!;
   const { name, email } = req.body;
-  
+
   db.run('UPDATE users SET name = ?, email = ? WHERE id = ?', [name, email, user.id], (err) => {
     if (err) {
       if (err.message.includes('UNIQUE constraint failed')) {
@@ -1000,7 +1024,7 @@ app.put('/api/profile/password', authenticateToken, async (req, res) => {
 
   db.get('SELECT password FROM users WHERE id = ?', [user.id], async (err, row) => {
     if (err) return res.status(500).json({ error: err.message });
-    
+
     const isMatch = await bcrypt.compare(currentPassword, (row as any).password);
     if (!isMatch) return res.status(401).json({ error: 'Current password incorrect' });
 
@@ -1089,22 +1113,22 @@ app.post('/api/liabilities', authenticateToken, (req: AuthedRequest, res) => {
     'INSERT OR REPLACE INTO liabilities (id, content, user_id, household_id) VALUES (?, ?, ?, ?)',
     [liability.id, JSON.stringify(stored), user.id, scopeKey],
     (err) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    (async () => {
-      try {
-        const rebuilt = await persistAmortizationSchedule(normalized, scopeId, user.id);
-        const derivedBalance = rebuilt?.derivedBalance ?? getBalanceFromTimeline(rebuilt.timeline);
-        if (Number.isFinite(derivedBalance ?? NaN)) {
-          normalized.balance = derivedBalance as number;
-        }
-      } catch (calcErr: any) {
-        console.error('Failed to persist amortization schedule:', calcErr?.message || calcErr);
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
       }
-      res.json(normalized);
-    })();
+      (async () => {
+        try {
+          const rebuilt = await persistAmortizationSchedule(normalized, scopeId, user.id);
+          const derivedBalance = rebuilt?.derivedBalance ?? getBalanceFromTimeline(rebuilt.timeline);
+          if (Number.isFinite(derivedBalance ?? NaN)) {
+            normalized.balance = derivedBalance as number;
+          }
+        } catch (calcErr: any) {
+          console.error('Failed to persist amortization schedule:', calcErr?.message || calcErr);
+        }
+        res.json(normalized);
+      })();
     }
   );
 });
@@ -1174,26 +1198,26 @@ app.post('/api/liabilities/:id/reset-settings', authenticateToken, (req: AuthedR
                 res.status(500).json({ error: extrasErr.message });
                 return;
               }
-                  db.run(
-                    'DELETE FROM budget_amortization_overrides WHERE liability_id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
-                    [id, scopeId, user.id],
-                    (overridesErr) => {
-                      if (overridesErr) {
-                        res.status(500).json({ error: overridesErr.message });
-                        return;
-                      }
+              db.run(
+                'DELETE FROM budget_amortization_overrides WHERE liability_id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+                [id, scopeId, user.id],
+                (overridesErr) => {
+                  if (overridesErr) {
+                    res.status(500).json({ error: overridesErr.message });
+                    return;
+                  }
                   (async () => {
                     try {
                       await persistAmortizationSchedule(updated, scopeId, user.id);
                     } catch (calcErr: any) {
                       console.error('Failed to persist amortization schedule:', calcErr?.message || calcErr);
                     }
-                  res.json({ liability: normalized });
-                })();
-              }
-            );
-          }
+                    res.json({ liability: normalized });
+                  })();
+                }
               );
+            }
+          );
         }
       );
     }
@@ -1237,653 +1261,656 @@ app.get('/api/liabilities/:id/amortization', authenticateToken, async (req: Auth
 
 // --- Expenses ---
 app.get('/api/expenses', authenticateToken, (req: AuthedRequest, res) => {
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    db.all('SELECT content FROM expenses WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)', [scopeId, user.id], (err, rows) => {
-        if (err) {
-            res.status(500).json({ error: err.message });
-            return;
-        }
-        const expenses = rows.map(row => JSON.parse((row as any).content));
-        res.json(expenses);
-    });
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  db.all('SELECT content FROM expenses WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)', [scopeId, user.id], (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    const expenses = rows.map(row => JSON.parse((row as any).content));
+    res.json(expenses);
+  });
 });
 
 app.post('/api/expenses', authenticateToken, (req: AuthedRequest, res) => {
-    const expense: Expense = req.body;
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    const payload = { ...expense, householdId: scopeId };
-    db.run('INSERT OR REPLACE INTO expenses (id, content, user_id, household_id) VALUES (?, ?, ?, ?)', [expense.id, JSON.stringify(payload), user.id, scopeId], (err) => {
-        if (err) {
-            res.status(500).json({ error: err.message });
-            return;
-        }
-        res.json(payload);
-    });
+  const expense: Expense = req.body;
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  const payload = { ...expense, householdId: scopeId };
+  db.run('INSERT OR REPLACE INTO expenses (id, content, user_id, household_id) VALUES (?, ?, ?, ?)', [expense.id, JSON.stringify(payload), user.id, scopeId], (err) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json(payload);
+  });
 });
 
 app.delete('/api/expenses/:id', authenticateToken, (req: AuthedRequest, res) => {
-    const { id } = req.params;
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    db.run('DELETE FROM expenses WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)', [id, scopeId, user.id], (err) => {
-        if (err) {
-            res.status(500).json({ error: err.message });
-            return;
-        }
-        res.json({ id });
-    });
+  const { id } = req.params;
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  db.run('DELETE FROM expenses WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)', [id, scopeId, user.id], (err) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ id });
+  });
 });
 
 // --- Assets ---
 app.get('/api/assets', authenticateToken, (req: AuthedRequest, res) => {
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    db.all('SELECT content FROM assets WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)', [scopeId, user.id], (err, rows) => {
-        if (err) {
-            res.status(500).json({ error: err.message });
-            return;
-        }
-        const assets = rows.map(row => JSON.parse((row as any).content));
-        res.json(assets);
-    });
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  db.all('SELECT content FROM assets WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)', [scopeId, user.id], (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    const assets = rows.map(row => JSON.parse((row as any).content));
+    res.json(assets);
+  });
 });
 
 app.post('/api/assets', authenticateToken, (req: AuthedRequest, res) => {
-    const asset: Asset = req.body;
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    const payload = { ...asset, householdId: scopeId };
-    db.run('INSERT OR REPLACE INTO assets (id, content, user_id, household_id) VALUES (?, ?, ?, ?)', [asset.id, JSON.stringify(payload), user.id, scopeId], (err) => {
-        if (err) {
-            res.status(500).json({ error: err.message });
-            return;
-        }
-        res.json(payload);
-    });
+  const asset: Asset = req.body;
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  const payload = { ...asset, householdId: scopeId };
+  db.run('INSERT OR REPLACE INTO assets (id, content, user_id, household_id) VALUES (?, ?, ?, ?)', [asset.id, JSON.stringify(payload), user.id, scopeId], (err) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json(payload);
+  });
 });
 
 app.delete('/api/assets/:id', authenticateToken, (req: AuthedRequest, res) => {
-    const { id } = req.params;
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    db.run('DELETE FROM assets WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)', [id, scopeId, user.id], (err) => {
-        if (err) {
-            res.status(500).json({ error: err.message });
-            return;
-        }
-        res.json({ id });
-    });
+  const { id } = req.params;
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  db.run('DELETE FROM assets WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)', [id, scopeId, user.id], (err) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ id });
+  });
 });
 
 // --- Budget Checks ---
 app.get('/api/budget/checks', authenticateToken, (req: AuthedRequest, res) => {
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    db.all(
-        'SELECT check_date, expense_checks, liability_checks FROM budget_checks WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
-        [scopeId, user.id],
-        (err, rows) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
-            }
-            const expenseChecksByCheck: Record<string, Record<string, boolean>> = {};
-            const liabilityChecksByCheck: Record<string, Record<string, boolean>> = {};
-            rows.forEach((row: any) => {
-                if (row.expense_checks) {
-                    try {
-                        expenseChecksByCheck[row.check_date] = JSON.parse(row.expense_checks);
-                    } catch {
-                        /* ignore bad rows */
-                    }
-                }
-                if (row.liability_checks) {
-                    try {
-                        liabilityChecksByCheck[row.check_date] = JSON.parse(row.liability_checks);
-                    } catch {
-                        /* ignore bad rows */
-                    }
-                }
-            });
-            res.json({ expenseChecksByCheck, liabilityChecksByCheck });
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  db.all(
+    'SELECT check_date, expense_checks, liability_checks FROM budget_checks WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
+    [scopeId, user.id],
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      const expenseChecksByCheck: Record<string, Record<string, boolean>> = {};
+      const liabilityChecksByCheck: Record<string, Record<string, boolean>> = {};
+      rows.forEach((row: any) => {
+        if (row.expense_checks) {
+          try {
+            expenseChecksByCheck[row.check_date] = JSON.parse(row.expense_checks);
+          } catch {
+            /* ignore bad rows */
+          }
         }
-    );
+        if (row.liability_checks) {
+          try {
+            liabilityChecksByCheck[row.check_date] = JSON.parse(row.liability_checks);
+          } catch {
+            /* ignore bad rows */
+          }
+        }
+      });
+      res.json({ expenseChecksByCheck, liabilityChecksByCheck });
+    }
+  );
 });
 
 app.post('/api/budget/checks', authenticateToken, (req: AuthedRequest, res) => {
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    const { checkDate, expenseChecks = {}, liabilityChecks = {} } = req.body as {
-        checkDate?: string;
-        expenseChecks?: Record<string, boolean>;
-        liabilityChecks?: Record<string, boolean>;
-    };
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  const { checkDate, expenseChecks = {}, liabilityChecks = {} } = req.body as {
+    checkDate?: string;
+    expenseChecks?: Record<string, boolean>;
+    liabilityChecks?: Record<string, boolean>;
+  };
 
-    if (!checkDate) {
-        return res.status(400).json({ error: 'checkDate is required' });
-    }
+  if (!checkDate) {
+    return res.status(400).json({ error: 'checkDate is required' });
+  }
 
-    const id = `${scopeId}_${checkDate}`;
-    const updatedAt = new Date().toISOString();
-    db.run(
-        `INSERT OR REPLACE INTO budget_checks (id, check_date, expense_checks, liability_checks, household_id, user_id, updated_at)
+  const id = `${scopeId}_${checkDate}`;
+  const updatedAt = new Date().toISOString();
+  db.run(
+    `INSERT OR REPLACE INTO budget_checks (id, check_date, expense_checks, liability_checks, household_id, user_id, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [
-            id,
-            checkDate,
-            JSON.stringify(expenseChecks || {}),
-            JSON.stringify(liabilityChecks || {}),
-            scopeId,
-            user.id,
-            updatedAt,
-        ],
-        (err) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
-            }
-            res.json({ success: true, checkDate });
-        }
-    );
+    [
+      id,
+      checkDate,
+      JSON.stringify(expenseChecks || {}),
+      JSON.stringify(liabilityChecks || {}),
+      scopeId,
+      user.id,
+      updatedAt,
+    ],
+    (err) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ success: true, checkDate });
+    }
+  );
 });
 
 // --- Budget Schedule ---
 app.get('/api/budget/schedule', authenticateToken, (req: AuthedRequest, res) => {
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    db.get(
-        `SELECT strategy, strategy_label, saved_at, monthly_budget, timeline
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  db.get(
+    `SELECT strategy, strategy_label, saved_at, monthly_budget, timeline
          FROM budget_schedule
          WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)
          ORDER BY updated_at DESC
          LIMIT 1`,
-        [scopeId, user.id],
-        (err, row: any) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
-            }
-            if (!row) {
-                return res.json({ schedule: null });
-            }
-            let timeline: any[] = [];
-            try {
-                timeline = JSON.parse(row.timeline || '[]');
-            } catch {
-                timeline = [];
-            }
-            res.json({
-                schedule: {
-                    strategy: row.strategy as string,
-                    strategyLabel: row.strategy_label as string,
-                    savedAt: row.saved_at as string,
-                    monthlyBudget: row.monthly_budget as number,
-                    timeline,
-                },
-            });
-        }
-    );
+    [scopeId, user.id],
+    (err, row: any) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      if (!row) {
+        return res.json({ schedule: null });
+      }
+      let timeline: any[] = [];
+      try {
+        timeline = JSON.parse(row.timeline || '[]');
+      } catch {
+        timeline = [];
+      }
+      res.json({
+        schedule: {
+          strategy: row.strategy as string,
+          strategyLabel: row.strategy_label as string,
+          savedAt: row.saved_at as string,
+          monthlyBudget: row.monthly_budget as number,
+          timeline,
+        },
+      });
+    }
+  );
 });
 
 app.post('/api/budget/schedule', authenticateToken, (req: AuthedRequest, res) => {
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    const { strategy, strategyLabel, savedAt, monthlyBudget, timeline } = req.body || {};
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  const { strategy, strategyLabel, savedAt, monthlyBudget, timeline } = req.body || {};
 
-    if (!strategy || !strategyLabel || !savedAt || !Array.isArray(timeline)) {
-        return res.status(400).json({ error: 'strategy, strategyLabel, savedAt, and timeline are required' });
-    }
+  if (!strategy || !strategyLabel || !savedAt || !Array.isArray(timeline)) {
+    return res.status(400).json({ error: 'strategy, strategyLabel, savedAt, and timeline are required' });
+  }
 
-    const id = `${scopeId}_schedule`;
-    const updatedAt = new Date().toISOString();
-    db.run(
-        `INSERT OR REPLACE INTO budget_schedule (id, strategy, strategy_label, saved_at, monthly_budget, timeline, household_id, user_id, updated_at)
+  const id = `${scopeId}_schedule`;
+  const updatedAt = new Date().toISOString();
+  db.run(
+    `INSERT OR REPLACE INTO budget_schedule (id, strategy, strategy_label, saved_at, monthly_budget, timeline, household_id, user_id, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-            id,
-            strategy,
-            strategyLabel,
-            savedAt,
-            monthlyBudget ?? 0,
-            JSON.stringify(timeline || []),
-            scopeId,
-            user.id,
-            updatedAt,
-        ],
-        (err) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
-            }
-            (async () => {
-                try {
-                    await persistAllLiabilitySchedules(scopeId, user.id);
-                } catch (calcErr: any) {
-                    console.error('Failed to persist amortization schedules:', calcErr?.message || calcErr);
-                }
-                res.json({
-                    schedule: {
-                        strategy: strategy as string,
-                        strategyLabel: strategyLabel as string,
-                        savedAt: savedAt as string,
-                        monthlyBudget: (monthlyBudget ?? 0) as number,
-                        timeline: timeline as any[],
-                    },
-                });
-            })();
+    [
+      id,
+      strategy,
+      strategyLabel,
+      savedAt,
+      monthlyBudget ?? 0,
+      JSON.stringify(timeline || []),
+      scopeId,
+      user.id,
+      updatedAt,
+    ],
+    (err) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      (async () => {
+        try {
+          await persistAllLiabilitySchedules(scopeId, user.id);
+        } catch (calcErr: any) {
+          console.error('Failed to persist amortization schedules:', calcErr?.message || calcErr);
         }
-    );
+        res.json({
+          schedule: {
+            strategy: strategy as string,
+            strategyLabel: strategyLabel as string,
+            savedAt: savedAt as string,
+            monthlyBudget: (monthlyBudget ?? 0) as number,
+            timeline: timeline as any[],
+          },
+        });
+      })();
+    }
+  );
 });
 
 app.delete('/api/budget/schedule', authenticateToken, (req: AuthedRequest, res) => {
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    db.run(
-        'DELETE FROM budget_schedule WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
-        [scopeId, user.id],
-        (err) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
-            }
-            (async () => {
-                try {
-                    await persistAllLiabilitySchedules(scopeId, user.id);
-                } catch (calcErr: any) {
-                    console.error('Failed to persist amortization schedules:', calcErr?.message || calcErr);
-                }
-                res.json({ success: true });
-            })();
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  db.run(
+    'DELETE FROM budget_schedule WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
+    [scopeId, user.id],
+    (err) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      (async () => {
+        try {
+          await persistAllLiabilitySchedules(scopeId, user.id);
+        } catch (calcErr: any) {
+          console.error('Failed to persist amortization schedules:', calcErr?.message || calcErr);
         }
-    );
+        res.json({ success: true });
+      })();
+    }
+  );
 });
 
 app.post('/api/strategy/simulations', authenticateToken, async (req: AuthedRequest, res) => {
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    const { strategy, monthlyBudget } = req.body as { strategy?: StrategyType; monthlyBudget?: number };
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  const { strategy, monthlyBudget } = req.body as { strategy?: StrategyType; monthlyBudget?: number };
 
-    if (!strategy) {
-        return res.status(400).json({ error: 'strategy is required' });
-    }
+  if (!strategy) {
+    return res.status(400).json({ error: 'strategy is required' });
+  }
 
-    const parsedBudget = Number.isFinite(monthlyBudget) ? (monthlyBudget as number) : 0;
+  const parsedBudget = Number.isFinite(monthlyBudget) ? (monthlyBudget as number) : 0;
 
-    try {
-        const result = await persistStrategySimulation(strategy, parsedBudget, scopeId, user.id);
-        res.json({ simulation: result });
-    } catch (err: any) {
-        res.status(500).json({ error: err?.message || 'Failed to build strategy simulation' });
-    }
+  try {
+    const result = await persistStrategySimulation(strategy, parsedBudget, scopeId, user.id);
+    res.json({ simulation: result });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Failed to build strategy simulation' });
+  }
 });
 
 app.get('/api/budget/extra-payments', authenticateToken, (req: AuthedRequest, res) => {
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    db.all(
-        'SELECT id, liability_id, amount, check_date FROM budget_extra_payments WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
-        [scopeId, user.id],
-        (err, rows) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
-            }
-            const extras = rows.map((row: any) => ({
-                id: row.id,
-                liabilityId: row.liability_id,
-                amount: row.amount,
-                checkDate: row.check_date || null,
-            }));
-            res.json({ extras });
-        }
-    );
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  db.all(
+    'SELECT id, liability_id, amount, check_date, is_checked FROM budget_extra_payments WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
+    [scopeId, user.id],
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      const extras = rows.map((row: any) => ({
+        id: row.id,
+        liabilityId: row.liability_id,
+        amount: row.amount,
+        checkDate: row.check_date || null,
+        isChecked: row.is_checked !== 0,
+      }));
+      res.json({ extras });
+    }
+  );
 });
 
 app.post('/api/budget/extra-payments', authenticateToken, (req: AuthedRequest, res) => {
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    const { id, liabilityId, amount, checkDate } = req.body as {
-        id: string;
-        liabilityId: string;
-        amount: number;
-        checkDate?: string | null;
-    };
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  const { id, liabilityId, amount, checkDate, isChecked } = req.body as {
+    id: string;
+    liabilityId: string;
+    amount: number;
+    checkDate?: string | null;
+    isChecked?: boolean;
+  };
 
-    if (!id || !liabilityId || !Number.isFinite(amount)) {
-        return res.status(400).json({ error: 'id, liabilityId, and amount are required' });
-    }
+  if (!id || !liabilityId || !Number.isFinite(amount)) {
+    return res.status(400).json({ error: 'id, liabilityId, and amount are required' });
+  }
 
-    const updatedAt = new Date().toISOString();
-    db.run(
-        `INSERT OR REPLACE INTO budget_extra_payments (id, liability_id, amount, check_date, household_id, user_id, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [id, liabilityId, amount, checkDate || null, scopeId, user.id, updatedAt],
-        (err) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
-            }
-            (async () => {
-                try {
-                    const liability = await fetchLiabilityById(liabilityId, scopeId, user.id);
-                    if (liability) {
-                        await persistAmortizationSchedule(liability, scopeId, user.id);
-                    }
-                } catch (calcErr: any) {
-                    console.error('Failed to persist amortization schedule:', calcErr?.message || calcErr);
-                }
-                res.json({ success: true, id });
-            })();
+  const updatedAt = new Date().toISOString();
+  const isCheckedInt = (isChecked === undefined || isChecked === true) ? 1 : 0;
+  db.run(
+    `INSERT OR REPLACE INTO budget_extra_payments (id, liability_id, amount, check_date, household_id, user_id, updated_at, is_checked)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, liabilityId, amount, checkDate || null, scopeId, user.id, updatedAt, isCheckedInt],
+    (err) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      (async () => {
+        try {
+          const liability = await fetchLiabilityById(liabilityId, scopeId, user.id);
+          if (liability) {
+            await persistAmortizationSchedule(liability, scopeId, user.id);
+          }
+        } catch (calcErr: any) {
+          console.error('Failed to persist amortization schedule:', calcErr?.message || calcErr);
         }
-    );
+        res.json({ success: true, id });
+      })();
+    }
+  );
 });
 
 app.delete('/api/budget/extra-payments/:id', authenticateToken, (req: AuthedRequest, res) => {
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    const { id } = req.params;
-    if (!id) return res.status(400).json({ error: 'id is required' });
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  const { id } = req.params;
+  if (!id) return res.status(400).json({ error: 'id is required' });
 
-    db.get(
-        'SELECT liability_id FROM budget_extra_payments WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+  db.get(
+    'SELECT liability_id FROM budget_extra_payments WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+    [id, scopeId, user.id],
+    (fetchErr, row: any) => {
+      if (fetchErr) {
+        return res.status(500).json({ error: fetchErr.message });
+      }
+      const liabilityId = row?.liability_id as string | undefined;
+      db.run(
+        'DELETE FROM budget_extra_payments WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
         [id, scopeId, user.id],
-        (fetchErr, row: any) => {
-            if (fetchErr) {
-                return res.status(500).json({ error: fetchErr.message });
-            }
-            const liabilityId = row?.liability_id as string | undefined;
-            db.run(
-                'DELETE FROM budget_extra_payments WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
-                [id, scopeId, user.id],
-                (err) => {
-                    if (err) {
-                        return res.status(500).json({ error: err.message });
-                    }
-                    (async () => {
-                        if (liabilityId) {
-                            try {
-                                const liability = await fetchLiabilityById(liabilityId, scopeId, user.id);
-                                if (liability) {
-                                    await persistAmortizationSchedule(liability, scopeId, user.id);
-                                }
-                            } catch (calcErr: any) {
-                                console.error('Failed to persist amortization schedule:', calcErr?.message || calcErr);
-                            }
-                        }
-                        res.json({ success: true, id });
-                    })();
+        (err) => {
+          if (err) {
+            return res.status(500).json({ error: err.message });
+          }
+          (async () => {
+            if (liabilityId) {
+              try {
+                const liability = await fetchLiabilityById(liabilityId, scopeId, user.id);
+                if (liability) {
+                  await persistAmortizationSchedule(liability, scopeId, user.id);
                 }
-            );
+              } catch (calcErr: any) {
+                console.error('Failed to persist amortization schedule:', calcErr?.message || calcErr);
+              }
+            }
+            res.json({ success: true, id });
+          })();
         }
-    );
+      );
+    }
+  );
 });
 
 app.get('/api/budget/amortization-overrides', authenticateToken, (req: AuthedRequest, res) => {
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    db.all(
-        'SELECT id, liability_id, period, payment, purchase, interest, check_date FROM budget_amortization_overrides WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
-        [scopeId, user.id],
-        (err, rows) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
-            }
-            const overrides = rows.map((row: any) => ({
-                id: row.id,
-                liabilityId: row.liability_id,
-                period: row.period,
-                payment: row.payment,
-                purchase: row.purchase ?? 0,
-                interest: row.interest,
-                checkDate: row.check_date || null,
-            }));
-            res.json({ overrides });
-        }
-    );
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  db.all(
+    'SELECT id, liability_id, period, payment, purchase, interest, check_date FROM budget_amortization_overrides WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
+    [scopeId, user.id],
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      const overrides = rows.map((row: any) => ({
+        id: row.id,
+        liabilityId: row.liability_id,
+        period: row.period,
+        payment: row.payment,
+        purchase: row.purchase ?? 0,
+        interest: row.interest,
+        checkDate: row.check_date || null,
+      }));
+      res.json({ overrides });
+    }
+  );
 });
 
 app.post('/api/budget/amortization-overrides', authenticateToken, (req: AuthedRequest, res) => {
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    const { id, liabilityId, period, payment, purchase, interest, checkDate } = req.body as {
-        id: string;
-        liabilityId: string;
-        period: number;
-        payment: number;
-        purchase?: number;
-        interest: number;
-        checkDate?: string | null;
-    };
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  const { id, liabilityId, period, payment, purchase, interest, checkDate } = req.body as {
+    id: string;
+    liabilityId: string;
+    period: number;
+    payment: number;
+    purchase?: number;
+    interest: number;
+    checkDate?: string | null;
+  };
 
-    if (!id || !liabilityId || !Number.isFinite(period) || !Number.isFinite(payment) || !Number.isFinite(interest)) {
-        return res.status(400).json({ error: 'id, liabilityId, period, payment, and interest are required' });
-    }
+  if (!id || !liabilityId || !Number.isFinite(period) || !Number.isFinite(payment) || !Number.isFinite(interest)) {
+    return res.status(400).json({ error: 'id, liabilityId, period, payment, and interest are required' });
+  }
 
-    const updatedAt = new Date().toISOString();
-    db.run(
-        `INSERT OR REPLACE INTO budget_amortization_overrides (id, liability_id, period, payment, purchase, interest, check_date, household_id, user_id, updated_at)
+  const updatedAt = new Date().toISOString();
+  db.run(
+    `INSERT OR REPLACE INTO budget_amortization_overrides (id, liability_id, period, payment, purchase, interest, check_date, household_id, user_id, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [id, liabilityId, period, payment, purchase ?? 0, interest, checkDate || null, scopeId, user.id, updatedAt],
-        (err) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
-            }
-            (async () => {
-                try {
-                    const liability = await fetchLiabilityById(liabilityId, scopeId, user.id);
-                    if (liability) {
-                        await persistAmortizationSchedule(liability, scopeId, user.id);
-                    }
-                } catch (calcErr: any) {
-                    console.error('Failed to persist amortization schedule:', calcErr?.message || calcErr);
-                }
-                res.json({ success: true, id });
-            })();
+    [id, liabilityId, period, payment, purchase ?? 0, interest, checkDate || null, scopeId, user.id, updatedAt],
+    (err) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      (async () => {
+        try {
+          const liability = await fetchLiabilityById(liabilityId, scopeId, user.id);
+          if (liability) {
+            await persistAmortizationSchedule(liability, scopeId, user.id);
+          }
+        } catch (calcErr: any) {
+          console.error('Failed to persist amortization schedule:', calcErr?.message || calcErr);
         }
-    );
+        res.json({ success: true, id });
+      })();
+    }
+  );
 });
 
 app.delete('/api/budget/amortization-overrides/:id', authenticateToken, (req: AuthedRequest, res) => {
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    const { id } = req.params;
-    if (!id) return res.status(400).json({ error: 'id is required' });
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  const { id } = req.params;
+  if (!id) return res.status(400).json({ error: 'id is required' });
 
-    db.get(
-        'SELECT liability_id FROM budget_amortization_overrides WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+  db.get(
+    'SELECT liability_id FROM budget_amortization_overrides WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+    [id, scopeId, user.id],
+    (fetchErr, row: any) => {
+      if (fetchErr) {
+        return res.status(500).json({ error: fetchErr.message });
+      }
+      const liabilityId = row?.liability_id as string | undefined;
+      db.run(
+        'DELETE FROM budget_amortization_overrides WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
         [id, scopeId, user.id],
-        (fetchErr, row: any) => {
-            if (fetchErr) {
-                return res.status(500).json({ error: fetchErr.message });
-            }
-            const liabilityId = row?.liability_id as string | undefined;
-            db.run(
-                'DELETE FROM budget_amortization_overrides WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
-                [id, scopeId, user.id],
-                (err) => {
-                    if (err) {
-                        return res.status(500).json({ error: err.message });
-                    }
-                    (async () => {
-                        if (liabilityId) {
-                            try {
-                                const liability = await fetchLiabilityById(liabilityId, scopeId, user.id);
-                                if (liability) {
-                                    await persistAmortizationSchedule(liability, scopeId, user.id);
-                                }
-                            } catch (calcErr: any) {
-                                console.error('Failed to persist amortization schedule:', calcErr?.message || calcErr);
-                            }
-                        }
-                        res.json({ success: true, id });
-                    })();
+        (err) => {
+          if (err) {
+            return res.status(500).json({ error: err.message });
+          }
+          (async () => {
+            if (liabilityId) {
+              try {
+                const liability = await fetchLiabilityById(liabilityId, scopeId, user.id);
+                if (liability) {
+                  await persistAmortizationSchedule(liability, scopeId, user.id);
                 }
-            );
+              } catch (calcErr: any) {
+                console.error('Failed to persist amortization schedule:', calcErr?.message || calcErr);
+              }
+            }
+            res.json({ success: true, id });
+          })();
         }
-    );
+      );
+    }
+  );
 });
 
 // --- Incomes ---
 app.get('/api/incomes', authenticateToken, (req: AuthedRequest, res) => {
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    db.all('SELECT content, user_id FROM incomes WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)', [scopeId, user.id], (err, rows) => {
-        if (err) {
-            res.status(500).json({ error: err.message });
-            return;
-        }
-        const incomes = rows.map(row => {
-          const parsed = JSON.parse((row as any).content) as IncomeSource;
-          const ownerId = (parsed as any).ownerId ?? (row as any).user_id;
-          // Partner status is relative to the requesting user
-          const derivedIsPartner = ownerId !== user.id;
-          return { ...parsed, ownerId, isPartner: derivedIsPartner };
-        });
-        res.json(incomes);
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  db.all('SELECT content, user_id FROM incomes WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)', [scopeId, user.id], (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    const incomes = rows.map(row => {
+      const parsed = JSON.parse((row as any).content) as IncomeSource;
+      const ownerId = (parsed as any).ownerId ?? (row as any).user_id;
+      // Partner status is relative to the requesting user
+      const derivedIsPartner = ownerId !== user.id;
+      return { ...parsed, ownerId, isPartner: derivedIsPartner };
     });
+    res.json(incomes);
+  });
 });
 
 app.post('/api/incomes', authenticateToken, (req: AuthedRequest, res) => {
-    const income: IncomeSource = req.body;
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    const persist = (partnerId: number | null) => {
-      // If partner is checked but we can't find a partner id, store with a placeholder ownerId (-1) so it stays classified as partner
-      const derivedOwnerId = income.isPartner ? (partnerId ?? -1) : user.id;
-      const payload = { ...income, ownerId: derivedOwnerId, householdId: scopeId, isPartner: income.isPartner };
-      db.run('INSERT OR REPLACE INTO incomes (id, content, user_id, household_id) VALUES (?, ?, ?, ?)', [income.id, JSON.stringify(payload), derivedOwnerId, scopeId], (err) => {
-          if (err) {
-              res.status(500).json({ error: err.message });
-              return;
-          }
-          res.json(payload);
-      });
-    };
+  const income: IncomeSource = req.body;
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  const persist = (partnerId: number | null) => {
+    // If partner is checked but we can't find a partner id, store with a placeholder ownerId (-1) so it stays classified as partner
+    const derivedOwnerId = income.isPartner ? (partnerId ?? -1) : user.id;
+    const payload = { ...income, ownerId: derivedOwnerId, householdId: scopeId, isPartner: income.isPartner };
+    db.run('INSERT OR REPLACE INTO incomes (id, content, user_id, household_id) VALUES (?, ?, ?, ?)', [income.id, JSON.stringify(payload), derivedOwnerId, scopeId], (err) => {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.json(payload);
+    });
+  };
 
-    if (user.householdId) {
-      db.get('SELECT id FROM users WHERE household_id = ? AND id != ? LIMIT 1', [user.householdId, user.id], (partnerErr, partnerRow) => {
-        if (partnerErr) {
-          res.status(500).json({ error: partnerErr.message });
-          return;
-        }
-        const partnerId = partnerRow ? (partnerRow as any).id : null;
-        persist(partnerId);
-      });
-    } else {
-      persist(null);
-    }
+  if (user.householdId) {
+    db.get('SELECT id FROM users WHERE household_id = ? AND id != ? LIMIT 1', [user.householdId, user.id], (partnerErr, partnerRow) => {
+      if (partnerErr) {
+        res.status(500).json({ error: partnerErr.message });
+        return;
+      }
+      const partnerId = partnerRow ? (partnerRow as any).id : null;
+      persist(partnerId);
+    });
+  } else {
+    persist(null);
+  }
 });
 
 app.delete('/api/incomes/:id', authenticateToken, (req: AuthedRequest, res) => {
-    const { id } = req.params;
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    db.run('DELETE FROM incomes WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)', [id, scopeId, user.id], (err) => {
-        if (err) {
-            res.status(500).json({ error: err.message });
-            return;
-        }
-        res.json({ id });
-    });
+  const { id } = req.params;
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  db.run('DELETE FROM incomes WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)', [id, scopeId, user.id], (err) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ id });
+  });
 });
 
 // --- Settings ---
 app.get('/api/settings', authenticateToken, (req: AuthedRequest, res) => {
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    const fetchAndReturn = (partnerId: number | null, partnerName?: string) => {
-      db.get("SELECT content, user_id FROM settings WHERE household_id = ? OR id = 'user_settings' ORDER BY household_id IS NULL LIMIT 1", [scopeId], (err, row) => {
-          if (err) {
-              res.status(500).json({ error: err.message });
-              return;
-          }
-          
-          if (!row && !user.householdId) {
-              res.json(null);
-              return;
-          }
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  const fetchAndReturn = (partnerId: number | null, partnerName?: string) => {
+    db.get("SELECT content, user_id FROM settings WHERE household_id = ? OR id = 'user_settings' ORDER BY household_id IS NULL LIMIT 1", [scopeId], (err, row) => {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
 
-          const settings: UserSettings = row 
-            ? JSON.parse((row as any).content) 
-            : { 
-                monthlyBudget: 0, 
-                emailReports: false, 
-                email: user.email, 
-                incomeSources: [],
-                useSimpleTerms: false,
-                currencySymbol: '$',
-                startDate: todayIso,
-                monthlyIncomeMode: 'ANNUALIZED',
-            };
+      if (!row && !user.householdId) {
+        res.json(null);
+        return;
+      }
 
-          if (settings.useSimpleTerms === undefined) settings.useSimpleTerms = false;
-          if (!settings.currencySymbol) settings.currencySymbol = '$';
-          if (!settings.startDate) settings.startDate = todayIso;
-          if (!settings.monthlyIncomeMode) settings.monthlyIncomeMode = 'ANNUALIZED';
-          
-          // Force enable partner mode if household is present
-          if (user.householdId) {
-              settings.enablePartner = true;
-              settings.householdId = user.householdId;
-              settings.partnerLinked = true;
-              // Override partner name if available from their profile
-              if (partnerName) {
-                settings.partnerName = partnerName;
-              }
-          }
+      const settings: UserSettings = row
+        ? JSON.parse((row as any).content)
+        : {
+          monthlyBudget: 0,
+          emailReports: false,
+          email: user.email,
+          incomeSources: [],
+          useSimpleTerms: false,
+          currencySymbol: '$',
+          startDate: todayIso,
+          monthlyIncomeMode: 'ANNUALIZED',
+        };
 
-          const rowOwnerId = row ? (row as any).user_id as number | null : null;
-          const incomeSources = normalizeIncomeSources(settings.incomeSources || [], user.id, partnerId, rowOwnerId);
-          res.json({ ...settings, incomeSources });
-      });
-    };
+      if (settings.useSimpleTerms === undefined) settings.useSimpleTerms = false;
+      if (!settings.currencySymbol) settings.currencySymbol = '$';
+      if (!settings.startDate) settings.startDate = todayIso;
+      if (!settings.monthlyIncomeMode) settings.monthlyIncomeMode = 'ANNUALIZED';
 
-    if (user.householdId) {
-      db.get('SELECT id FROM users WHERE household_id = ? AND id != ? LIMIT 1', [user.householdId, user.id], (partnerErr, partnerRow) => {
-        if (partnerErr) {
-          res.status(500).json({ error: partnerErr.message });
-          return;
+      // Force enable partner mode if household is present
+      if (user.householdId) {
+        settings.enablePartner = true;
+        settings.householdId = user.householdId;
+        settings.partnerLinked = true;
+        // Override partner name if available from their profile
+        if (partnerName) {
+          settings.partnerName = partnerName;
         }
-        const partnerId = partnerRow ? (partnerRow as any).id : null;
-        const partnerName = partnerRow ? (partnerRow as any).name : undefined;
-        fetchAndReturn(partnerId, partnerName);
-      });
-    } else {
-      fetchAndReturn(null);
-    }
+      }
+
+      const rowOwnerId = row ? (row as any).user_id as number | null : null;
+      const incomeSources = normalizeIncomeSources(settings.incomeSources || [], user.id, partnerId, rowOwnerId);
+      res.json({ ...settings, incomeSources });
+    });
+  };
+
+  if (user.householdId) {
+    db.get('SELECT id FROM users WHERE household_id = ? AND id != ? LIMIT 1', [user.householdId, user.id], (partnerErr, partnerRow) => {
+      if (partnerErr) {
+        res.status(500).json({ error: partnerErr.message });
+        return;
+      }
+      const partnerId = partnerRow ? (partnerRow as any).id : null;
+      const partnerName = partnerRow ? (partnerRow as any).name : undefined;
+      fetchAndReturn(partnerId, partnerName);
+    });
+  } else {
+    fetchAndReturn(null);
+  }
 });
 
 app.post('/api/settings', authenticateToken, (req: AuthedRequest, res) => {
-    const settings: UserSettings = req.body;
-    const user = req.user!;
-    const scopeId = user.householdId || user.id;
-    const persist = (partnerId: number | null) => {
-      const normalizedSettings: UserSettings = {
-        useSimpleTerms: false,
-        currencySymbol: '$',
-        startDate: settings.startDate || todayIso,
-        monthlyIncomeMode: settings.monthlyIncomeMode || 'ANNUALIZED',
-        ...settings,
-      };
-
-      const incomeSources = normalizeIncomeSources(settings.incomeSources || [], user.id, partnerId);
-      const payload = { ...normalizedSettings, householdId: scopeId, incomeSources };
-      db.run("INSERT OR REPLACE INTO settings (id, content, user_id, household_id) VALUES (?, ?, ?, ?)", [scopeId.toString(), JSON.stringify(payload), user.id, scopeId], (err) => {
-          if (err) {
-              res.status(500).json({ error: err.message });
-              return;
-          }
-          res.json(payload);
-      });
+  const settings: UserSettings = req.body;
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  const persist = (partnerId: number | null) => {
+    const normalizedSettings: UserSettings = {
+      useSimpleTerms: false,
+      currencySymbol: '$',
+      startDate: settings.startDate || todayIso,
+      monthlyIncomeMode: settings.monthlyIncomeMode || 'ANNUALIZED',
+      ...settings,
     };
 
-    if (user.householdId) {
-      db.get('SELECT id FROM users WHERE household_id = ? AND id != ? LIMIT 1', [user.householdId, user.id], (partnerErr, partnerRow) => {
-        if (partnerErr) {
-          res.status(500).json({ error: partnerErr.message });
-          return;
-        }
-        const partnerId = partnerRow ? (partnerRow as any).id : null;
-        persist(partnerId);
-      });
-    } else {
-      persist(null);
-    }
+    const incomeSources = normalizeIncomeSources(settings.incomeSources || [], user.id, partnerId);
+    const payload = { ...normalizedSettings, householdId: scopeId, incomeSources };
+    db.run("INSERT OR REPLACE INTO settings (id, content, user_id, household_id) VALUES (?, ?, ?, ?)", [scopeId.toString(), JSON.stringify(payload), user.id, scopeId], (err) => {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.json(payload);
+    });
+  };
+
+  if (user.householdId) {
+    db.get('SELECT id FROM users WHERE household_id = ? AND id != ? LIMIT 1', [user.householdId, user.id], (partnerErr, partnerRow) => {
+      if (partnerErr) {
+        res.status(500).json({ error: partnerErr.message });
+        return;
+      }
+      const partnerId = partnerRow ? (partnerRow as any).id : null;
+      persist(partnerId);
+    });
+  } else {
+    persist(null);
+  }
 });
 
 // --- Household Linking ---
@@ -1918,11 +1945,11 @@ app.post('/api/household/join', authenticateToken, (req: AuthedRequest, res) => 
           if (settingsErr) {
             console.error('Settings migration warning:', settingsErr.message);
           } else if (settingsRow) {
-            const merged = { 
-                ...JSON.parse((settingsRow as any).content), 
-                householdId: targetHousehold,
-                enablePartner: true,
-                partnerLinked: true
+            const merged = {
+              ...JSON.parse((settingsRow as any).content),
+              householdId: targetHousehold,
+              enablePartner: true,
+              partnerLinked: true
             };
             db.run(
               'INSERT OR REPLACE INTO settings (id, content, user_id, household_id) VALUES (?, ?, ?, ?)',
@@ -2027,11 +2054,11 @@ app.post('/api/household/accept', authenticateToken, (req: AuthedRequest, res) =
             if (settingsErr) {
               console.error('Settings migration warning:', settingsErr.message);
             } else if (settingsRow) {
-              const merged = { 
-                  ...JSON.parse((settingsRow as any).content), 
-                  householdId: targetHousehold,
-                  enablePartner: true,
-                  partnerLinked: true
+              const merged = {
+                ...JSON.parse((settingsRow as any).content),
+                householdId: targetHousehold,
+                enablePartner: true,
+                partnerLinked: true
               };
               db.run(
                 'INSERT OR REPLACE INTO settings (id, content, user_id, household_id) VALUES (?, ?, ?, ?)',
