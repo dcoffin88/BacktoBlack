@@ -249,7 +249,7 @@ export const generateAllocationPlan = (
         });
     });
 
-    allocations.sort((a, b) => a.date.getTime() - b.getTime());
+    allocations.sort((a, b) => a.date.getTime() - b.date.getTime());
 
     const biWeeklyCounters = new Map<string, number>();
 

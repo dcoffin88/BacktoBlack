@@ -1179,7 +1179,7 @@ app.post('/api/liabilities', authenticateToken, (req: AuthedRequest, res) => {
 });
 
 app.delete('/api/liabilities/:id', authenticateToken, (req: AuthedRequest, res) => {
-  const { id } = req.params;
+  const { id } = req.params as { id: string };
   const user = req.user!;
   const scopeId = user.householdId || user.id;
   db.run('DELETE FROM liabilities WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)', [id, scopeId, user.id], (err) => {
@@ -1200,7 +1200,7 @@ app.delete('/api/liabilities/:id', authenticateToken, (req: AuthedRequest, res) 
 });
 
 app.post('/api/liabilities/:id/reset-settings', authenticateToken, (req: AuthedRequest, res) => {
-  const { id } = req.params;
+  const { id } = req.params as { id: string };
   const user = req.user!;
   const scopeId = user.householdId || user.id;
   const scopeKey = typeof scopeId === 'number' ? String(scopeId) : scopeId;
@@ -1270,7 +1270,7 @@ app.post('/api/liabilities/:id/reset-settings', authenticateToken, (req: AuthedR
 });
 
 app.get('/api/liabilities/:id/amortization', authenticateToken, async (req: AuthedRequest, res) => {
-  const { id } = req.params;
+  const { id } = req.params as { id: string };
   const user = req.user!;
   const scopeId = user.householdId || user.id;
   if (!id) return res.status(400).json({ error: 'id is required' });
@@ -1333,7 +1333,7 @@ app.post('/api/expenses', authenticateToken, (req: AuthedRequest, res) => {
 });
 
 app.delete('/api/expenses/:id', authenticateToken, (req: AuthedRequest, res) => {
-  const { id } = req.params;
+  const { id } = req.params as { id: string };
   const user = req.user!;
   const scopeId = user.householdId || user.id;
   db.run('DELETE FROM expenses WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)', [id, scopeId, user.id], (err) => {
@@ -1374,7 +1374,7 @@ app.post('/api/assets', authenticateToken, (req: AuthedRequest, res) => {
 });
 
 app.delete('/api/assets/:id', authenticateToken, (req: AuthedRequest, res) => {
-  const { id } = req.params;
+  const { id } = req.params as { id: string };
   const user = req.user!;
   const scopeId = user.householdId || user.id;
   db.run('DELETE FROM assets WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)', [id, scopeId, user.id], (err) => {
@@ -1648,7 +1648,7 @@ app.post('/api/budget/extra-payments', authenticateToken, (req: AuthedRequest, r
 app.delete('/api/budget/extra-payments/:id', authenticateToken, (req: AuthedRequest, res) => {
   const user = req.user!;
   const scopeId = user.householdId || user.id;
-  const { id } = req.params;
+  const { id } = req.params as { id: string };
   if (!id) return res.status(400).json({ error: 'id is required' });
 
   db.get(
@@ -1753,7 +1753,7 @@ app.post('/api/budget/amortization-overrides', authenticateToken, (req: AuthedRe
 app.delete('/api/budget/amortization-overrides/:id', authenticateToken, (req: AuthedRequest, res) => {
   const user = req.user!;
   const scopeId = user.householdId || user.id;
-  const { id } = req.params;
+  const { id } = req.params as { id: string };
   if (!id) return res.status(400).json({ error: 'id is required' });
 
   db.get(
@@ -1842,7 +1842,7 @@ app.post('/api/incomes', authenticateToken, (req: AuthedRequest, res) => {
 });
 
 app.delete('/api/incomes/:id', authenticateToken, (req: AuthedRequest, res) => {
-  const { id } = req.params;
+  const { id } = req.params as { id: string };
   const user = req.user!;
   const scopeId = user.householdId || user.id;
   db.run('DELETE FROM incomes WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)', [id, scopeId, user.id], (err) => {

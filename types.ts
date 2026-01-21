@@ -61,6 +61,7 @@ export interface Asset {
     value: number;
     category: "Cash" | "Investment" | "Real Estate" | "Vehicle" | "Other";
     notes?: string;
+    owner?: Ownership;
 }
 
 export enum StrategyType {

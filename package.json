@@ -10,7 +10,7 @@
     "url": "https://github.com/dcoffin88/backtoblack"
   },
   "scripts": {
-    "dev": "concurrently \"npm run start:server\" \"vite\"",
+    "dev": "concurrently \"npm run start:server\" \"wait-on tcp:3001 && vite\"",
     "start:server": "ts-node --project server/tsconfig.json server/server.ts",
     "build": "vite build",
     "preview": "vite preview",
@@ -40,6 +40,7 @@
     "@types/node": "^22.14.0",
     "@types/nodemailer": "^7.0.5",
     "@types/react": "^19.2.9",
+    "@types/react-dom": "^19.2.3",
     "@types/sqlite3": "^3.1.11",
     "@vitejs/plugin-react": "^5.0.0",
     "autoprefixer": "^10.4.22",
@@ -48,6 +49,7 @@
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "~5.8.2",
-    "vite": "^6.4.1"
+    "vite": "^6.4.1",
+    "wait-on": "^9.0.3"
   }
 }

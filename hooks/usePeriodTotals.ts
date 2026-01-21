@@ -1,6 +1,6 @@
 import { useMemo, useCallback } from 'react';
-import { Asset, Expense, IncomeSource, Liability, UserSettings } from '../types';
-import { generatePaychecks, getPerCheckExpenseAmount, getPerCheckLiabilityAmount, PaycheckOccurrence } from '../utils/paycheckLogic';
+import { Asset, Expense, IncomeSource, Liability, UserSettings, PaycheckOccurrence } from '../types';
+import { generatePaychecks, getPerCheckExpenseAmount, getPerCheckLiabilityAmount } from '../utils/paycheckLogic';
 import { getAnnualizedIncomeAmount, getMinPayment } from '../server/liabilityAlgorithms';
 
 interface PeriodTotalsProps {

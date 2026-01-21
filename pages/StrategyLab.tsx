@@ -173,7 +173,7 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
   const [showAnchorModal, setShowAnchorModal] = useState(false);
 
   const { ref: compareChartRef, size: compareChartSize } = useChartDimensions();
-  const [strategySimulations, setStrategySimulations] = useState<Record<StrategyType, PayoffResult>>({});
+  const [strategySimulations, setStrategySimulations] = useState<Partial<Record<StrategyType, PayoffResult>>>({});
   const [amortizationSchedules, setAmortizationSchedules] = useState<
     Record<
       string,
@@ -269,7 +269,7 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
       );
       if (!active) return;
       setStrategySimulations((prev) => {
-        const next: Record<StrategyType, PayoffResult> = { ...prev };
+        const next: Partial<Record<StrategyType, PayoffResult>> = { ...prev };
         results.forEach(([strat, simulation]) => {
           if (simulation) {
             next[strat] = simulation;

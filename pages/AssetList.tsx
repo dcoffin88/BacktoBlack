@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Asset, Ownership } from '../types';
+import { Asset, Ownership, UserSettings } from '../types';
 import { Plus, Trash2, Edit2, X, Save, TrendingUp, Landmark, Car, Home, Briefcase, Users, User } from 'lucide-react';
 
 interface AssetListProps {

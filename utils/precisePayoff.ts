@@ -9,7 +9,6 @@ const getPaymentCountInMonth = (
 ): number => {
     const freq = liability.paymentFrequency || "MONTHLY";
     if (freq === "MONTHLY") return 1;
-    if (freq === "ANNUAL") return 0; // Simplified: ignored for monthly payoff grids usually, or could check fee month
 
     // Determine Anchor Date
     let anchor: Date;

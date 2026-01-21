@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Liability, Expense, Asset, StrategyType, STRATEGY_LABELS, UserSettings, IncomeSource, BudgetSchedule, PayoffResult } from '../types';
+import { Liability, Expense, Asset, StrategyType, STRATEGY_LABELS, UserSettings, IncomeSource, BudgetSchedule, PayoffResult, PaycheckOccurrence } from '../types';
 import { calculatePayoff, getMinPayment, calculateMonthlyIncomeByMode, AmortizationRow, getAnnualizedIncomeAmount } from '../server/liabilityAlgorithms';
-import { generatePaychecks, getPerCheckExpenseAmount, getPerCheckLiabilityAmount, PaycheckOccurrence } from '../utils/paycheckLogic';
+import { generatePaychecks, getPerCheckExpenseAmount, getPerCheckLiabilityAmount } from '../utils/paycheckLogic';
 import { usePeriodTotals } from '../hooks/usePeriodTotals';
 import { Link } from 'react-router-dom';
 import { ArrowRight, TrendingUp, Calendar, Wallet, LayoutDashboard, DollarSign, Receipt, Landmark, Calculator, AlertTriangle } from 'lucide-react';

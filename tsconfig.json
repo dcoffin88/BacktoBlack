@@ -16,6 +16,8 @@
     "moduleResolution": "bundler",
     "isolatedModules": true,
     "moduleDetection": "force",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
     "allowJs": true,
     "jsx": "react-jsx",
     "paths": {
@@ -27,7 +29,8 @@
     "noEmit": true
   },
   "include": [
-    "components",
+    "**/*.ts",
+    "**/*.tsx",
     "vite.config.ts"
   ],
   "exclude": [
