@@ -490,7 +490,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
 
   const transferGroups = useMemo(() => {
     if (!selectedTransfer) return [];
-    const buckets = new Map<string, { account: string; total: number; items: { name: string; amount: number; type: string }[] }>();
+    const buckets = new Map<string, { account: string; total: number; items: { name: string; amount: number; type: string; category: string; subtitle?: string }[] }>();
     expenses.forEach((expense) => {
       const account = expense.transferAccount?.trim();
       if (!account) return;
@@ -502,6 +502,8 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
         name: expense.name,
         amount,
         type: 'Expense',
+        category: expense.category?.trim() || 'Uncategorized',
+        subtitle: expense.subtitle || undefined,
       });
       buckets.set(account, existing);
     });
@@ -516,6 +518,8 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
         name: liability.name,
         amount,
         type: 'Liability',
+        category: liability.category?.trim() || 'Uncategorized',
+        subtitle: liability.subtitle || undefined,
       });
       buckets.set(account, existing);
     });
@@ -831,7 +835,12 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
                     <div className="space-y-1 pl-3 text-xs text-slate-400">
                       {group.items.map((item, idx) => (
                         <div key={`${group.account}-${item.name}-${idx}`} className="flex items-center justify-between pr-24">
-                          <span>{item.name}</span>
+                          <span>
+                            {item.name}
+                            {item.subtitle ? ` • ${item.subtitle}` : ''}
+                            {' • '}
+                            {item.category}
+                          </span>
                           <span>{formatCurrencyPrecise(item.amount)}</span>
                         </div>
                       ))}

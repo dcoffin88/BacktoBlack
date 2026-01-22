@@ -1,6 +1,12 @@
 # Build the client
 FROM node:20 AS client-builder
 WORKDIR /app
+RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+ && rm -rf /var/lib/apt/lists/*
+ENV PYTHON=python3
 COPY package*.json ./
 RUN npm install
 COPY . .
@@ -9,6 +15,12 @@ RUN npm run build
 # Build the server
 FROM node:20 AS server-builder
 WORKDIR /app
+RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+ && rm -rf /var/lib/apt/lists/*
+ENV PYTHON=python3
 COPY package*.json ./
 RUN npm install
 COPY . .

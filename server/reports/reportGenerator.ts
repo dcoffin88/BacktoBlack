@@ -187,7 +187,7 @@ const generateTransferReport = async (data: ReportData, date: Date) => {
     if (todaysPaycheques.length === 0) return null;
 
     const transferGroups = new Map<string, { total: number; items: { name: string; amount: number; type: string }[] }>();
-    const manualPayments: { name: string; subtitle?: string; amount: number; type: string; account?: string }[] = [];
+    const manualPayments: { name: string; subtitle?: string; amount: number; category: string; account?: string }[] = [];
     const budgetedIncomes = incomes.filter(i => i.includeInPlanner !== false);
     let userSplitRatio = 0.5;
     if (settings.enablePartner) {
@@ -213,7 +213,13 @@ const generateTransferReport = async (data: ReportData, date: Date) => {
             const amt = getPerChequeExpenseAmount(e, currentPaycheque, monthPaycheques, budgetedIncomes, userSplitRatio);
             if (amt > 0) {
                 if (e.manualPaymentRequired) {
-                    manualPayments.push({ name: e.name, subtitle: e.subtitle, amount: amt, type: 'Expense', account: e.transferAccount });
+                    manualPayments.push({
+                        name: e.name,
+                        subtitle: e.subtitle,
+                        amount: amt,
+                        category: e.category || 'Uncategorized',
+                        account: e.transferAccount
+                    });
                 }
 
                 if (e.transferAccount) {
@@ -237,7 +243,13 @@ const generateTransferReport = async (data: ReportData, date: Date) => {
             const amt = getPerChequeLiabilityAmount(liabilityWithMin, currentPaycheque, monthPaycheques, budgetedIncomes, extraPayments, userSplitRatio, { includeUnchecked: false });
             if (amt > 0) {
                 if (l.manualPaymentRequired) {
-                    manualPayments.push({ name: l.name, subtitle: l.subtitle, amount: amt, type: 'Liability', account: l.transferAccount });
+                    manualPayments.push({
+                        name: l.name,
+                        subtitle: l.subtitle,
+                        amount: amt,
+                        category: l.category || 'Uncategorized',
+                        account: l.transferAccount
+                    });
                 }
 
                 if (l.transferAccount) {
@@ -290,7 +302,7 @@ const generateTransferReport = async (data: ReportData, date: Date) => {
                             <span style="font-weight: 700; color: #b91c1c;">${formatCurrency(item.amount, currencySymbol)}</span>
                         </div>
                         <div style="font-size: 12px; color: #64748b;">
-                            ${item.subtitle ? `${item.subtitle} • ` : ''}${item.type} ${item.account ? `• From: ${item.account}` : ''}
+                            ${item.subtitle ? `${item.subtitle} • ` : ''}${item.category} ${item.account ? `• From: ${item.account}` : ''}
                         </div>
                     </div>
                 `).join('')}

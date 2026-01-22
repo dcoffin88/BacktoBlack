@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserSettings, ExpenseSplitMethod, Liability, Expense, Asset, IncomeSource, PayFrequency, MonthlyIncomeMode } from '../types';
 import { getAnnualizedIncomeAmount, getMinPayment, calculateMonthlyIncome } from '../server/liabilityAlgorithms';
-import { Save, Mail, DollarSign, Send, Users, PieChart, Settings, AlertTriangle, ArrowRight, CheckCircle, Plus, Trash2, Edit2, X, Calendar, Lock } from 'lucide-react';
+import { Save, Mail, DollarSign, Send, Users, PieChart, Settings, AlertTriangle, ArrowRight, CheckCircle, Plus, Trash2, Edit2, X, Calendar, Lock, Info } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { dbAPI } from '../server/db';
 
@@ -730,7 +730,16 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
 
                       {(tempSettings.enableMonthlyReport !== false) && (
                         <div className="pl-7 space-y-1">
-                          <label className="block text-xs font-medium text-slate-500">Recipients (Optional override)</label>
+                          <div className="flex items-center gap-2">
+                            <label className="block text-xs font-medium text-slate-500">Recipients (Optional override)</label>
+                            <span
+                              className="text-slate-400"
+                              title={`Values: ${tempSettings.email} (default). Comma separated.`}
+                              aria-label={`Values: ${tempSettings.email} (default). Comma separated.`}
+                            >
+                              <Info size={14} />
+                            </span>
+                          </div>
                           <input
                             type="text"
                             value={tempSettings.monthlyReportRecipients || ''}
@@ -738,7 +747,7 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
                             placeholder={tempSettings.email}
                             className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                           />
-                          <p className="text-xs text-slate-400">Values: {tempSettings.email} (default)</p>
+                          <span aria-hidden="true" />
                         </div>
                       )}
                     </div>
@@ -769,7 +778,16 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
                       </div>
                       {(tempSettings.enableTransferReport !== false) && (
                         <div className="pl-7 space-y-1">
-                          <label className="block text-xs font-medium text-slate-500">Recipients (Optional override)</label>
+                          <div className="flex items-center gap-2">
+                            <label className="block text-xs font-medium text-slate-500">Recipients (Optional override)</label>
+                            <span
+                              className="text-slate-400"
+                              title={`Values: ${tempSettings.email} (default). Comma separated.`}
+                              aria-label={`Values: ${tempSettings.email} (default). Comma separated.`}
+                            >
+                              <Info size={14} />
+                            </span>
+                          </div>
                           <input
                             type="text"
                             value={tempSettings.transferReportRecipients || ''}
@@ -777,7 +795,7 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
                             placeholder={tempSettings.email}
                             className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                           />
-                          <p className="text-xs text-slate-400">Values: {tempSettings.email} (default)</p>
+                          <span aria-hidden="true" />
                         </div>
                       )}
                     </div>
@@ -856,7 +874,7 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
                             onChange={e => setTempSettings({ ...tempSettings, smtpSecure: e.target.checked })}
                             className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
                           />
-                          <span className="text-xs text-slate-600">Use Secure Connection (TLS)</span>
+                          <span className="text-xs text-slate-600">Use Secure Connection (SSL/TLS)</span>
                         </label>
 
                         <button
@@ -870,9 +888,6 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
                         </button>
                       </div>
                     </div>
-                    <p className="text-xs text-slate-400 italic">
-                      Note: For Gmail, you likely need to create an "App Password" if 2FA is enabled.
-                    </p>
                   </div>
                 )}
               </div>
