@@ -600,6 +600,59 @@ const Budget: React.FC<BudgetProps> = ({
         setScheduleMonthIndex(null);
     };
 
+    const checkAllExpenses = (check: boolean) => {
+        setExpenseChequesByCheque((prev) => {
+            const nextForCheque = { ...(prev[currentChequeKey] || {}) };
+            expensePortions.forEach(({ expense }) => {
+                nextForCheque[expense.id] = check;
+            });
+            const nextState = { ...prev, [currentChequeKey]: nextForCheque };
+            persistCheques(
+                currentChequeKey,
+                nextForCheque,
+                liabilityChequesByCheque[currentChequeKey] || {}
+            );
+            return nextState;
+        });
+    };
+
+    const checkAllLiabilities = async (check: boolean) => {
+        // Optimistically update UI
+        const nextForCheque: Record<string, boolean> = {
+            ...(liabilityChequesByCheque[currentChequeKey] || {}),
+        };
+        liabilityPortions.forEach(({ liability }) => {
+            nextForCheque[liability.id] = check;
+        });
+
+        setLiabilityChequesByCheque((prev) => ({
+            ...prev,
+            [currentChequeKey]: nextForCheque,
+        }));
+
+        persistCheques(
+            currentChequeKey,
+            expenseChequesByCheque[currentChequeKey] || {},
+            nextForCheque
+        );
+
+        // Update database records for minimum payments
+        if (check) {
+            for (const { liability } of liabilityPortions) {
+                const extraAmount = extraByLiability[liability.id] || 0;
+                const minimumPortion = Math.max(
+                    0,
+                    getPerChequeLiability(liability) - extraAmount
+                );
+                await saveMinimumPayment(liability, minimumPortion);
+            }
+        } else {
+            for (const { liability } of liabilityPortions) {
+                await deleteMinimumPayment(liability.id);
+            }
+        }
+    };
+
     const addExtraPayment = (e: React.FormEvent) => {
         e.preventDefault();
         if (!extraForm.liabilityId || extraForm.amount <= 0) return;
@@ -632,6 +685,21 @@ const Budget: React.FC<BudgetProps> = ({
             await dbAPI.saveExtraPayment(updated);
         } catch {
             /* ignore */
+        }
+    };
+
+    const checkAllExtras = async (check: boolean) => {
+        const updatedExtras = extrasForCurrentCheque.map(p => ({ ...p, isChecked: check }));
+        setExtraPayments(prev => {
+            const otherExtras = prev.filter(p => !extrasForCurrentCheque.some(e => e.id === p.id));
+            return [...otherExtras, ...updatedExtras];
+        });
+        for (const extra of updatedExtras) {
+            try {
+                await dbAPI.saveExtraPayment(extra);
+            } catch {
+                /* ignore */
+            }
         }
     };
 
@@ -1000,25 +1068,47 @@ const Budget: React.FC<BudgetProps> = ({
                                 <ChevronRight size={16} />
                             </button>
                         </div>
-                        <label className="hidden sm:flex items-center space-x-2 text-xs text-slate-500">
-                            <span>Jump to</span>
-                            <input
-                                type="date"
-                                className="px-2 py-1 border border-slate-300 rounded-md text-xs focus:ring-2 focus:ring-indigo-500"
-                                min={paychequeDateRange.min || undefined}
-                                max={paychequeDateRange.max || undefined}
-                                onChange={(e) => jumpToDate(e.target.value)}
-                            />
-                        </label>
+                        <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-4">
+                            <label className="flex items-center space-x-2 text-xs text-slate-500">
+                                <span>Jump to</span>
+                                <input
+                                    type="date"
+                                    className="px-2 py-1 border border-slate-300 rounded-md text-xs focus:ring-2 focus:ring-indigo-500"
+                                    min={paychequeDateRange.min || undefined}
+                                    max={paychequeDateRange.max || undefined}
+                                    onChange={(e) => jumpToDate(e.target.value)}
+                                />
+                            </label>
+                        </div>
                     </div>
                 </div>
             )}
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                    <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex items-center space-x-2">
-                        <DollarSign size={18} className="text-slate-500" />
-                        <h3 className="font-bold text-slate-800">Expenses</h3>
+                    <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                            <DollarSign size={18} className="text-slate-500" />
+                            <h3 className="font-bold text-slate-800">Expenses</h3>
+                        </div>
+                        {expensePortions.length > 0 && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const allChecked = expensePortions.every(
+                                        ({ expense }) => expenseCheques[expense.id]
+                                    );
+                                    checkAllExpenses(!allChecked);
+                                }}
+                                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+                            >
+                                {expensePortions.every(
+                                    ({ expense }) => expenseCheques[expense.id]
+                                )
+                                    ? "Uncheck All"
+                                    : "Check All"}
+                            </button>
+                        )}
                     </div>
                     <div className="divide-y divide-slate-100">
                         {expensePortions.length === 0 ? (
@@ -1073,16 +1163,36 @@ const Budget: React.FC<BudgetProps> = ({
                 </div>
 
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                    <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex items-center space-x-2">
-                        <TrendingUp size={18} className="text-slate-500" />
-                        <h3 className="font-bold text-slate-800">
-                            Liability Minimums
-                        </h3>
-                        {budgetSchedule && (
-                            <span className="ml-auto inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
-                                Month{" "}
-                                {scheduleMonthIndex ?? 1}
-                            </span>
+                    <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                            <TrendingUp size={18} className="text-slate-500" />
+                            <h3 className="font-bold text-slate-800">
+                                Liability Minimums
+                            </h3>
+                            {budgetSchedule && (
+                                <span className="ml-auto inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                    Month{" "}
+                                    {scheduleMonthIndex ?? 1}
+                                </span>
+                            )}
+                        </div>
+                        {liabilityPortions.length > 0 && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const allChecked = liabilityPortions.every(
+                                        ({ liability }) => liabilityCheques[liability.id]
+                                    );
+                                    checkAllLiabilities(!allChecked);
+                                }}
+                                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+                            >
+                                {liabilityPortions.every(
+                                    ({ liability }) => liabilityCheques[liability.id]
+                                )
+                                    ? "Uncheck All"
+                                    : "Check All"}
+                            </button>
                         )}
                     </div>
                     {budgetSchedule && !activeScheduleRow && (
@@ -1181,6 +1291,20 @@ const Budget: React.FC<BudgetProps> = ({
                             Extra Payments
                         </h3>
                     </div>
+                    {extrasForCurrentCheque.length > 0 && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                const allChecked = extrasForCurrentCheque.every(p => p.isChecked);
+                                checkAllExtras(!allChecked);
+                            }}
+                            className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+                        >
+                            {extrasForCurrentCheque.every(p => p.isChecked)
+                                ? "Uncheck All"
+                                : "Check All"}
+                        </button>
+                    )}
                 </div>
                 <form
                     onSubmit={addExtraPayment}
@@ -1207,6 +1331,8 @@ const Budget: React.FC<BudgetProps> = ({
                                 .map((l) => (
                                     <option key={l.id} value={l.id}>
                                         {l.name}
+                                        {l.category ? ` • (${l.category})` : ""}
+                                        {l.subtitle ? ` - ${l.subtitle}` : ""}
                                     </option>
                                 ))}
                         </select>

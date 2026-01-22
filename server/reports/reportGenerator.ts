@@ -160,7 +160,7 @@ const generateBudgetSummary = async (data: ReportData, date: Date) => {
             
              <div style="padding: 16px; background-color: #f8fafc;">
                  <div style="display: flex; align-items: baseline; font-size: 18px; margin-top: 12px; padding-top: 12px;">
-                    <span style="font-weight: 700;">Remaining</span>
+                    <span style="font-weight: 700;">Available for Debt Repayment</span>
                     <div style="flex-grow: 1; margin: 0 8px; border-bottom: 1px dotted #e2e8f0; height: 12px;"></div>
                     <span style="font-weight: 700; color: ${periodNet >= 0 ? '#4f46e5' : '#dc2626'};">${formatCurrency(periodNet, currencySymbol)}</span>
                  </div>

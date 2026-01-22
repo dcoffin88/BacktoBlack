@@ -750,7 +750,7 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
                       {freeCashFlow >= 0 ? '+' : ''}{formatCurrency(freeCashFlow)}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-400 text-right">Available for {availableForLabel}</p>
+                  <p className="text-xs text-slate-400 text-right">Available for Debt Repayment</p>
                   {isDeficit && (
                     <div className="mt-3 bg-red-50 p-3 rounded-lg flex items-start space-x-2 border border-red-100">
                       <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
