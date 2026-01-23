@@ -406,6 +406,7 @@ const Budget: React.FC<BudgetProps> = ({
             return;
         }
         const today = new Date();
+        today.setHours(0, 0, 0, 0);
         const nextIdx = currentMonthPaycheques.findIndex(
             (p) => p.date >= today
         );
