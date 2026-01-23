@@ -38,6 +38,7 @@ type ExtraPayment = {
     liabilityId: string;
     amount: number;
     chequeDate?: string | null;
+    incomeSourceId?: string;
 };
 
 const parseLocalDate = (value?: string | null) => {
@@ -70,11 +71,6 @@ type AmortizationTableMemoProps = {
         }
     >;
     minimumPaidByPeriod: Record<number, number>;
-    editingAmortizationRow: number | null;
-    amortizationEdit: { payment: string; interest: string };
-    amortizationEditPurchase: string;
-    amortizationEditDate: string;
-    setAmortizationEditDate: React.Dispatch<React.SetStateAction<string>>;
     children: React.ReactNode;
 };
 
@@ -86,11 +82,7 @@ const AmortizationTable = React.memo(
         prev.paymentsByChequeDate === next.paymentsByChequeDate &&
         prev.amortizationOverridesForViewing ===
         next.amortizationOverridesForViewing &&
-        prev.minimumPaidByPeriod === next.minimumPaidByPeriod &&
-        prev.editingAmortizationRow === next.editingAmortizationRow &&
-        prev.amortizationEdit === next.amortizationEdit &&
-        prev.amortizationEditPurchase === next.amortizationEditPurchase &&
-        prev.amortizationEditDate === next.amortizationEditDate
+        prev.minimumPaidByPeriod === next.minimumPaidByPeriod
 );
 
 interface LiabilityListProps {
@@ -161,10 +153,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             }
         >
     >({});
-    const historicalDateRef = useRef<HTMLInputElement | null>(null);
-    const historicalAmountRef = useRef<HTMLInputElement | null>(null);
-    const historicalPurchaseRef = useRef<HTMLInputElement | null>(null);
-    const historicalInterestRef = useRef<HTMLInputElement | null>(null);
     const [extraPayments, setExtraPayments] = useState<ExtraPayment[]>([]);
     const [extrasLoaded, setExtrasLoaded] = useState(false);
     const [overridesLoaded, setOverridesLoaded] = useState(false);
@@ -173,31 +161,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
     const [historicalPaymentError, setHistoricalPaymentError] = useState<
         string | null
     >(null);
-    const [editingPaymentId, setEditingPaymentId] = useState<string | null>(
-        null
-    );
-    const [editPayment, setEditPayment] = useState<{
-        amount: number;
-        date: string;
-    }>({
-        amount: 0,
-        date: "",
-    });
-    const [editPaymentInterest, setEditPaymentInterest] = useState(0);
-    const [editPaymentPurchase, setEditPaymentPurchase] = useState(0);
-    const [editingAmortizationRow, setEditingAmortizationRow] = useState<
-        number | null
-    >(null);
-    const [amortizationEdit, setAmortizationEdit] = useState<{
-        payment: string;
-        interest: string;
-    }>({
-        payment: "",
-        interest: "",
-    });
-    const [amortizationEditPurchase, setAmortizationEditPurchase] =
-        useState("0");
-    const [amortizationEditDate, setAmortizationEditDate] = useState("");
     const [amortizationOverrides, setAmortizationOverrides] = useState<
         Record<
             string,
@@ -421,6 +384,14 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             return parsed;
         }
         const start = parseLocalDate(liability.startDate);
+
+        if (liability.paymentFrequency === 'WEEKLY' || liability.paymentFrequency === 'BI_WEEKLY') {
+            if (start) {
+                start.setHours(0, 0, 0, 0);
+                return start;
+            }
+        }
+
         const base = start || new Date();
         const dueDay = getDueDayForMonth(
             base.getFullYear(),
@@ -593,6 +564,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         if (freq === "WEEKLY" || freq === "BI_WEEKLY") {
             const intervalDays = freq === "WEEKLY" ? 7 : 14;
             const start = parseLocalDate(liability.startDate);
+            if (start) start.setHours(0, 0, 0, 0);
             if (start && anchor < start) {
                 let guard = 0;
                 while (anchor < start && guard < 500) {
@@ -621,6 +593,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         }
 
         const start = parseLocalDate(liability.startDate);
+        if (start) start.setHours(0, 0, 0, 0);
         if (start && anchor < start) {
             let guard = 0;
             while (anchor < start && guard < 120) {
@@ -753,37 +726,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         return Math.max(0, base - paid + interestAdjust);
     };
 
-    const getBalanceFromTimeline = () => {
-        if (!amortizationData || !amortizationData.timeline.length) return null;
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const rowsWithDates = amortizationData.timeline
-            .map((row) => {
-                const dateValue = (row as any).actualDate;
-                const parsed = parseLocalDate(dateValue);
-                return parsed ? { row, date: parsed } : null;
-            })
-            .filter(Boolean) as {
-                row: (typeof amortizationData.timeline)[0];
-                date: Date;
-            }[];
-
-        if (!rowsWithDates.length) return null;
-
-        const pastRows = rowsWithDates.filter(({ date }) => date <= today);
-        if (pastRows.length) {
-            const latest = pastRows.reduce((acc, cur) =>
-                cur.date > acc.date ? cur : acc
-            );
-            return latest.row.remainingBalance;
-        }
-
-        const earliest = rowsWithDates.reduce((acc, cur) =>
-            cur.date < acc.date ? cur : acc
-        );
-        return earliest.row.remainingBalance;
-    };
-
     const paymentsForViewing = useMemo(() => {
         if (!viewingLiability) return [];
         return extraPayments
@@ -831,53 +773,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         return map;
     }, [paymentsForViewing]);
 
-    const amortizationSummary = useMemo(() => {
-        if (!amortizationData || !viewingLiability) return null;
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        let totalInterestToDate = 0;
-        let totalPaymentsToDate = 0;
-        amortizationData.timeline.forEach((row) => {
-            const date = row.actualDate
-                ? parseLocalDate(row.actualDate)
-                : (viewingLiability.startingBalance || 0) > 0
-                    ? getProjectedRowDate(viewingLiability, row.month, today)
-                    : null;
-            if (date && date > today) return;
-            if (!date && !row.isHistorical) return;
-            const override = amortizationOverridesForViewing[row.month];
-            const interest = override?.interest ?? row.interest;
-            const payment = override?.payment ?? row.payment;
-            totalInterestToDate += interest;
-            if (payment > 0) totalPaymentsToDate += payment;
-        });
-        return { totalInterestToDate, totalPaymentsToDate };
-    }, [amortizationData, amortizationOverridesForViewing]);
 
-    const payoffMonthsRemaining = useMemo(() => {
-        if (!amortizationData || !viewingLiability) return null;
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const isBiWeekly = viewingLiability.paymentFrequency === "BI_WEEKLY";
-        const isWeekly = viewingLiability.paymentFrequency === "WEEKLY";
-        const periodsPerYear = isBiWeekly ? 26 : isWeekly ? 52 : 12;
-
-        let remainingPeriods = 0;
-        amortizationData.timeline.forEach((row) => {
-            const date = row.actualDate
-                ? parseLocalDate(row.actualDate)
-                : (viewingLiability.startingBalance || 0) > 0
-                    ? getProjectedRowDate(viewingLiability, row.month, today)
-                    : null;
-            if (date && date > today) {
-                remainingPeriods += 1;
-            } else if (!date && !row.isHistorical) {
-                remainingPeriods += 1;
-            }
-        });
-
-        return Math.ceil((remainingPeriods / periodsPerYear) * 12);
-    }, [amortizationData, viewingLiability]);
 
     const autoMarkedSummaryById = useMemo(() => {
         if (!liabilities.length) return {};
@@ -943,35 +839,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         }
     };
 
-    const reconcileHistoricalBalanceChange = (
-        liability: Liability,
-        oldAmount: number,
-        oldDate?: string | null,
-        newAmount?: number,
-        newDate?: string | null,
-        oldInterest: number = 0,
-        newInterest: number = 0
-    ) => {
-        const oldPeriod = getPeriodIndexFromDate(liability, oldDate);
-        const newPeriod = getPeriodIndexFromDate(liability, newDate);
-
-        const wasHistorical = oldPeriod !== null && oldPeriod <= 0;
-        const isHistorical = newPeriod !== null && newPeriod <= 0;
-
-        let delta = 0;
-        if (wasHistorical && isHistorical) {
-            delta =
-                oldAmount - (newAmount || 0) + (newInterest - oldInterest);
-        } else if (wasHistorical && !isHistorical) {
-            delta = oldAmount - oldInterest;
-        } else if (!wasHistorical && isHistorical) {
-            delta = -(newAmount || 0) + newInterest;
-        }
-
-        if (delta !== 0) {
-            applyHistoricalBalanceDelta(liability.id, delta);
-        }
-    };
 
     function getScheduleMonthIndex(savedAt?: string) {
         if (!savedAt) return 1;
@@ -1171,51 +1038,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         }
     };
 
-    const handleResetLiabilitySettings = async () => {
-        if (!editingId) return;
-        if (
-            !confirm(
-                "Reset this liability? This clears extra payments and amortization overrides, and resets the start date/balance."
-            )
-        )
-            return;
-        const todayStr = toLocalDateString(new Date());
-        const fallback = liabilities.find((l) => l.id === editingId);
-        try {
-            const res = await dbAPI.resetLiabilitySettings(editingId);
-            const updated =
-                ((res as any)?.liability as Liability | undefined) ||
-                (fallback
-                    ? {
-                        ...fallback,
-                        balance: 0,
-                        interestRate: 0,
-                        startDate: todayStr,
-                    }
-                    : undefined);
-            if (updated) {
-                handleOpenFormModal(updated);
-                if (viewingLiability?.id === updated.id) {
-                    setViewingLiability(updated);
-                }
-                await Promise.resolve(onSave(updated));
-            }
-            setExtraPayments((prev) =>
-                prev.filter((p) => p.liabilityId !== editingId)
-            );
-            setAmortizationOverrides((prev) => {
-                const next = { ...prev };
-                delete next[editingId];
-                return next;
-            });
-            if (viewingLiability?.id === editingId) {
-                void handleViewAmortization(updated || viewingLiability);
-            }
-        } catch {
-            /* ignore reset failures */
-        }
-    };
-
     const handleViewAmortization = async (liability: Liability) => {
         setViewingLiability(liability);
         setIsAmortizationOpen(true);
@@ -1263,373 +1085,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         amortizationOverrides,
     ]);
 
-    const addHistoricalPayment = async () => {
-        if (!viewingLiability) return;
-        const dateValue = historicalDateRef.current?.value || "";
-        const amountValue =
-            parseFloat(historicalAmountRef.current?.value || "0") || 0;
-        const purchaseValue =
-            parseFloat(historicalPurchaseRef.current?.value || "0") || 0;
-        const interestValue =
-            parseFloat(historicalInterestRef.current?.value || "0") || 0;
-        const netAmount = amountValue - purchaseValue;
-        const parsedDate = parseLocalDate(dateValue);
-        if (!parsedDate) {
-            setHistoricalPaymentError("Enter a valid date.");
-            return;
-        }
-        const chequeDate = dateValue;
-        const payload: ExtraPayment = {
-            id: Math.random().toString(36).substr(2, 9),
-            liabilityId: viewingLiability.id,
-            amount: netAmount,
-            chequeDate,
-        };
-        setExtraPayments((prev) => [...prev, payload]);
-        if (historicalDateRef.current) historicalDateRef.current.value = "";
-        if (historicalAmountRef.current) historicalAmountRef.current.value = "0";
-        if (historicalPurchaseRef.current)
-            historicalPurchaseRef.current.value = "0";
-        if (historicalInterestRef.current)
-            historicalInterestRef.current.value = "0";
-        setHistoricalPaymentError(null);
-        const safeInterest = Math.max(0, interestValue);
-        reconcileHistoricalBalanceChange(
-            viewingLiability,
-            0,
-            undefined,
-            payload.amount,
-            payload.chequeDate,
-            0,
-            safeInterest
-        );
-        try {
-            await dbAPI.saveExtraPayment(payload);
-            const period = getPeriodIndexFromDate(viewingLiability, chequeDate);
-            if (period !== null && period !== undefined) {
-                const overrideId = `${viewingLiability.id}-${period}`;
-                setAmortizationOverrides((prev) => ({
-                    ...prev,
-                    [viewingLiability.id]: {
-                        ...(prev[viewingLiability.id] || {}),
-                        [period]: {
-                            payment: amountValue,
-                            interest: safeInterest,
-                            purchase: purchaseValue,
-                            chequeDate,
-                        },
-                    },
-                }));
-                await dbAPI.saveAmortizationOverride({
-                    id: overrideId,
-                    liabilityId: viewingLiability.id,
-                    period,
-                    payment: amountValue,
-                    purchase: purchaseValue,
-                    interest: safeInterest,
-                    chequeDate,
-                });
-            }
-            void handleViewAmortization(viewingLiability);
-        } catch {
-            /* ignore save failures */
-        }
-    };
-
-    const startEditPayment = (payment: ExtraPayment) => {
-        if (viewingLiability) {
-            const period = getPeriodIndexFromDate(
-                viewingLiability,
-                payment.chequeDate
-            );
-            const override =
-                period !== null && period !== undefined
-                    ? amortizationOverrides[viewingLiability.id]?.[period]
-                    : undefined;
-            setEditingPaymentId(payment.id);
-            setEditPayment({
-                amount: override?.payment ?? Math.max(0, payment.amount),
-                date: payment.chequeDate || "",
-            });
-            setEditPaymentPurchase(
-                override?.purchase ??
-                (payment.amount < 0 ? Math.abs(payment.amount) : 0)
-            );
-            setEditPaymentInterest(override?.interest ?? 0);
-        } else {
-            setEditingPaymentId(payment.id);
-            setEditPayment({
-                amount: Math.max(0, payment.amount),
-                date: payment.chequeDate || "",
-            });
-            setEditPaymentPurchase(
-                payment.amount < 0 ? Math.abs(payment.amount) : 0
-            );
-            setEditPaymentInterest(0);
-        }
-    };
-
-    const cancelEditPayment = () => {
-        setEditingPaymentId(null);
-        setEditPayment({ amount: 0, date: "" });
-        setEditPaymentInterest(0);
-        setEditPaymentPurchase(0);
-    };
-
-    const saveEditedPayment = async () => {
-        if (!editingPaymentId || !viewingLiability) return;
-        const existing = extraPayments.find((p) => p.id === editingPaymentId);
-        if (!existing) {
-            setEditingPaymentId(null);
-            return;
-        }
-        const netAmount = editPayment.amount - editPaymentPurchase;
-        const updated: ExtraPayment = {
-            ...existing,
-            amount: netAmount,
-            chequeDate:
-                editPayment.date ||
-                existing.chequeDate ||
-                toLocalDateString(new Date()),
-        };
-        setExtraPayments((prev) =>
-            prev.map((p) => (p.id === editingPaymentId ? updated : p))
-        );
-        setEditingPaymentId(null);
-        setEditPaymentPurchase(0);
-        const oldPeriod = getPeriodIndexFromDate(
-            viewingLiability,
-            existing.chequeDate
-        );
-        const oldInterest =
-            oldPeriod !== null && oldPeriod !== undefined
-                ? amortizationOverrides[viewingLiability.id]?.[oldPeriod]
-                    ?.interest ?? 0
-                : 0;
-        const safeInterest = Math.max(0, editPaymentInterest);
-        reconcileHistoricalBalanceChange(
-            viewingLiability,
-            existing.amount,
-            existing.chequeDate,
-            updated.amount,
-            updated.chequeDate,
-            oldInterest,
-            safeInterest
-        );
-        try {
-            await dbAPI.saveExtraPayment(updated);
-            const period = getPeriodIndexFromDate(
-                viewingLiability,
-                updated.chequeDate
-            );
-            if (period !== null && period !== undefined) {
-                const overrideId = `${viewingLiability.id}-${period}`;
-                setAmortizationOverrides((prev) => ({
-                    ...prev,
-                    [viewingLiability.id]: {
-                        ...(prev[viewingLiability.id] || {}),
-                        [period]: {
-                            payment: editPayment.amount,
-                            interest: safeInterest,
-                            purchase: editPaymentPurchase,
-                            chequeDate: updated.chequeDate,
-                        },
-                    },
-                }));
-                await dbAPI.saveAmortizationOverride({
-                    id: overrideId,
-                    liabilityId: viewingLiability.id,
-                    period,
-                    payment: editPayment.amount,
-                    purchase: editPaymentPurchase,
-                    interest: safeInterest,
-                    chequeDate: updated.chequeDate,
-                });
-            }
-            void handleViewAmortization(viewingLiability);
-        } catch {
-            /* ignore save failures */
-        }
-    };
-
-    const deletePayment = async (id: string) => {
-        const existing = extraPayments.find((p) => p.id === id);
-        setExtraPayments((prev) => prev.filter((p) => p.id !== id));
-        if (editingPaymentId === id) {
-            setEditingPaymentId(null);
-        }
-        if (viewingLiability && existing) {
-            const oldPeriod = getPeriodIndexFromDate(
-                viewingLiability,
-                existing.chequeDate
-            );
-            const oldInterest =
-                oldPeriod !== null && oldPeriod !== undefined
-                    ? amortizationOverrides[viewingLiability.id]?.[oldPeriod]
-                        ?.interest ?? 0
-                    : 0;
-            reconcileHistoricalBalanceChange(
-                viewingLiability,
-                existing.amount,
-                existing.chequeDate,
-                0,
-                existing.chequeDate,
-                oldInterest,
-                0
-            );
-            void handleViewAmortization(viewingLiability);
-        }
-        try {
-            await dbAPI.deleteExtraPayment(id);
-        } catch {
-            /* ignore delete failures */
-        }
-    };
-
-    const deleteAmortizationOverrideRow = async (
-        liabilityId: string,
-        period: number
-    ) => {
-        const overrideId = `${liabilityId}-${period}`;
-        setAmortizationOverrides((prev) => {
-            const next = { ...prev };
-            if (!next[liabilityId]) return next;
-            const { [period]: _, ...rest } = next[liabilityId];
-            if (Object.keys(rest).length === 0) {
-                delete next[liabilityId];
-            } else {
-                next[liabilityId] = rest;
-            }
-            return next;
-        });
-        if (viewingLiability?.id === liabilityId) {
-            void handleViewAmortization(viewingLiability);
-        }
-        try {
-            await dbAPI.deleteAmortizationOverride(overrideId);
-        } catch {
-            /* ignore delete failures */
-        }
-    };
-
-    const startEditAmortizationRow = (row: AmortizationRow) => {
-        if (!viewingLiability) return;
-        const overrides = amortizationOverrides[viewingLiability.id] || {};
-        const override = overrides[row.month];
-        const payment = override?.payment ?? row.payment;
-        const interest = override?.interest ?? row.interest;
-        const purchase =
-            override?.purchase ?? (payment < 0 ? Math.abs(payment) : 0);
-        const displayPayment =
-            override?.purchase !== undefined
-                ? Math.max(0, payment)
-                : payment > 0
-                    ? payment
-                    : 0;
-        setEditingAmortizationRow(row.month);
-        setAmortizationEdit({
-            payment: displayPayment.toFixed(2),
-            interest: interest.toFixed(2),
-        });
-        setAmortizationEditPurchase(purchase.toFixed(2));
-        setAmortizationEditDate(row.actualDate || "");
-    };
-
-    const cancelEditAmortizationRow = () => {
-        setEditingAmortizationRow(null);
-        setAmortizationEdit({ payment: "", interest: "" });
-        setAmortizationEditPurchase("0");
-        setAmortizationEditDate("");
-    };
-
-    const saveAmortizationRowEdit = async (
-        row: AmortizationRow,
-        matchingPayment?: ExtraPayment
-    ) => {
-        if (!viewingLiability) return;
-        const nextPayment = parseFloat(amortizationEdit.payment);
-        const nextPurchase = parseFloat(amortizationEditPurchase);
-        const nextInterest = parseFloat(amortizationEdit.interest);
-        if (
-            !Number.isFinite(nextPayment) ||
-            !Number.isFinite(nextInterest) ||
-            !Number.isFinite(nextPurchase)
-        )
-            return;
-        const nextDate = amortizationEditDate
-            ? amortizationEditDate
-            : row.actualDate || matchingPayment?.chequeDate || null;
-        const safePayment = nextPayment - nextPurchase;
-        const safeInterest = Math.max(0, nextInterest);
-        const priorOverride =
-            amortizationOverrides[viewingLiability.id]?.[row.month];
-        const oldInterest =
-            priorOverride?.interest ?? (row.isHistorical ? row.interest : 0);
-        const overrideId = `${viewingLiability.id}-${row.month}`;
-        setAmortizationOverrides((prev) => ({
-            ...prev,
-            [viewingLiability.id]: {
-                ...(prev[viewingLiability.id] || {}),
-                [row.month]: {
-                    payment: nextPayment,
-                    interest: safeInterest,
-                    purchase: nextPurchase,
-                    chequeDate: nextDate,
-                },
-            },
-        }));
-        setEditingAmortizationRow(null);
-        setAmortizationEdit({ payment: "", interest: "" });
-        setAmortizationEditPurchase("0");
-        setAmortizationEditDate("");
-        try {
-            await dbAPI.saveAmortizationOverride({
-                id: overrideId,
-                liabilityId: viewingLiability.id,
-                period: row.month,
-                payment: nextPayment,
-                purchase: nextPurchase,
-                interest: safeInterest,
-                chequeDate: nextDate,
-            });
-        } catch {
-            /* ignore save failures */
-        }
-
-        if (row.isHistorical && matchingPayment) {
-            const updated: ExtraPayment = {
-                ...matchingPayment,
-                amount: safePayment,
-                chequeDate: nextDate || toLocalDateString(new Date()),
-            };
-            setExtraPayments((prev) =>
-                prev.map((p) => (p.id === matchingPayment.id ? updated : p))
-            );
-            if (editingPaymentId === matchingPayment.id) {
-                setEditPayment((prev) => ({ ...prev, amount: updated.amount }));
-                setEditingPaymentId(null);
-            }
-            reconcileHistoricalBalanceChange(
-                viewingLiability,
-                matchingPayment.amount,
-                matchingPayment.chequeDate,
-                updated.amount,
-                updated.chequeDate,
-                oldInterest,
-                safeInterest
-            );
-            try {
-                await dbAPI.saveExtraPayment(updated);
-                void handleViewAmortization(viewingLiability);
-            } catch {
-                /* ignore save failures */
-            }
-        }
-    };
-
-    const handlePriorityChange = (id: string, value: number) => {
-        setPriorityMap((prev) => ({ ...prev, [id]: value }));
-    };
 
     const savePriorityOrder = () => {
         liabilities.forEach((l) => {
@@ -1657,7 +1112,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
 
     const handleDragOverPriority = (id: string) => {
         if (!draggingId || draggingId === id) return;
-        setPriorityMap((prev) => {
+        setPriorityMap(() => {
             const reorderedIds = reorderIds(orderedPriorityIds, draggingId, id);
             const next: Record<string, number> = {};
             reorderedIds.forEach((lid, idx) => {
@@ -3284,98 +2739,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                 </div>
                             </div>
 
-                            {/* Live Preview */}
-                            <label className="text-sm font-bold text-slate-800 ml-2 mb-2">
-                                Preview
-                            </label>
-                            <div className="bg-indigo-50/50 p-1 rounded-lg border border-indigo-100 text-xs text-slate-600">
-                                Based on current balance & month, estimated
-                                monthly payment is:
-                                <span className="font-bold text-indigo-700 ml-1 text-sm">
-                                    $
-                                    {(() => {
-                                        const mockLiability: Liability = {
-                                            id: "temp",
-                                            ...formData,
-
-                                            minPaymentPercentage: enablePercent
-                                                ? formData.minPaymentPercentage
-                                                : 0,
-                                            minPaymentAmount: (() => {
-                                                if (!enableFixed) return 0;
-                                                if (
-                                                    formData.paymentFrequency ===
-                                                    "BI_WEEKLY"
-                                                ) {
-                                                    return (
-                                                        formData.minPaymentAmount *
-                                                        (24 / 26)
-                                                    );
-                                                }
-                                                return formData.minPaymentAmount;
-                                            })(),
-                                            minPaymentFloor: enableFloor
-                                                ? formData.minPaymentFloor
-                                                : 0,
-                                            annualFee: enableAnnualFee
-                                                ? formData.annualFee
-                                                : 0,
-                                            minPaymentPlusFees:
-                                                formData.minPaymentPlusFees,
-                                        };
-
-                                        const baseBalance =
-                                            formData.balance ||
-                                            formData.startingBalance ||
-                                            0;
-                                        let currentFee = 0;
-
-                                        if (
-                                            enableAnnualFee &&
-                                            formData.annualFee > 0
-                                        ) {
-                                            if (formData.isFeeMonthly) {
-                                                currentFee =
-                                                    formData.annualFee / 12;
-                                            } else {
-                                                const currentMonth =
-                                                    new Date().getMonth() + 1;
-                                                if (
-                                                    currentMonth ===
-                                                    formData.feeMonth
-                                                ) {
-                                                    currentFee =
-                                                        formData.annualFee;
-                                                }
-                                            }
-                                        }
-
-                                        const monthlyInt =
-                                            baseBalance *
-                                            (formData.interestRate / 100 / 12);
-                                        const val = getMinPayment(
-                                            mockLiability,
-                                            baseBalance,
-                                            monthlyInt,
-                                            currentFee
-                                        );
-                                        return val.toFixed(2);
-                                    })()}
-                                </span>
-                            </div>
-
                             <div className="pt-1 flex justify-between space-x-3">
-                                {editingId ? (
-                                    <button
-                                        type="button"
-                                        onClick={handleResetLiabilitySettings}
-                                        className="px-4 py-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg font-medium transition-colors"
-                                    >
-                                        Reset Liability
-                                    </button>
-                                ) : (
-                                    <span />
-                                )}
                                 <button
                                     type="button"
                                     onClick={() => setIsFormModalOpen(false)}
@@ -3532,64 +2896,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                             </div>
                         )}
 
-                        {/* Summary Stats */}
-                        {!amortizationData.isInfinite && (
-                            <div className="grid grid-cols-3 divide-x divide-slate-100 border-b border-slate-200">
-                                <div className="p-4 text-center">
-                                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                        Time to Payoff
-                                    </p>
-                                    <p className="text-xl font-bold text-slate-900 mt-1">
-                                        {Math.floor(
-                                            (payoffMonthsRemaining ??
-                                                amortizationData.months) / 12
-                                        )}
-                                        y{" "}
-                                        {(payoffMonthsRemaining ??
-                                            amortizationData.months) % 12}
-                                        m
-                                    </p>
-                                </div>
-                                <div className="p-4 text-center">
-                                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                        Total Interest
-                                    </p>
-                                    <p className="text-xl font-bold text-red-500 mt-1">
-                                        $
-                                        {(
-                                            amortizationSummary?.totalInterestToDate ??
-                                            0
-                                        ).toLocaleString(undefined, {
-                                            minimumFractionDigits: 2,
-                                            maximumFractionDigits: 2,
-                                        })}
-                                    </p>
-                                </div>
-                                <div className="p-4 text-center">
-                                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                        Total Cost
-                                    </p>
-                                    <p className="text-xl font-bold text-slate-900 mt-1">
-                                        $
-                                        {(
-                                            amortizationSummary?.totalPaymentsToDate ??
-                                            0
-                                        ).toLocaleString(undefined, {
-                                            minimumFractionDigits: 2,
-                                            maximumFractionDigits: 2,
-                                        })}
-                                    </p>
-                                    {amortizationData.totalFees > 0 && (
-                                        <p className="text-xs text-slate-400 mt-1">
-                                            (Includes $
-                                            {amortizationData.totalFees.toLocaleString()}{" "}
-                                            in fees)
-                                        </p>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-
                         {/* Table Content */}
                         <AmortizationTable
                             amortizationData={amortizationData}
@@ -3599,11 +2905,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                 amortizationOverridesForViewing
                             }
                             minimumPaidByPeriod={minimumPaidByPeriod}
-                            editingAmortizationRow={editingAmortizationRow}
-                            amortizationEdit={amortizationEdit}
-                            amortizationEditPurchase={amortizationEditPurchase}
-                            amortizationEditDate={amortizationEditDate}
-                            setAmortizationEditDate={setAmortizationEditDate}
                         >
                             <div className="flex-1 overflow-y-auto p-0">
                                 <table className="w-full text-left border-collapse relative">
@@ -3635,7 +2936,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                     <tbody className="divide-y divide-slate-100 bg-white">
                                         {amortizationData.timeline.length ===
                                             0 &&
-                                            !amortizationData.isInfinite && (
+                                            (
                                                 <tr>
                                                     <td
                                                         colSpan={7}
@@ -3649,18 +2950,14 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                             )}
                                         {amortizationData.timeline.map(
                                             (row, idx) => {
-                                                const paymentNumber = idx + 1;
+                                                const period = idx + 1; 
+                                                const paymentNumber = period;
                                                 const paymentDate =
                                                     getPaymentDateForRow(
-                                                        row.month,
+                                                        period,
                                                         viewingLiability
                                                     );
-                                                const displayDate =
-                                                    row.actualDate
-                                                        ? parseLocalDate(
-                                                            row.actualDate
-                                                        ) || paymentDate
-                                                        : paymentDate;
+                                                const displayDate = paymentDate
                                                 const today = new Date();
                                                 today.setHours(0, 0, 0, 0);
                                                 const isPastDue =
@@ -3671,97 +2968,21 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                             row.actualDate
                                                         )
                                                         : undefined;
-                                                const override =
-                                                    amortizationOverridesForViewing[
-                                                    row.month
-                                                    ];
+                                                const override = amortizationOverridesForViewing[period];
                                                 const rawOverridePayment =
                                                     override?.payment;
-                                                const rawOverridePurchase =
-                                                    override?.purchase;
-                                                const displayPayment = override
+                                                const displayPayment = (override
                                                     ? rawOverridePayment ??
                                                     row.payment
-                                                    : row.payment;
+                                                    : row.payment) - (row.extraPayment || 0);
                                                 const displayInterest = override
                                                     ? override.interest
                                                     : row.interest;
-                                                const hasEditableRow = Boolean(
-                                                    matchingPayment ||
-                                                    override ||
-                                                    ((viewingLiability
-                                                        .startingBalance ||
-                                                        0) > 0 &&
-                                                        isPastDue)
-                                                );
-                                                const isEditingRow =
-                                                    editingAmortizationRow ===
-                                                    row.month;
-                                                const editPaymentValue =
-                                                    isEditingRow
-                                                        ? parseFloat(
-                                                            amortizationEdit.payment
-                                                        )
-                                                        : NaN;
-                                                const editPurchaseValue =
-                                                    isEditingRow
-                                                        ? parseFloat(
-                                                            amortizationEditPurchase
-                                                        )
-                                                        : NaN;
-                                                const editInterestValue =
-                                                    isEditingRow
-                                                        ? parseFloat(
-                                                            amortizationEdit.interest
-                                                        )
-                                                        : NaN;
-                                                const basePayment =
-                                                    isEditingRow &&
-                                                        Number.isFinite(
-                                                            editPaymentValue
-                                                        )
-                                                        ? editPaymentValue
-                                                        : displayPayment;
-                                                const basePurchase =
-                                                    isEditingRow &&
-                                                        Number.isFinite(
-                                                            editPurchaseValue
-                                                        )
-                                                        ? editPurchaseValue
-                                                        : override?.purchase !==
-                                                            undefined
-                                                            ? rawOverridePurchase ||
-                                                            0
-                                                            : basePayment < 0
-                                                                ? Math.abs(basePayment)
-                                                                : 0;
-                                                const effectivePayment =
-                                                    basePayment < 0 &&
-                                                        !isEditingRow &&
-                                                        override?.purchase ===
-                                                        undefined
-                                                        ? basePayment
-                                                        : basePayment -
-                                                        basePurchase;
-                                                const effectiveInterest =
-                                                    isEditingRow &&
-                                                        Number.isFinite(
-                                                            editInterestValue
-                                                        )
-                                                        ? editInterestValue
-                                                        : displayInterest;
-                                                const displayPurchase =
-                                                    Math.max(
-                                                        0,
-                                                        isEditingRow &&
-                                                            Number.isFinite(
-                                                                editPurchaseValue
-                                                            )
-                                                            ? editPurchaseValue
-                                                            : basePurchase
-                                                    );
+                                                const basePayment = displayPayment;
+                                                const effectivePayment = basePayment;
+                                                const effectiveInterest = displayInterest;
                                                 const displayPrincipal =
-                                                    override || isEditingRow
+                                                    override
                                                         ? effectivePayment -
                                                         effectiveInterest
                                                         : row.principal;
@@ -3770,14 +2991,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                     row.payment -
                                                     (row.extraPayment || 0)
                                                 );
-                                                const paidForPeriod =
-                                                    minimumPaidByPeriod[
-                                                    row.month
-                                                    ] || 0;
-                                                const remainingDue = Math.max(
-                                                    0,
-                                                    requiredDue - paidForPeriod
-                                                );
+                                                const paidForPeriod = minimumPaidByPeriod[period] || 0;
                                                 const isPaid = Boolean(
                                                     row.isHistorical ||
                                                     matchingPayment ||
@@ -3798,7 +3012,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
 
                                                 return (
                                                     <tr
-                                                        key={row.month}
+                                                        key={period}
                                                         className={`transition-colors ${isPaid
                                                             ? "bg-green-50"
                                                             : "hover:bg-slate-50"
@@ -3816,95 +3030,41 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                             </span>
                                                         </td>
                                                         <td className="px-6 py-3 text-sm font-mono text-slate-500">
-                                                            {isEditingRow &&
-                                                                matchingPayment ? (
-                                                                <input
-                                                                    type="date"
-                                                                    className="w-32 px-2 py-1 border border-slate-300 rounded-md text-sm"
-                                                                    value={
-                                                                        amortizationEditDate ||
-                                                                        matchingPayment.chequeDate ||
-                                                                        row.actualDate ||
-                                                                        toLocalDateString(
-                                                                            displayDate
-                                                                        )
-                                                                    }
-                                                                    onChange={(
-                                                                        e
-                                                                    ) =>
-                                                                        setAmortizationEditDate(
-                                                                            e
-                                                                                .target
-                                                                                .value
-                                                                        )
-                                                                    }
-                                                                />
-                                                            ) : (
-                                                                displayDate.toLocaleDateString(
-                                                                    "en-US",
-                                                                    {
-                                                                        month: "short",
-                                                                        day: "numeric",
-                                                                        year: "2-digit",
-                                                                    }
-                                                                )
+                                                            {displayDate.toLocaleDateString(
+                                                                "en-US",
+                                                                {
+                                                                    month: "short",
+                                                                    day: "numeric",
+                                                                    year: "2-digit",
+                                                                }
                                                             )}
                                                         </td>
                                                         <td className="px-6 py-3 text-sm text-slate-900 font-mono text-right">
-                                                            {isEditingRow ? (
-                                                                <input
-                                                                    type="number"
-                                                                    min="0"
-                                                                    step="0.01"
-                                                                    className="w-24 px-2 py-1 border border-slate-300 rounded-md text-right text-sm"
-                                                                    value={
-                                                                        amortizationEdit.payment
-                                                                    }
-                                                                    onChange={(
-                                                                        e
-                                                                    ) =>
-                                                                        setAmortizationEdit(
-                                                                            (
-                                                                                prev
-                                                                            ) => ({
-                                                                                ...prev,
-                                                                                payment:
-                                                                                    e
-                                                                                        .target
-                                                                                        .value,
-                                                                            })
-                                                                        )
-                                                                    }
-                                                                />
-                                                            ) : (
-                                                                <>
-                                                                    {displayPayment <
-                                                                        0
-                                                                        ? "-"
-                                                                        : `$${displayPayment.toFixed(
-                                                                            2
-                                                                        )}`}
-                                                                    {row.extraPayment &&
-                                                                        !row.isHistorical ? (
-                                                                        <div className="text-[10px] text-emerald-600 font-semibold">
-                                                                            +$
-                                                                            {row.extraPayment.toFixed(
-                                                                                2
-                                                                            )}{" "}
-                                                                            extra
-                                                                        </div>
-                                                                    ) : null}
-                                                                    {showMinimumProgress ? (
-                                                                        <div className="text-[10px] text-amber-600 font-semibold">
-                                                                            *Allocated
-                                                                            $
-                                                                            {paidForPeriod.toFixed(
-                                                                                2
-                                                                            )}
-                                                                        </div>
-                                                                    ) : null}
-                                                                </>
-                                                            )}
+                                                            {displayPayment <
+                                                                0
+                                                                ? "-"
+                                                                : `$${displayPayment.toFixed(
+                                                                    2
+                                                                )}`}
+                                                            {row.extraPayment &&
+                                                                !row.isHistorical ? (
+                                                                <div className="text-[10px] text-emerald-600 font-semibold">
+                                                                    +$
+                                                                    {row.extraPayment.toFixed(
+                                                                        2
+                                                                    )}{" "}
+                                                                    extra
+                                                                </div>
+                                                            ) : null}
+                                                            {showMinimumProgress ? (
+                                                                <div className="text-[10px] text-amber-600 font-semibold">
+                                                                    *Allocated
+                                                                    $
+                                                                    {paidForPeriod.toFixed(
+                                                                        2
+                                                                    )}
+                                                                </div>
+                                                            ) : null}
                                                         </td>
                                                         <td className="px-6 py-3 text-sm font-mono text-green-600 text-right font-medium">
                                                             $
@@ -3913,38 +3073,9 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                             )}
                                                         </td>
                                                         <td className="px-6 py-3 text-sm font-mono text-red-500 text-right">
-                                                            {isEditingRow ? (
-                                                                <input
-                                                                    type="number"
-                                                                    min="0"
-                                                                    step="0.01"
-                                                                    className="w-20 px-2 py-1 border border-slate-300 rounded-md text-right text-sm text-red-500"
-                                                                    value={
-                                                                        amortizationEdit.interest
-                                                                    }
-                                                                    onChange={(
-                                                                        e
-                                                                    ) =>
-                                                                        setAmortizationEdit(
-                                                                            (
-                                                                                prev
-                                                                            ) => ({
-                                                                                ...prev,
-                                                                                interest:
-                                                                                    e
-                                                                                        .target
-                                                                                        .value,
-                                                                            })
-                                                                        )
-                                                                    }
-                                                                />
-                                                            ) : (
-                                                                <>
-                                                                    $
-                                                                    {displayInterest.toFixed(
-                                                                        2
-                                                                    )}
-                                                                </>
+                                                            $
+                                                            {displayInterest.toFixed(
+                                                                2
                                                             )}
                                                         </td>
                                                         <td

@@ -108,6 +108,26 @@ const ensureBudgetExtrasCheckedColumn = () => {
 };
 ensureBudgetExtrasCheckedColumn();
 
+const ensureBudgetExtrasIncomeSourceColumn = () => {
+  db.all('PRAGMA table_info(budget_extra_payments)', (tableErr, rows) => {
+    if (tableErr) {
+      console.error('Failed to inspect budget_extra_payments table:', tableErr.message);
+      return;
+    }
+    const hasCol = rows.some((r: any) => r.name === 'income_source_id');
+    if (!hasCol) {
+      db.run('ALTER TABLE budget_extra_payments ADD COLUMN income_source_id TEXT', (alterErr) => {
+        if (alterErr) {
+          console.error('Failed to add income_source_id column to budget_extra_payments table:', alterErr.message);
+        } else {
+          console.log('Added income_source_id column to budget_extra_payments table.');
+        }
+      });
+    }
+  });
+};
+ensureBudgetExtrasIncomeSourceColumn();
+
 const ensureBudgetAmortizationOverridesTable = () => {
   db.run(
     `CREATE TABLE IF NOT EXISTS budget_amortization_overrides (
@@ -357,6 +377,16 @@ const getPaymentAnchorDate = (liability: Liability) => {
     return parsed;
   }
   const start = parseLocalDate(liability.startDate);
+
+  // For weekly/bi-weekly, the schedule usually anchors strictly to the start date
+  // rather than a specific "due day" of the month.
+  if ( liability.paymentFrequency === 'WEEKLY' || liability.paymentFrequency === 'BI_WEEKLY') {
+    if (start) {
+      start.setHours(0, 0, 0, 0);
+      return start;
+    }
+  }
+
   const base = start || new Date();
   const dueDay = getDueDayForMonth(base.getFullYear(), base.getMonth(), liability.dueDate || 1);
   const anchor = new Date(base.getFullYear(), base.getMonth(), dueDay);
@@ -374,6 +404,7 @@ const getPeriodIndexFromDate = (liability: Liability, chequeDate?: string | null
   if (freq === 'WEEKLY' || freq === 'BI_WEEKLY') {
     const intervalDays = freq === 'WEEKLY' ? 7 : 14;
     const start = parseLocalDate(liability.startDate);
+    if (start) start.setHours(0, 0, 0, 0);
     if (start && anchor < start) {
       let guard = 0;
       while (anchor < start && guard < 500) {
@@ -402,6 +433,7 @@ const getPeriodIndexFromDate = (liability: Liability, chequeDate?: string | null
   }
 
   const start = parseLocalDate(liability.startDate);
+  if (start) start.setHours(0, 0, 0, 0);
   if (start && anchor < start) {
     let guard = 0;
     while (anchor < start && guard < 120) {
@@ -1622,7 +1654,7 @@ app.get('/api/budget/extra-payments', authenticateToken, (req: AuthedRequest, re
   const user = req.user!;
   const scopeId = user.householdId || user.id;
   db.all(
-    'SELECT id, liability_id, amount, cheque_date, is_checked FROM budget_extra_payments WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
+    'SELECT id, liability_id, amount, cheque_date, is_checked, income_source_id FROM budget_extra_payments WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)',
     [scopeId, user.id],
     (err, rows) => {
       if (err) {
@@ -1634,6 +1666,7 @@ app.get('/api/budget/extra-payments', authenticateToken, (req: AuthedRequest, re
         amount: row.amount,
         chequeDate: row.cheque_date || null,
         isChecked: row.is_checked !== 0,
+        incomeSourceId: row.income_source_id || undefined,
       }));
       res.json({ extras });
     }
@@ -1643,12 +1676,13 @@ app.get('/api/budget/extra-payments', authenticateToken, (req: AuthedRequest, re
 app.post('/api/budget/extra-payments', authenticateToken, (req: AuthedRequest, res) => {
   const user = req.user!;
   const scopeId = user.householdId || user.id;
-  const { id, liabilityId, amount, chequeDate, isChecked } = req.body as {
+  const { id, liabilityId, amount, chequeDate, isChecked, incomeSourceId } = req.body as {
     id: string;
     liabilityId: string;
     amount: number;
     chequeDate?: string | null;
     isChecked?: boolean;
+    incomeSourceId?: string;
   };
 
   if (!id || !liabilityId || !Number.isFinite(amount)) {
@@ -1658,9 +1692,9 @@ app.post('/api/budget/extra-payments', authenticateToken, (req: AuthedRequest, r
   const updatedAt = new Date().toISOString();
   const isCheckedInt = (isChecked === undefined || isChecked === true) ? 1 : 0;
   db.run(
-    `INSERT OR REPLACE INTO budget_extra_payments (id, liability_id, amount, cheque_date, household_id, user_id, updated_at, is_checked)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, liabilityId, amount, chequeDate || null, scopeId, user.id, updatedAt, isCheckedInt],
+    `INSERT OR REPLACE INTO budget_extra_payments (id, liability_id, amount, cheque_date, household_id, user_id, updated_at, is_checked, income_source_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, liabilityId, amount, chequeDate || null, scopeId, user.id, updatedAt, isCheckedInt, incomeSourceId || null],
     (err) => {
       if (err) {
         return res.status(500).json({ error: err.message });

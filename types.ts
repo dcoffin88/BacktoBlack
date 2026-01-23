@@ -203,6 +203,7 @@ export interface ExtraPayment {
     amount: number;
     chequeDate?: string | null;
     isChecked?: boolean;
+    incomeSourceId?: string;
 }
 
 export interface PaychequeOccurrence {

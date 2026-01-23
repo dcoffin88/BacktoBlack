@@ -767,7 +767,7 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
             {/* Quick Stats: Assets vs Liabilities */}
             {assets.length > 0 && liabilities.length > 0 && (
               <div className="mt-8 pt-6 border-t border-slate-100">
-                <h4 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Health Cheque</h4>
+                <h4 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Health Check</h4>
                 {!balancesReady ? (
                   <div className="space-y-3">
                     <div className="flex items-center space-x-2 text-sm">

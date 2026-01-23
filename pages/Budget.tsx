@@ -42,6 +42,7 @@ type ExtraPayment = {
     amount: number;
     chequeDate?: string | null;
     isChecked?: boolean;
+    incomeSourceId?: string;
 };
 
 const Budget: React.FC<BudgetProps> = ({
@@ -571,10 +572,9 @@ const Budget: React.FC<BudgetProps> = ({
             nextForCheque[liability.id] = !nextForCheque[liability.id];
             const willCheck = nextForCheque[liability.id];
             if (willCheck) {
-                const extraAmount = extraByLiability[liability.id] || 0;
                 const minimumPortion = Math.max(
                     0,
-                    getPerChequeLiability(liability) - extraAmount
+                    getPerChequeLiability(liability)
                 );
                 saveMinimumPayment(liability, minimumPortion);
             } else {
@@ -639,10 +639,9 @@ const Budget: React.FC<BudgetProps> = ({
         // Update database records for minimum payments
         if (check) {
             for (const { liability } of liabilityPortions) {
-                const extraAmount = extraByLiability[liability.id] || 0;
                 const minimumPortion = Math.max(
                     0,
-                    getPerChequeLiability(liability) - extraAmount
+                    getPerChequeLiability(liability)
                 );
                 await saveMinimumPayment(liability, minimumPortion);
             }
@@ -662,6 +661,7 @@ const Budget: React.FC<BudgetProps> = ({
             amount: extraForm.amount,
             chequeDate: currentChequeKey,
             isChecked: false,
+            incomeSourceId: currentPaycheque?.source.id,
         };
         setExtraPayments((prev) => [...prev, newPayment]);
         setExtraForm({ liabilityId: "", amount: 0 });
@@ -709,9 +709,12 @@ const Budget: React.FC<BudgetProps> = ({
                 (p) =>
                     p.chequeDate &&
                     p.chequeDate === currentChequeKey &&
-                    !isMinimumPaymentId(p.id)
+                    !isMinimumPaymentId(p.id) &&
+                    (!p.incomeSourceId ||
+                        (currentPaycheque &&
+                            p.incomeSourceId === currentPaycheque.source.id))
             ),
-        [extraPayments, currentChequeKey]
+        [extraPayments, currentChequeKey, currentPaycheque]
     );
 
     const extraByLiability = extrasForCurrentCheque.reduce<Record<string, number>>(
@@ -887,7 +890,8 @@ const Budget: React.FC<BudgetProps> = ({
             monthPaycheques,
             budgetedIncomes,
             extraPayments,
-            userSplitRatio
+            userSplitRatio,
+            { excludeExtras: true }
         );
     };
 
@@ -927,7 +931,8 @@ const Budget: React.FC<BudgetProps> = ({
     const currentLeftOver =
         (currentPaycheque?.source.amount || 0) -
         currentExpenseTotal -
-        currentLiabilityTotal;
+        currentLiabilityTotal -
+        Object.values(extraByLiability).reduce((a, b) => a + b, 0);
 
     return (
         <div className="space-y-8">
@@ -1209,21 +1214,6 @@ const Budget: React.FC<BudgetProps> = ({
                             </button>
                         </div>
                     )}
-                    {/* {budgetSchedule && activeScheduleRow && (
-                        <div className="px-6 py-3 bg-indigo-50 border-b border-indigo-100 text-sm text-indigo-900 flex items-center justify-between">
-                            <span>
-                                Using saved {budgetSchedule.strategyLabel} schedule (Month {activeScheduleRow.month} of{" "}
-                                {budgetSchedule.timeline.length}).
-                            </span>
-                            <button
-                                type="button"
-                                onClick={clearBudgetSchedule}
-                                className="text-indigo-900 font-semibold underline text-xs"
-                            >
-                                Clear schedule
-                            </button>
-                        </div>
-                    )} */}
                     <div className="divide-y divide-slate-100">
                         {liabilityPortions.length === 0 ? (
                             <div className="p-6 text-sm text-slate-400">
@@ -1256,7 +1246,7 @@ const Budget: React.FC<BudgetProps> = ({
                                             {currencySymbol}
                                             {perCheque.toFixed(2)}
                                         </p>
-                                        {extraByLiability[liability.id] && (
+                                        {/* {extraByLiability[liability.id] && (
                                             <p className="text-xs text-emerald-600 font-medium">
                                                 +{currencySymbol}
                                                 {extraByLiability[
@@ -1264,7 +1254,7 @@ const Budget: React.FC<BudgetProps> = ({
                                                 ].toFixed(2)}{" "}
                                                 extra
                                             </p>
-                                        )}
+                                        )} */}
                                     </div>
                                     <input
                                         type="checkbox"

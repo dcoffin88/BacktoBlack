@@ -394,6 +394,7 @@ export const getPerChequeLiabilityAmount = (
     userSplitRatio: number,
     options?: {
         includeUnchecked?: boolean;
+        excludeExtras?: boolean;
     }
 ) => {
     if (!currentPaycheque) return 0;
@@ -401,7 +402,7 @@ export const getPerChequeLiabilityAmount = (
     const excluded = new Set<string>(liability.excludedIncomeSourceIds || []);
     if (excluded.has(currentPaycheque.source.id)) return 0;
 
-    const { includeUnchecked = true } = options || {};
+    const { includeUnchecked = true, excludeExtras = false } = options || {};
 
     const toLocalYMD = (date: Date) => {
         const y = date.getFullYear();
@@ -411,11 +412,12 @@ export const getPerChequeLiabilityAmount = (
     };
 
     const chequeDateStr = toLocalYMD(currentPaycheque.date);
-    const extraAmount = extraPayments
+    const extraAmount = excludeExtras ? 0 : extraPayments
         .filter(p => {
             if (p.id.startsWith('min-')) return false;
             if (p.liabilityId !== liability.id) return false;
             if (p.chequeDate !== chequeDateStr) return false;
+            if (p.incomeSourceId && p.incomeSourceId !== currentPaycheque.source.id) return false;
             if (!includeUnchecked) {
                 return !!p.isChecked;
             }
