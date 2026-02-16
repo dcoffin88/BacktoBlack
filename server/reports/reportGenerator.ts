@@ -29,11 +29,23 @@ const generateBudgetSummary = async (data: ReportData, date: Date) => {
     const { start, end } = getPeriodRange(year, month);
     const currencySymbol = settings.currencySymbol || '$';
     const budgetStartDate = settings.startDate ? new Date(settings.startDate) : null;
-    const paycheques = generatePaycheques(incomes, start, end, { budgetStartDate });
+    const budgetedIncomes = incomes.filter(i => i.includeInPlanner !== false);
+    const paycheques = generatePaycheques(budgetedIncomes, start, end, { budgetStartDate });
     const paychequesInPeriod = paycheques.filter(p => p.date >= start && p.date <= end);
     const periodIncomeTotal = paychequesInPeriod.reduce((sum, p) => sum + p.source.amount, 0);
     const scheduleBalanceById: Record<string, number> = {};
-    const liabilityWithMins = liabilities.map(l => {
+
+    const rangeEnd = new Date(end);
+    rangeEnd.setHours(0, 0, 0, 0);
+    const activeLiabilities = liabilities.filter((liability) => {
+        if (!liability.startDate) return true;
+        const start = new Date(`${liability.startDate}T12:00:00`);
+        if (Number.isNaN(start.getTime())) return true;
+        start.setHours(0, 0, 0, 0);
+        return start <= rangeEnd;
+    });
+
+    const liabilityWithMins = activeLiabilities.map(l => {
         const currentBalance = l.balance || 0;
         const interestRate = l.interestRate || 0;
         const annualFee = l.annualFee || 0;
@@ -48,7 +60,7 @@ const generateBudgetSummary = async (data: ReportData, date: Date) => {
         };
     });
 
-    const budgetedIncomes = incomes.filter(i => i.includeInPlanner !== false);
+
     let userSplitRatio = 1;
     if (settings.enablePartner) {
         if (settings.expenseSplitMethod === 'PERCENTAGE') {
@@ -62,6 +74,7 @@ const generateBudgetSummary = async (data: ReportData, date: Date) => {
             userSplitRatio = 0.5;
         }
     }
+
 
     const getMonthPaychequesFor = (d: Date) => {
         const key = `${d.getFullYear()}-${d.getMonth()}`;
@@ -180,7 +193,8 @@ const generateTransferReport = async (data: ReportData, date: Date) => {
     const dateKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
     const { start, end } = getPeriodRange(date.getFullYear(), date.getMonth() + 1);
     const budgetStartDate = settings.startDate ? new Date(settings.startDate) : null;
-    const paycheques = generatePaycheques(incomes, start, end, { budgetStartDate });
+    const budgetedIncomes = incomes.filter(i => i.includeInPlanner !== false);
+    const paycheques = generatePaycheques(budgetedIncomes, start, end, { budgetStartDate });
     const targetDateString = date.toLocaleDateString();
     const todaysPaycheques = paycheques.filter(p => p.date.toLocaleDateString() === targetDateString);
 
@@ -188,8 +202,17 @@ const generateTransferReport = async (data: ReportData, date: Date) => {
 
     const transferGroups = new Map<string, { total: number; items: { name: string; amount: number; type: string }[] }>();
     const manualPayments: { name: string; subtitle?: string; amount: number; category: string; account?: string }[] = [];
-    const budgetedIncomes = incomes.filter(i => i.includeInPlanner !== false);
-    let userSplitRatio = 0.5;
+    const rangeEnd = new Date(end);
+    rangeEnd.setHours(0, 0, 0, 0);
+    const activeLiabilities = liabilities.filter((liability) => {
+        if (!liability.startDate) return true;
+        const start = new Date(`${liability.startDate}T12:00:00`);
+        if (Number.isNaN(start.getTime())) return true;
+        start.setHours(0, 0, 0, 0);
+        return start <= rangeEnd;
+    });
+
+    let userSplitRatio = 1;
     if (settings.enablePartner) {
         if (settings.expenseSplitMethod === 'PERCENTAGE') {
             userSplitRatio = (settings.userSplitPercentage || 50) / 100;
@@ -198,8 +221,11 @@ const generateTransferReport = async (data: ReportData, date: Date) => {
             const partner = budgetedIncomes.filter(i => i.isPartner && !i.excludeFromSplitting).reduce((sum, s) => sum + getAnnualizedIncomeAmount(s), 0);
             const total = mine + partner;
             userSplitRatio = total <= 0 ? 0.5 : mine / total;
+        } else {
+            userSplitRatio = 0.5;
         }
     }
+
 
     const getMonthPaychequesFor = (d: Date) => {
         const key = `${d.getFullYear()}-${d.getMonth()}`;
@@ -231,7 +257,7 @@ const generateTransferReport = async (data: ReportData, date: Date) => {
             }
         });
 
-        liabilities.forEach(l => {
+        activeLiabilities.forEach(l => {
             const currentBalance = l.balance || 0;
             const interestRate = l.interestRate || 0;
             const annualFee = l.annualFee || 0;
