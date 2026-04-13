@@ -63,6 +63,16 @@ export const calculatePrecisePayoff = (
     strategy: StrategyType,
     startDateStr: string = new Date().toISOString().split('T')[0]
 ): PayoffResult => {
+    const lockedMinimums = new Map<string, number>();
+    liabilities.forEach((liability) => {
+        const baseInterest = liability.balance * (liability.interestRate / 100 / 12);
+        const baseFee = liability.isFeeMonthly ? liability.annualFee / 12 : 0;
+        lockedMinimums.set(
+            liability.id,
+            getMinPayment(liability, liability.balance, baseInterest, baseFee)
+        );
+    });
+
     let currentLiabilities = liabilities.map(l => ({
         ...l,
         simBalance: l.balance,
@@ -100,7 +110,9 @@ export const calculatePrecisePayoff = (
             monthTotalInterest += interest;
             l.simBalance += interest;
 
-            const monthlyAvgMin = getMinPayment(l, l.simBalance, interest, 0); 
+            const dynamicMonthlyMin = getMinPayment(l, l.simBalance, interest, 0);
+            const lockedMonthlyMin = lockedMinimums.get(l.id) || 0;
+            const monthlyAvgMin = Math.min(l.simBalance, Math.max(dynamicMonthlyMin, lockedMonthlyMin));
 
             let perEventAmount = monthlyAvgMin;
             if (l.paymentFrequency === "BI_WEEKLY") {
@@ -213,7 +225,9 @@ export const calculatePrecisePayoff = (
 
             l.simBalance += interest;
 
-            const monthlyAvgMin = getMinPayment(l, startBalances.get(l.id) || 0, interest, 0);
+            const dynamicMonthlyMin = getMinPayment(l, startBalances.get(l.id) || 0, interest, 0);
+            const lockedMonthlyMin = lockedMinimums.get(l.id) || 0;
+            const monthlyAvgMin = Math.min(l.simBalance, Math.max(dynamicMonthlyMin, lockedMonthlyMin));
             let perEventAmount = monthlyAvgMin;
             if (l.paymentFrequency === "BI_WEEKLY") perEventAmount = monthlyAvgMin * 12 / 26;
             else if (l.paymentFrequency === "WEEKLY") perEventAmount = monthlyAvgMin * 12 / 52;

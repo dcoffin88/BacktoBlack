@@ -168,16 +168,12 @@ export interface UserSettings {
 
     enablePartner?: boolean;
     partnerName?: string;
-    partnerBudget?: number;
     partnerEmail?: string;
     partnerLinked?: boolean;
     startDate?: string;
 
     expenseSplitMethod?: ExpenseSplitMethod;
     userSplitPercentage?: number;
-
-    userIncome?: number;
-    partnerIncome?: number;
 }
 
 export interface UserProfile {

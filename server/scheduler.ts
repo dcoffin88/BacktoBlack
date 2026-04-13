@@ -45,6 +45,24 @@ const dbGetAsync = (db: Database, sql: string, params: any[] = []) =>
         });
     });
 
+const getUniqueRecipients = (recipientsStr: string | undefined, fallbackEmail: string) => {
+    const source = recipientsStr && recipientsStr.trim() !== ''
+        ? recipientsStr
+        : fallbackEmail;
+
+    const uniqueRecipients = Array.from(
+        new Set(
+            source
+                .split(/[;,]/)
+                .map(recipient => recipient.trim())
+                .filter(Boolean)
+                .map(recipient => recipient.toLowerCase())
+        )
+    );
+
+    return uniqueRecipients.join(', ');
+};
+
 const parseLocalDate = (value?: string | null) => {
     if (!value) return null;
     const d = value.includes('T') ? new Date(value) : new Date(`${value}T12:00:00`);
@@ -345,9 +363,12 @@ const sendEmail = async (settings: UserSettings, recipientsStr: string | undefin
 
         await transporter.verify();
 
-        const recipients = recipientsStr && recipientsStr.trim() !== ''
-            ? recipientsStr
-            : settings.email;
+        const recipients = getUniqueRecipients(recipientsStr, settings.email);
+
+        if (!recipients) {
+            console.warn('[Scheduler] No valid email recipients were resolved for report delivery.');
+            return false;
+        }
 
         await transporter.sendMail({
             from: `"BacktoBlack" <${settings.smtpUser}>`,

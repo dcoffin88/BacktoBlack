@@ -96,12 +96,6 @@ export const dbAPI = {
   deleteLiability: async (id: string) => {
     await fetchJson(`${API_BASE_URL}/liabilities/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
   },
-  resetLiabilitySettings: async (id: string) => {
-    return await fetchJson(`${API_BASE_URL}/liabilities/${id}/reset-settings`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-    });
-  },
   getLiabilityAmortization: async (id: string): Promise<{
     schedule: {
       liabilityId: string;
@@ -166,21 +160,27 @@ export const dbAPI = {
   }> => {
     return await fetchJson(`${API_BASE_URL}/budget/extra-payments`, { headers: getAuthHeaders() });
   },
-  saveExtraPayment: async (payload: {
+  getLiabilityExtraPayments: async (liabilityId: string): Promise<{
+    extras: Array<{ id: string; liabilityId: string; amount: number; chequeDate?: string | null; isChecked?: boolean }>;
+  }> => {
+    return await fetchJson(`${API_BASE_URL}/liabilities/${liabilityId}/extra-payments`, { headers: getAuthHeaders() });
+  },
+  saveLiabilityExtraPayment: async (liabilityId: string, payload: {
     id: string;
     liabilityId: string;
     amount: number;
     chequeDate?: string | null;
     isChecked?: boolean;
+    incomeSourceId?: string;
   }) => {
-    await fetchJson(`${API_BASE_URL}/budget/extra-payments`, {
+    await fetchJson(`${API_BASE_URL}/liabilities/${liabilityId}/extra-payments`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify(payload),
     });
   },
-  deleteExtraPayment: async (id: string) => {
-    await fetchJson(`${API_BASE_URL}/budget/extra-payments/${id}`, {
+  deleteLiabilityExtraPayment: async (liabilityId: string, id: string) => {
+    await fetchJson(`${API_BASE_URL}/liabilities/${liabilityId}/extra-payments/${id}`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });
@@ -264,18 +264,6 @@ export const dbAPI = {
 
   getAvailableCheques: async (): Promise<string[]> => {
     return await fetchJson<string[]>(`${API_BASE_URL}/reports/available-cheques`, { headers: getAuthHeaders() });
-  },
-
-  joinHousehold: async (partnerEmail: string) => {
-    const response = await fetch(`${API_BASE_URL}/household/join`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ partnerEmail }),
-    });
-    if (!response.ok) {
-      throw new Error(`Failed to join household (${response.status})`);
-    }
-    return (await response.json()) as { householdId: string };
   },
 
   sendHouseholdInvite: async (partnerEmail: string) => {

@@ -57,9 +57,6 @@ export const getAnnualizedIncomeAmount = (source: IncomeSource): number => {
   }
 };
 
-export const getAnnualizedIncomeTotal = (sources: IncomeSource[]): number =>
-  sources.reduce((sum, source) => sum + getAnnualizedIncomeAmount(source), 0);
-
 const parseIsoDate = (value?: string): Date | null => {
   if (!value) return null;
   const [y, m, d] = value.split("-").map(Number);
@@ -231,6 +228,13 @@ export const getMinPayment = (liability: Liability, currentPrincipal: number, ac
   calculated = Math.max(calculated, floor);
 
   return Math.min(calculated, totalBalance);
+};
+
+const getInitialLockedMinimum = (liability: Liability): number => {
+  const baseBalance = liability.balance;
+  const baseInterest = baseBalance * (liability.interestRate / 100 / 12);
+  const baseFee = liability.isFeeMonthly ? liability.annualFee / 12 : 0;
+  return getMinPayment(liability, baseBalance, baseInterest, baseFee);
 };
 
 export const calculateIndividualAmortization = (
@@ -464,6 +468,10 @@ export const calculatePayoff = (
   strategy: StrategyType
 ): PayoffResult => {
   let liabilities = copyLiabilities(initialLiabilities);
+  const lockedMinimums = new Map<string, number>();
+  initialLiabilities.forEach((liability) => {
+    lockedMinimums.set(liability.id, getInitialLockedMinimum(liability));
+  });
   let totalInterestPaid = 0;
   let months = 0;
   const timeline: PayoffMonth[] = [];
@@ -557,7 +565,9 @@ export const calculatePayoff = (
               const interest = d.balance - principal;
               const fee = (d as any)._tempFee || 0;
 
-              const min = getMinPayment(d, principal, interest, fee);
+              const dynamicMin = getMinPayment(d, principal, interest, fee);
+              const lockedMin = lockedMinimums.get(d.id) || 0;
+              const min = Math.min(d.balance, Math.max(dynamicMin, lockedMin));
               currentMonthRequiredMinSum += min;
           }
       });
@@ -572,7 +582,9 @@ export const calculatePayoff = (
              const fee = (d as any)._tempFee || 0;
              
              const totalDue = d.balance;
-             const required = getMinPayment(d, principal, interest, fee);
+             const dynamicRequired = getMinPayment(d, principal, interest, fee);
+             const lockedMin = lockedMinimums.get(d.id) || 0;
+             const required = Math.min(totalDue, Math.max(dynamicRequired, lockedMin));
              
              let payment = Math.min(totalDue, required);
              d.balance -= payment;

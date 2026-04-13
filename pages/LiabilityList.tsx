@@ -154,6 +154,9 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         >
     >({});
     const [extraPayments, setExtraPayments] = useState<ExtraPayment[]>([]);
+    const [viewingExtraPayments, setViewingExtraPayments] = useState<
+        ExtraPayment[]
+    >([]);
     const [extrasLoaded, setExtrasLoaded] = useState(false);
     const [overridesLoaded, setOverridesLoaded] = useState(false);
     const [scheduleLoaded, setScheduleLoaded] = useState(false);
@@ -250,6 +253,37 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             active = false;
         };
     }, []);
+
+    useEffect(() => {
+        if (!isAmortizationOpen || !viewingLiability) {
+            setViewingExtraPayments([]);
+            return;
+        }
+
+        let active = true;
+        const loadViewingExtras = async () => {
+            try {
+                const remote = await dbAPI.getLiabilityExtraPayments(
+                    viewingLiability.id
+                );
+                if (!active || !remote?.extras) return;
+                setViewingExtraPayments(remote.extras || []);
+            } catch {
+                if (active) {
+                    setViewingExtraPayments(
+                        extraPayments.filter(
+                            (payment) => payment.liabilityId === viewingLiability.id
+                        )
+                    );
+                }
+            }
+        };
+
+        loadViewingExtras();
+        return () => {
+            active = false;
+        };
+    }, [isAmortizationOpen, viewingLiability, extraPayments]);
 
     useEffect(() => {
         let active = true;
@@ -728,8 +762,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
 
     const paymentsForViewing = useMemo(() => {
         if (!viewingLiability) return [];
-        return extraPayments
-            .filter((p) => p.liabilityId === viewingLiability.id)
+        return viewingExtraPayments
             .slice()
             .sort((a, b) => {
                 const da = pDate(a.chequeDate);
@@ -737,16 +770,12 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                 if (da === db) return a.id.localeCompare(b.id);
                 return da - db;
             });
-    }, [extraPayments, viewingLiability]);
+    }, [viewingExtraPayments, viewingLiability]);
 
     const minimumPaidByPeriod = useMemo(() => {
         if (!viewingLiability) return {};
-        return extraPayments
-            .filter(
-                (p) =>
-                    p.liabilityId === viewingLiability.id &&
-                    isMinimumPaymentId(p.id)
-            )
+        return viewingExtraPayments
+            .filter((p) => isMinimumPaymentId(p.id))
             .reduce<Record<number, number>>((acc, p) => {
                 const period = getPeriodIndexFromDate(
                     viewingLiability,
@@ -757,7 +786,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                 acc[bucket] = (acc[bucket] || 0) + (p.amount || 0);
                 return acc;
             }, {});
-    }, [extraPayments, viewingLiability]);
+    }, [viewingExtraPayments, viewingLiability]);
 
     const amortizationOverridesForViewing = useMemo(() => {
         if (!viewingLiability) return {};
@@ -1078,7 +1107,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             active = false;
         };
     }, [
-        extraPayments,
+        viewingExtraPayments,
         savedSchedule,
         viewingLiability,
         isAmortizationOpen,

@@ -551,7 +551,7 @@ const Budget: React.FC<BudgetProps> = ({
             return [...filtered, payload];
         });
         try {
-            await dbAPI.saveExtraPayment(payload);
+            await dbAPI.saveLiabilityExtraPayment(liability.id, payload);
         } catch {
             /* silently ignore budget-only errors */
         }
@@ -561,7 +561,7 @@ const Budget: React.FC<BudgetProps> = ({
         const id = getMinimumPaymentId(liabilityId, currentChequeKey);
         setExtraPayments((prev) => prev.filter((p) => p.id !== id));
         try {
-            await dbAPI.deleteExtraPayment(id);
+            await dbAPI.deleteLiabilityExtraPayment(liabilityId, id);
         } catch {
             /* silently ignore budget-only errors */
         }
@@ -666,14 +666,14 @@ const Budget: React.FC<BudgetProps> = ({
         };
         setExtraPayments((prev) => [...prev, newPayment]);
         setExtraForm({ liabilityId: "", amount: 0 });
-        dbAPI.saveExtraPayment(newPayment).catch(() => {
+        dbAPI.saveLiabilityExtraPayment(newPayment.liabilityId, newPayment).catch(() => {
             /* ignore failures; no local fallback */
         });
     };
 
-    const deleteExtraPayment = (id: string) => {
-        setExtraPayments((prev) => prev.filter((p) => p.id !== id));
-        dbAPI.deleteExtraPayment(id).catch(() => {
+    const deleteExtraPayment = (extra: ExtraPayment) => {
+        setExtraPayments((prev) => prev.filter((p) => p.id !== extra.id));
+        dbAPI.deleteLiabilityExtraPayment(extra.liabilityId, extra.id).catch(() => {
             /* ignore failures; no local fallback */
         });
     };
@@ -683,7 +683,7 @@ const Budget: React.FC<BudgetProps> = ({
         const updated = { ...extra, isChecked: nextState };
         setExtraPayments(prev => prev.map(p => p.id === extra.id ? updated : p));
         try {
-            await dbAPI.saveExtraPayment(updated);
+            await dbAPI.saveLiabilityExtraPayment(updated.liabilityId, updated);
         } catch {
             /* ignore */
         }
@@ -697,7 +697,7 @@ const Budget: React.FC<BudgetProps> = ({
         });
         for (const extra of updatedExtras) {
             try {
-                await dbAPI.saveExtraPayment(extra);
+                await dbAPI.saveLiabilityExtraPayment(extra.liabilityId, extra);
             } catch {
                 /* ignore */
             }
@@ -1397,7 +1397,7 @@ const Budget: React.FC<BudgetProps> = ({
                                             type="button"
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                deleteExtraPayment(p.id);
+                                                deleteExtraPayment(p);
                                             }}
                                             className="text-xs text-red-500 hover:text-red-700 font-semibold"
                                         >
