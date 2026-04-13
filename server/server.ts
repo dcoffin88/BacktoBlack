@@ -193,6 +193,48 @@ const ensureBudgetScheduleTable = () => {
 };
 ensureBudgetScheduleTable();
 
+const ensureTransferLedgerPaymentsTable = () => {
+  db.run(
+    `CREATE TABLE IF NOT EXISTS transfer_ledger_payments (
+      id TEXT PRIMARY KEY,
+      transfer_account TEXT,
+      source_type TEXT,
+      source_id TEXT,
+      source_name TEXT,
+      month_key TEXT,
+      amount REAL,
+      paid_date TEXT,
+      household_id TEXT,
+      user_id INTEGER,
+      updated_at TEXT
+    )`,
+    (err) => {
+      if (err) {
+        console.error('Failed to ensure transfer_ledger_payments table:', err.message);
+      }
+    }
+  );
+};
+ensureTransferLedgerPaymentsTable();
+
+const ensureTransferLedgerFundingStatusTable = () => {
+  db.run(
+    `CREATE TABLE IF NOT EXISTS transfer_ledger_funding_status (
+      id TEXT PRIMARY KEY,
+      is_checked INTEGER,
+      household_id TEXT,
+      user_id INTEGER,
+      updated_at TEXT
+    )`,
+    (err) => {
+      if (err) {
+        console.error('Failed to ensure transfer_ledger_funding_status table:', err.message);
+      }
+    }
+  );
+};
+ensureTransferLedgerFundingStatusTable();
+
 const runMigrations = () => {
   // 1. budget_checks -> budget_cheques
   db.all("SELECT name FROM sqlite_master WHERE type='table' AND name='budget_checks'", [], (err, rows) => {
@@ -1154,6 +1196,163 @@ app.get('/api/reports/available-cheques', authenticateToken, async (req: AuthedR
   }
 });
 
+app.get('/api/transfer-ledger/payments', authenticateToken, async (req: AuthedRequest, res) => {
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  try {
+    const rows = await dbAllAsync(
+      `SELECT id, transfer_account, source_type, source_id, source_name, month_key, amount, paid_date
+       FROM transfer_ledger_payments
+       WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)
+       ORDER BY paid_date DESC, month_key DESC, source_name ASC`,
+      [scopeId, user.id]
+    );
+    res.json({
+      payments: rows.map((row: any) => ({
+        id: row.id,
+        transferAccount: row.transfer_account,
+        sourceType: row.source_type,
+        sourceId: row.source_id,
+        sourceName: row.source_name,
+        monthKey: row.month_key,
+        amount: Number(row.amount) || 0,
+        paidDate: row.paid_date || null,
+      })),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to load transfer ledger payments' });
+  }
+});
+
+app.post('/api/transfer-ledger/payments', authenticateToken, async (req: AuthedRequest, res) => {
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  const payment = req.body as {
+    id?: string;
+    transferAccount?: string;
+    sourceType?: string;
+    sourceId?: string;
+    sourceName?: string;
+    monthKey?: string;
+    amount?: number;
+    paidDate?: string | null;
+  };
+  if (!payment.id || !payment.transferAccount || !payment.sourceType || !payment.sourceId || !payment.sourceName || !payment.monthKey) {
+    return res.status(400).json({ error: 'Missing required transfer ledger payment fields' });
+  }
+
+  try {
+    await dbRunAsync(
+      `INSERT OR REPLACE INTO transfer_ledger_payments
+       (id, transfer_account, source_type, source_id, source_name, month_key, amount, paid_date, household_id, user_id, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        payment.id,
+        payment.transferAccount,
+        payment.sourceType,
+        payment.sourceId,
+        payment.sourceName,
+        payment.monthKey,
+        Number(payment.amount) || 0,
+        payment.paidDate || todayIso,
+        scopeId,
+        user.id,
+        new Date().toISOString(),
+      ]
+    );
+    res.json({ success: true, id: payment.id });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to save transfer ledger payment' });
+  }
+});
+
+app.delete('/api/transfer-ledger/payments/:id', authenticateToken, async (req: AuthedRequest, res) => {
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  const { id } = req.params as { id: string };
+  if (!id) {
+    return res.status(400).json({ error: 'id is required' });
+  }
+
+  try {
+    await dbRunAsync(
+      'DELETE FROM transfer_ledger_payments WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+      [id, scopeId, user.id]
+    );
+    res.json({ success: true, id });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to delete transfer ledger payment' });
+  }
+});
+
+app.get('/api/transfer-ledger/funding-status', authenticateToken, async (req: AuthedRequest, res) => {
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  try {
+    const rows = await dbAllAsync(
+      `SELECT id, is_checked
+       FROM transfer_ledger_funding_status
+       WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)
+       ORDER BY updated_at DESC`,
+      [scopeId, user.id]
+    );
+    res.json({
+      statuses: rows.map((row: any) => ({
+        id: row.id,
+        isChecked: row.is_checked !== 0,
+      })),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to load transfer ledger funding status' });
+  }
+});
+
+app.post('/api/transfer-ledger/funding-status', authenticateToken, async (req: AuthedRequest, res) => {
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  const status = req.body as { id?: string; isChecked?: boolean };
+  if (!status.id || typeof status.isChecked !== 'boolean') {
+    return res.status(400).json({ error: 'Missing required transfer ledger funding status fields' });
+  }
+
+  try {
+    await dbRunAsync(
+      `INSERT OR REPLACE INTO transfer_ledger_funding_status
+       (id, is_checked, household_id, user_id, updated_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [
+        status.id,
+        status.isChecked ? 1 : 0,
+        scopeId,
+        user.id,
+        new Date().toISOString(),
+      ]
+    );
+    res.json({ success: true, id: status.id });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to save transfer ledger funding status' });
+  }
+});
+
+app.delete('/api/transfer-ledger/funding-status/:id', authenticateToken, async (req: AuthedRequest, res) => {
+  const user = req.user!;
+  const scopeId = user.householdId || user.id;
+  const { id } = req.params as { id: string };
+  if (!id) {
+    return res.status(400).json({ error: 'id is required' });
+  }
+
+  try {
+    await dbRunAsync(
+      'DELETE FROM transfer_ledger_funding_status WHERE id = ? AND (household_id = ? OR user_id = ? OR household_id IS NULL)',
+      [id, scopeId, user.id]
+    );
+    res.json({ success: true, id });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to delete transfer ledger funding status' });
+  }
+});
+
 app.get('/api/liabilities', authenticateToken, async (req: AuthedRequest, res) => {
   const user = req.user!;
   const scopeId = user.householdId || user.id;
@@ -1912,12 +2111,14 @@ app.get('/api/settings', authenticateToken, (req: AuthedRequest, res) => {
           emailReports: false,
           email: user.email,
           incomeSources: [],
+          transferLedgerDisabledAccounts: [],
           currencySymbol: '$',
           startDate: todayIso,
           monthlyIncomeMode: 'ANNUALIZED',
         };
 
       delete (settings as Partial<UserSettings> & { useSimpleTerms?: boolean }).useSimpleTerms;
+      if (!Array.isArray(settings.transferLedgerDisabledAccounts)) settings.transferLedgerDisabledAccounts = [];
       if (!settings.currencySymbol) settings.currencySymbol = '$';
       if (!settings.startDate) settings.startDate = todayIso;
       if (!settings.monthlyIncomeMode) settings.monthlyIncomeMode = 'ANNUALIZED';
@@ -1958,6 +2159,7 @@ app.post('/api/settings', authenticateToken, (req: AuthedRequest, res) => {
   const scopeId = user.householdId || user.id;
   const persist = (partnerId: number | null) => {
     const normalizedSettings: UserSettings = {
+      transferLedgerDisabledAccounts: [],
       currencySymbol: '$',
       startDate: settings.startDate || todayIso,
       monthlyIncomeMode: settings.monthlyIncomeMode || 'ANNUALIZED',

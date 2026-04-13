@@ -1,4 +1,4 @@
-import { Liability, Expense, Asset, UserSettings, IncomeSource, UserProfile, BudgetSchedule, AmortizationOverride, StrategyType, PayoffResult } from '../types';
+import { Liability, Expense, Asset, UserSettings, IncomeSource, UserProfile, BudgetSchedule, AmortizationOverride, StrategyType, PayoffResult, TransferLedgerFundingStatus, TransferLedgerPayment } from '../types';
 import { AmortizationRow } from './liabilityAlgorithms';
 
 const API_BASE_URL = '/api';
@@ -264,6 +264,44 @@ export const dbAPI = {
 
   getAvailableCheques: async (): Promise<string[]> => {
     return await fetchJson<string[]>(`${API_BASE_URL}/reports/available-cheques`, { headers: getAuthHeaders() });
+  },
+
+  getTransferLedgerPayments: async (): Promise<{ payments: TransferLedgerPayment[] }> => {
+    return await fetchJson(`${API_BASE_URL}/transfer-ledger/payments`, { headers: getAuthHeaders() });
+  },
+
+  saveTransferLedgerPayment: async (payment: TransferLedgerPayment) => {
+    await fetchJson(`${API_BASE_URL}/transfer-ledger/payments`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(payment),
+    });
+  },
+
+  deleteTransferLedgerPayment: async (id: string) => {
+    await fetchJson(`${API_BASE_URL}/transfer-ledger/payments/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+  },
+
+  getTransferLedgerFundingStatuses: async (): Promise<{ statuses: TransferLedgerFundingStatus[] }> => {
+    return await fetchJson(`${API_BASE_URL}/transfer-ledger/funding-status`, { headers: getAuthHeaders() });
+  },
+
+  saveTransferLedgerFundingStatus: async (status: TransferLedgerFundingStatus) => {
+    await fetchJson(`${API_BASE_URL}/transfer-ledger/funding-status`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(status),
+    });
+  },
+
+  deleteTransferLedgerFundingStatus: async (id: string) => {
+    await fetchJson(`${API_BASE_URL}/transfer-ledger/funding-status/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
   },
 
   sendHouseholdInvite: async (partnerEmail: string) => {

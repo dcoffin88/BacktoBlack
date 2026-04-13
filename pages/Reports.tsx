@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Asset, BudgetSchedule, Expense, IncomeSource, Liability, PaychequeOccurrence, UserSettings } from '../types';
+import { Asset, BudgetSchedule, Expense, IncomeSource, Liability, PaychequeOccurrence, TransferLedgerFundingStatus, TransferLedgerPayment, UserSettings } from '../types';
 import { calculateMonthlyIncome, getMinPayment, AmortizationRow, getAnnualizedIncomeAmount } from '../server/liabilityAlgorithms';
 import { generatePaycheques, getPerChequeExpenseAmount, getPerChequeLiabilityAmount } from '../utils/paychequeLogic';
 import { dbAPI } from '../server/db';
@@ -28,6 +28,73 @@ const parseLocalDate = (value?: string | null) => {
 };
 
 const getMonthKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}`;
+const getLedgerMonthKey = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+const formatLedgerMonth = (monthKey: string) => {
+  const parts = monthKey.split('-').map(Number);
+  if (parts.length >= 3 && parts[0] && parts[1] && parts[2]) {
+    return new Date(parts[0], parts[1] - 1, parts[2]).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  }
+  const [year, month] = parts;
+  if (!year || !month) return monthKey;
+  return new Date(year, month - 1, 1).toLocaleDateString(undefined, {
+    month: 'long',
+    year: 'numeric',
+  });
+};
+const toLocalIsoDate = (date: Date) =>
+  new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+const buildTransferLedgerPaymentId = (
+  transferAccount: string,
+  sourceType: 'Expense' | 'Liability',
+  sourceId: string,
+  monthKey: string
+) => `${transferAccount}::${sourceType}::${sourceId}::${monthKey}`;
+const addDays = (date: Date, days: number) => {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+};
+const getLiabilityLedgerAnchorDate = (liability: Liability) => {
+  const nextDue = parseLocalDate(liability.nextDueDate ?? null);
+  if (nextDue) {
+    nextDue.setHours(0, 0, 0, 0);
+    return nextDue;
+  }
+  const start = parseLocalDate(liability.startDate);
+  if (start) {
+    start.setHours(0, 0, 0, 0);
+    return start;
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today;
+};
+const getLiabilityPaymentOccurrenceKey = (liability: Liability, contributionDate: Date) => {
+  if (liability.paymentFrequency !== 'BI_WEEKLY' && liability.paymentFrequency !== 'WEEKLY') {
+    return getLedgerMonthKey(contributionDate);
+  }
+  const intervalDays = liability.paymentFrequency === 'WEEKLY' ? 7 : 14;
+  let anchor = getLiabilityLedgerAnchorDate(liability);
+  let guard = 0;
+
+  while (anchor < contributionDate && guard < 1000) {
+    anchor = addDays(anchor, intervalDays);
+    guard += 1;
+  }
+  while (anchor > contributionDate && guard < 2000) {
+    const previous = addDays(anchor, -intervalDays);
+    if (previous < contributionDate) break;
+    anchor = previous;
+    guard += 1;
+  }
+
+  return toLocalIsoDate(anchor);
+};
 
 type AmortizationDataView = {
   isInfinite: boolean;
@@ -47,6 +114,34 @@ type ExtraPayment = {
   isChecked?: boolean;
 };
 
+type TransferContributionEntry = {
+  id: string;
+  transferAccount: string;
+  sourceId: string;
+  sourceType: 'Expense' | 'Liability';
+  sourceName: string;
+  subtitle?: string;
+  category: string;
+  amount: number;
+  date: Date;
+  dateLabel: string;
+  monthKey: string;
+};
+
+type TransferLedgerSuggestedPayment = {
+  id: string;
+  transferAccount: string;
+  sourceId: string;
+  sourceType: 'Expense' | 'Liability';
+  sourceName: string;
+  subtitle?: string;
+  category: string;
+  monthKey: string;
+  amount: number;
+};
+
+const roundToCents = (value: number) => Math.round(value * 100) / 100;
+
 const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, incomes, settings }) => {
   const now = new Date();
   const currentYear = now.getFullYear();
@@ -57,12 +152,20 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
 
   const currencySymbol = settings.currencySymbol || '$';
   const monthlyIncomeMode = settings.monthlyIncomeMode || 'ANNUALIZED';
+  const disabledTransferLedgerAccounts = useMemo(
+    () => new Set((settings.transferLedgerDisabledAccounts || []).map((account) => account.trim()).filter(Boolean)),
+    [settings.transferLedgerDisabledAccounts]
+  );
   const [expandedReport, setExpandedReport] = useState<string | null>(null);
   const [selectedChequeKey, setSelectedChequeKey] = useState<string | null>(null);
   const [amortizationSchedules, setAmortizationSchedules] = useState<Record<string, AmortizationDataView>>({});
   const [amortizationLoaded, setAmortizationLoaded] = useState(false);
   const [allExtraPayments, setAllExtraPayments] = useState<ExtraPayment[]>([]);
   const [savedSchedule, setSavedSchedule] = useState<BudgetSchedule | null>(null);
+  const [transferLedgerPayments, setTransferLedgerPayments] = useState<TransferLedgerPayment[]>([]);
+  const [transferLedgerFundingStatuses, setTransferLedgerFundingStatuses] = useState<TransferLedgerFundingStatus[]>([]);
+  const [savingTransferLedgerIds, setSavingTransferLedgerIds] = useState<string[]>([]);
+  const [savingTransferLedgerFundingIds, setSavingTransferLedgerFundingIds] = useState<string[]>([]);
   const budgetStartDate = useMemo(() => {
     if (!settings.startDate) return null;
     const parsed = new Date(settings.startDate);
@@ -117,8 +220,32 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
         }
       }
     };
+    const loadTransferLedgerPayments = async () => {
+      try {
+        const remote = await dbAPI.getTransferLedgerPayments();
+        if (!active) return;
+        setTransferLedgerPayments(remote?.payments || []);
+      } catch {
+        if (active) {
+          setTransferLedgerPayments([]);
+        }
+      }
+    };
+    const loadTransferLedgerFundingStatuses = async () => {
+      try {
+        const remote = await dbAPI.getTransferLedgerFundingStatuses();
+        if (!active) return;
+        setTransferLedgerFundingStatuses(remote?.statuses || []);
+      } catch {
+        if (active) {
+          setTransferLedgerFundingStatuses([]);
+        }
+      }
+    };
     loadAmortizations();
     loadSavedSchedule();
+    loadTransferLedgerPayments();
+    loadTransferLedgerFundingStatuses();
     dbAPI.getExtraPayments().then((response) => {
       if (active && response?.extras) {
         setAllExtraPayments(response.extras);
@@ -540,6 +667,310 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     );
   }, [activeLiabilities, expenses, getPerChequeExpense, getPerChequeLiability, selectedTransfer]);
 
+  const transferLedgerPaymentById = useMemo(
+    () => new Map(transferLedgerPayments.map((payment) => [payment.id, payment])),
+    [transferLedgerPayments]
+  );
+  const transferLedgerFundingStatusById = useMemo(
+    () => new Map(transferLedgerFundingStatuses.map((status) => [status.id, status.isChecked])),
+    [transferLedgerFundingStatuses]
+  );
+
+  const pastTransferContributions = useMemo(() => {
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    const entries: TransferContributionEntry[] = [];
+
+    paycheques.forEach((paycheque) => {
+      if (paycheque.date > today) return;
+      const monthPaychequesForCheque = getMonthPaychequesFor(paycheque.date);
+
+      expenses.forEach((expense) => {
+        const transferAccount = expense.transferAccount?.trim();
+        if (!transferAccount) return;
+        if (disabledTransferLedgerAccounts.has(transferAccount)) return;
+        const amount = getPerChequeExpenseFor(expense, paycheque, monthPaychequesForCheque);
+        if (amount <= 0) return;
+        const dateLabel = paycheque.date.toLocaleDateString(undefined, {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        });
+        entries.push({
+          id: `in-${transferAccount}-${expense.id}-${paycheque.source.id}-${toLocalIsoDate(paycheque.date)}`,
+          transferAccount,
+          sourceId: expense.id,
+          sourceType: 'Expense',
+          sourceName: expense.name,
+          subtitle: expense.subtitle || undefined,
+          category: expense.category?.trim() || 'Uncategorized',
+          amount,
+          date: paycheque.date,
+          dateLabel,
+          monthKey: getLedgerMonthKey(paycheque.date),
+        });
+      });
+
+      activeLiabilities.forEach((liability) => {
+        const transferAccount = liability.transferAccount?.trim();
+        if (!transferAccount) return;
+        if (disabledTransferLedgerAccounts.has(transferAccount)) return;
+        const amount = getPerChequeLiabilityFor(liability, paycheque, monthPaychequesForCheque);
+        if (amount <= 0) return;
+        const dateLabel = paycheque.date.toLocaleDateString(undefined, {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        });
+        entries.push({
+          id: `in-${transferAccount}-${liability.id}-${paycheque.source.id}-${toLocalIsoDate(paycheque.date)}`,
+          transferAccount,
+          sourceId: liability.id,
+          sourceType: 'Liability',
+          sourceName: liability.name,
+          subtitle: liability.subtitle || undefined,
+          category: liability.category?.trim() || 'Uncategorized',
+          amount,
+          date: paycheque.date,
+          dateLabel,
+          monthKey: getLedgerMonthKey(paycheque.date),
+        });
+      });
+    });
+
+    return entries.sort((a, b) => b.date.getTime() - a.date.getTime());
+  }, [activeLiabilities, disabledTransferLedgerAccounts, expenses, getMonthPaychequesFor, getPerChequeExpenseFor, getPerChequeLiabilityFor, paycheques]);
+
+  const getTransferLedgerOutgoingAmount = useCallback(
+    (
+      sourceType: 'Expense' | 'Liability',
+      sourceId: string,
+      paymentKey: string
+    ) => {
+      if (sourceType === 'Expense') {
+        const expense = expenses.find((item) => item.id === sourceId);
+        return expense ? roundToCents(expense.amount) : 0;
+      }
+
+      const liability = activeLiabilities.find((item) => item.id === sourceId);
+      if (!liability) return 0;
+
+      const exactDate = paymentKey.match(/^\d{4}-\d{2}-\d{2}$/) ? paymentKey : null;
+      if (exactDate) {
+        const exactRow = amortizationSchedules[liability.id]?.timeline?.find(
+          (row) => (row.actualDate || '') === exactDate
+        );
+        if (exactRow && exactRow.payment > 0) {
+          return roundToCents(exactRow.payment);
+        }
+      }
+
+      const effectiveDate = exactDate
+        ? parseLocalDate(exactDate)
+        : (() => {
+            const [year, month] = paymentKey.split('-').map(Number);
+            if (!year || !month) return null;
+            return new Date(year, month - 1, 1);
+          })();
+      const monthlyAmount = getPlannedMonthlyPayment(
+        liability,
+        effectiveDate || new Date()
+      );
+
+      if (liability.paymentFrequency === 'BI_WEEKLY') {
+        return roundToCents(monthlyAmount * (12 / 26));
+      }
+      if (liability.paymentFrequency === 'WEEKLY') {
+        return roundToCents(monthlyAmount * (12 / 52));
+      }
+      return roundToCents(monthlyAmount);
+    },
+    [activeLiabilities, amortizationSchedules, expenses, getPlannedMonthlyPayment]
+  );
+
+  const transferLedgerSuggestedPayments = useMemo(() => {
+    const buckets = new Map<string, TransferLedgerSuggestedPayment>();
+    pastTransferContributions.forEach((entry) => {
+      const liability = entry.sourceType === 'Liability'
+        ? activeLiabilities.find((item) => item.id === entry.sourceId)
+        : null;
+      let paymentKey = entry.monthKey;
+      if (
+        entry.sourceType === 'Liability' &&
+        liability &&
+        (liability.paymentFrequency === 'BI_WEEKLY' || liability.paymentFrequency === 'WEEKLY')
+      ) {
+        paymentKey = getLiabilityPaymentOccurrenceKey(liability, entry.date);
+      }
+      const id = buildTransferLedgerPaymentId(
+        entry.transferAccount,
+        entry.sourceType,
+        entry.sourceId,
+        paymentKey
+      );
+      const existing = buckets.get(id);
+      if (existing) {
+        return;
+      }
+      const outgoingAmount = getTransferLedgerOutgoingAmount(
+        entry.sourceType,
+        entry.sourceId,
+        paymentKey
+      );
+      buckets.set(id, {
+        id,
+        transferAccount: entry.transferAccount,
+        sourceId: entry.sourceId,
+        sourceType: entry.sourceType,
+        sourceName: entry.sourceName,
+        subtitle: entry.subtitle,
+        category: entry.category,
+        monthKey: paymentKey,
+        amount: outgoingAmount || entry.amount,
+      });
+    });
+
+    return Array.from(buckets.values()).sort((a, b) => {
+      if (a.transferAccount !== b.transferAccount) {
+        return a.transferAccount.localeCompare(b.transferAccount);
+      }
+      if (a.monthKey !== b.monthKey) {
+        return b.monthKey.localeCompare(a.monthKey);
+      }
+      return a.sourceName.localeCompare(b.sourceName);
+    });
+  }, [activeLiabilities, getTransferLedgerOutgoingAmount, pastTransferContributions]);
+
+  const transferLedgerAccounts = useMemo(() => {
+    const accounts = new Map<
+      string,
+      {
+        account: string;
+        incoming: Array<TransferContributionEntry & { isChecked: boolean }>;
+        payments: Array<TransferLedgerSuggestedPayment & { paid?: TransferLedgerPayment | null }>;
+        availableBalance: number;
+        incomingTotal: number;
+        paidTotal: number;
+        pendingTotal: number;
+      }
+    >();
+
+    pastTransferContributions.forEach((entry) => {
+      const isChecked = transferLedgerFundingStatusById.get(entry.id) ?? true;
+      const existing = accounts.get(entry.transferAccount) || {
+        account: entry.transferAccount,
+        incoming: [],
+        payments: [],
+        availableBalance: 0,
+        incomingTotal: 0,
+        paidTotal: 0,
+        pendingTotal: 0,
+      };
+      existing.incoming.push({ ...entry, isChecked });
+      if (isChecked) {
+        existing.incomingTotal += entry.amount;
+        existing.availableBalance += entry.amount;
+      }
+      accounts.set(entry.transferAccount, existing);
+    });
+
+    transferLedgerSuggestedPayments.forEach((payment) => {
+      const existing = accounts.get(payment.transferAccount) || {
+        account: payment.transferAccount,
+        incoming: [],
+        payments: [],
+        availableBalance: 0,
+        incomingTotal: 0,
+        paidTotal: 0,
+        pendingTotal: 0,
+      };
+      const paid = transferLedgerPaymentById.get(payment.id) || null;
+      existing.payments.push({ ...payment, paid });
+      if (paid) {
+        existing.paidTotal += paid.amount;
+        existing.availableBalance -= paid.amount;
+      } else {
+        existing.pendingTotal += payment.amount;
+      }
+      accounts.set(payment.transferAccount, existing);
+    });
+
+    return Array.from(accounts.values())
+      .map((account) => ({
+        ...account,
+        incoming: account.incoming.sort((a, b) => b.date.getTime() - a.date.getTime()),
+        payments: account.payments.sort((a, b) => {
+          if (a.monthKey !== b.monthKey) return b.monthKey.localeCompare(a.monthKey);
+          return a.sourceName.localeCompare(b.sourceName);
+        }),
+      }))
+      .sort((a, b) => a.account.localeCompare(b.account));
+  }, [pastTransferContributions, transferLedgerFundingStatusById, transferLedgerPaymentById, transferLedgerSuggestedPayments]);
+
+  const handleToggleTransferLedgerPayment = useCallback(
+    async (payment: TransferLedgerSuggestedPayment, checked: boolean) => {
+      setSavingTransferLedgerIds((current) => [...current, payment.id]);
+      try {
+        if (checked) {
+          const payload: TransferLedgerPayment = {
+            id: payment.id,
+            transferAccount: payment.transferAccount,
+            sourceId: payment.sourceId,
+            sourceType: payment.sourceType,
+            sourceName: payment.sourceName,
+            monthKey: payment.monthKey,
+            amount: payment.amount,
+            paidDate: toLocalIsoDate(new Date()),
+          };
+          await dbAPI.saveTransferLedgerPayment(payload);
+          setTransferLedgerPayments((current) => {
+            const next = current.filter((entry) => entry.id !== payload.id);
+            next.push(payload);
+            return next;
+          });
+        } else {
+          await dbAPI.deleteTransferLedgerPayment(payment.id);
+          setTransferLedgerPayments((current) => current.filter((entry) => entry.id !== payment.id));
+        }
+      } catch (err) {
+        console.error('Failed to update transfer ledger payment', err);
+        alert('Failed to update transfer ledger payment.');
+      } finally {
+        setSavingTransferLedgerIds((current) => current.filter((id) => id !== payment.id));
+      }
+    },
+    []
+  );
+
+  const handleToggleTransferLedgerFunding = useCallback(
+    async (entryId: string, checked: boolean) => {
+      setSavingTransferLedgerFundingIds((current) => [...current, entryId]);
+      try {
+        if (checked) {
+          await dbAPI.deleteTransferLedgerFundingStatus(entryId);
+          setTransferLedgerFundingStatuses((current) => current.filter((entry) => entry.id !== entryId));
+        } else {
+          const payload: TransferLedgerFundingStatus = {
+            id: entryId,
+            isChecked: false,
+          };
+          await dbAPI.saveTransferLedgerFundingStatus(payload);
+          setTransferLedgerFundingStatuses((current) => {
+            const next = current.filter((entry) => entry.id !== entryId);
+            next.push(payload);
+            return next;
+          });
+        }
+      } catch (err) {
+        console.error('Failed to update transfer ledger funding status', err);
+        alert('Failed to update transfer ledger funding status.');
+      } finally {
+        setSavingTransferLedgerFundingIds((current) => current.filter((id) => id !== entryId));
+      }
+    },
+    []
+  );
+
   const monthOptions = useMemo(
     () =>
       Array.from({ length: 12 }, (_, idx) => {
@@ -792,7 +1223,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
             </div>
           </div>
         </div>
-
+        
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 space-y-4">
           <div className="flex items-center justify-between gap-4">
             <div className="flex-1 space-y-1">
@@ -861,6 +1292,153 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
                       </div>
                     </div>
                   )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 space-y-4 lg:col-span-2">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex-1 space-y-1">
+              <button
+                type="button"
+                onClick={() => toggleReport('transferLedger')}
+                className="flex items-center justify-between w-full text-left"
+                aria-expanded={expandedReport === 'transferLedger'}
+              >
+                <span className="flex items-center space-x-2">
+                  <span className="p-2 bg-indigo-100 text-indigo-600 rounded-lg">
+                    <ArrowRightLeft size={18} />
+                  </span>
+                  <span className="text-lg font-bold text-slate-900 hover:text-indigo-600 transition-colors">
+                    Transfer Account Ledger
+                  </span>
+                </span>
+                <span className="text-slate-500">
+                  {expandedReport === 'transferLedger' ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                </span>
+              </button>
+            </div>
+          </div>
+          {transferLedgerAccounts.length === 0 ? (
+            <p className="text-sm text-slate-400">No transfer-account activity has posted yet.</p>
+          ) : (
+            <div className="space-y-6">
+              {transferLedgerAccounts.map((account) => (
+                <div key={account.account} className="rounded-xl border border-slate-200 overflow-hidden">
+                  <div className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="font-semibold text-slate-900">{account.account}</h3>
+                      <p className="text-xs text-slate-500">
+                        Available balance {formatCurrencyPrecise(account.availableBalance)}
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-mono">
+                      <div className="rounded-lg bg-white border border-slate-200 px-3 py-2 text-slate-600">
+                        In {formatCurrencyPrecise(account.incomingTotal)}
+                      </div>
+                      <div className="rounded-lg bg-white border border-slate-200 px-3 py-2 text-slate-600">
+                        Out {formatCurrencyPrecise(account.paidTotal)}
+                      </div>
+                      <div className="rounded-lg bg-white border border-slate-200 px-3 py-2 text-amber-700">
+                        Pending {formatCurrencyPrecise(account.pendingTotal)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-0">
+                    <div className="p-4 border-b xl:border-b-0 xl:border-r border-slate-200 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-semibold text-slate-700">Posted Funding</h4>
+                        <span className="text-xs text-slate-400">{account.incoming.length} entries</span>
+                      </div>
+                      <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                        {account.incoming.map((entry) => (
+                          <label
+                            key={entry.id}
+                            className={`flex items-start justify-between gap-3 text-sm border rounded-lg px-3 py-2 transition-colors ${
+                              entry.isChecked ? 'border-slate-100' : 'border-amber-200 bg-amber-50/40'
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <input
+                                type="checkbox"
+                                className="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                checked={entry.isChecked}
+                                disabled={savingTransferLedgerFundingIds.includes(entry.id)}
+                                onChange={(e) => handleToggleTransferLedgerFunding(entry.id, e.target.checked)}
+                              />
+                              <div>
+                                <div className="font-medium text-slate-800">
+                                  {entry.sourceName}
+                                  {entry.subtitle ? ` • ${entry.subtitle}` : ''}
+                                </div>
+                                <div className="text-xs text-slate-500">
+                                  {entry.dateLabel} • {entry.category} • {entry.sourceType}
+                                </div>
+                              </div>
+                            </div>
+                            <span className={`font-mono font-semibold ${entry.isChecked ? 'text-emerald-600' : 'text-slate-400'}`}>
+                              +{formatCurrencyPrecise(entry.amount)}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-semibold text-slate-700">Payments To Check Off</h4>
+                        <span className="text-xs text-slate-400">{account.payments.length} rows</span>
+                      </div>
+                      {account.payments.length === 0 ? (
+                        <p className="text-sm text-slate-400">No grouped payment rows yet for this account.</p>
+                      ) : (
+                        <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                          {account.payments.map((payment) => {
+                            const isSaving = savingTransferLedgerIds.includes(payment.id);
+                            const isPaid = !!payment.paid;
+                            return (
+                              <label
+                                key={payment.id}
+                                className={`flex items-start justify-between gap-3 border rounded-lg px-3 py-2 transition-colors ${
+                                  isPaid ? 'border-emerald-200 bg-emerald-50/50' : 'border-slate-100'
+                                }`}
+                              >
+                                <div className="flex items-start gap-3">
+                                  <input
+                                    type="checkbox"
+                                    className="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                    checked={isPaid}
+                                    disabled={isSaving}
+                                    onChange={(e) => handleToggleTransferLedgerPayment(payment, e.target.checked)}
+                                  />
+                                  <div>
+                                    <div className="font-medium text-slate-800">
+                                      {payment.sourceName}
+                                      {payment.subtitle ? ` • ${payment.subtitle}` : ''}
+                                    </div>
+                                    <div className="text-xs text-slate-500">
+                                      {formatLedgerMonth(payment.monthKey)} • {payment.category} • {payment.sourceType}
+                                    </div>
+                                    {isPaid && payment.paid?.paidDate && (
+                                      <div className="text-xs text-emerald-700">
+                                        Paid {new Date(`${payment.paid.paidDate}T12:00:00`).toLocaleDateString()}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                                <span className={`font-mono font-semibold ${isPaid ? 'text-emerald-700' : 'text-slate-700'}`}>
+                                  {formatCurrencyPrecise(isPaid ? payment.paid?.amount || payment.amount : payment.amount)}
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>

@@ -159,6 +159,7 @@ export interface UserSettings {
     monthlyReportRecipients?: string;
     enableTransferReport?: boolean;
     transferReportRecipients?: string;
+    transferLedgerDisabledAccounts?: string[];
 
     currencySymbol?: string;
     monthlyIncomeMode?: MonthlyIncomeMode;
@@ -206,4 +207,20 @@ export interface PaychequeOccurrence {
     source: IncomeSource;
     eligibleMonthly: boolean;
     eligibleBiWeekly: boolean;
+}
+
+export interface TransferLedgerPayment {
+    id: string;
+    transferAccount: string;
+    sourceType: "Expense" | "Liability";
+    sourceId: string;
+    sourceName: string;
+    monthKey: string;
+    amount: number;
+    paidDate?: string | null;
+}
+
+export interface TransferLedgerFundingStatus {
+    id: string;
+    isChecked: boolean;
 }

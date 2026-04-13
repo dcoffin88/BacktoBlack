@@ -163,6 +163,19 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
   const liabilityLabel = 'Liabilities';
   const currencySymbol = tempSettings.currencySymbol || '$';
   const currencyOptions = ['$', '£', '€', '₹', '¥', '₱', '₩'];
+  const transferAccounts = React.useMemo(() => {
+    const set = new Set<string>();
+    expenses.forEach((expense) => {
+      const account = expense.transferAccount?.trim();
+      if (account) set.add(account);
+    });
+    liabilities.forEach((liability) => {
+      const account = liability.transferAccount?.trim();
+      if (account) set.add(account);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [expenses, liabilities]);
+  const disabledTransferAccounts = tempSettings.transferLedgerDisabledAccounts || [];
 
   const openIncomeModal = (source?: IncomeSource, isPartnerAdd: boolean = false) => {
     if (source) {
@@ -786,6 +799,40 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
                             className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                           />
                           <span aria-hidden="true" />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pl-6 border-l-2 border-indigo-100 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <span className="text-sm font-medium text-slate-700">Transfer Ledger Accounts</span>
+                        </div>
+                      </div>
+                      {transferAccounts.length === 0 ? (
+                        <p className="pl-7 text-xs text-slate-400">No transfer accounts found on your liabilities or expenses yet.</p>
+                      ) : (
+                        <div className="pl-7 space-y-2">
+                          <p className="text-xs text-slate-500">Uncheck any account you do not want shown in the Transfer Account Ledger.</p>
+                          {transferAccounts.map((account) => {
+                            const enabled = !disabledTransferAccounts.includes(account);
+                            return (
+                              <label key={account} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 bg-white">
+                                <span className="text-sm text-slate-700">{account}</span>
+                                <input
+                                  type="checkbox"
+                                  checked={enabled}
+                                  onChange={(e) => {
+                                    const nextDisabled = e.target.checked
+                                      ? disabledTransferAccounts.filter((item) => item !== account)
+                                      : Array.from(new Set([...disabledTransferAccounts, account])).sort((a, b) => a.localeCompare(b));
+                                    setTempSettings({ ...tempSettings, transferLedgerDisabledAccounts: nextDisabled });
+                                  }}
+                                  className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                                />
+                              </label>
+                            );
+                          })}
                         </div>
                       )}
                     </div>

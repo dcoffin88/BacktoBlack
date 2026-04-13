@@ -28,6 +28,7 @@ const App: React.FC = () => {
     emailReports: false,
     email: '',
     incomeSources: [],
+    transferLedgerDisabledAccounts: [],
     currencySymbol: '$',
     monthlyIncomeMode: 'ANNUALIZED'
   });
