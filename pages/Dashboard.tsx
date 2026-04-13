@@ -195,11 +195,10 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
   useEffect(() => {
     setChartsReady(true);
   }, []);
-  const simpleTerms = userSettings?.useSimpleTerms;
-  const liabilityLabel = simpleTerms ? 'Loan' : 'Liability';
-  const liabilityPlural = simpleTerms ? 'Loans' : 'Liabilities';
-  const expenseLabel = simpleTerms ? 'Bill' : 'Expense';
-  const expensePlural = simpleTerms ? 'Bills' : 'Expenses';
+  const liabilityLabel = 'Liability';
+  const liabilityPlural = 'Liabilities';
+  const expenseLabel = 'Expense';
+  const expensePlural = 'Expenses';
   const currencySymbol = userSettings?.currencySymbol || '$';
   const monthlyIncomeMode = userSettings?.monthlyIncomeMode || 'ANNUALIZED';
   const now = new Date();
@@ -311,23 +310,6 @@ const Dashboard: React.FC<DashboardProps> = ({ liabilities, expenses, assets, in
     0
   );
   const creditAvailable = totalCreditLimit - totalCreditBalance;
-  const getMonthlyPaymentFromSchedule = (liability: Liability) => {
-    const schedule = amortizationSchedules[liability.id];
-    if (!schedule?.timeline?.length) return null;
-    const isBiWeekly = liability.paymentFrequency === 'BI_WEEKLY';
-    const isWeekly = liability.paymentFrequency === 'WEEKLY';
-    const periodsPerYear = isBiWeekly ? 26 : isWeekly ? 52 : 12;
-    const periodsPerMonth = periodsPerYear / 12;
-    let total = 0;
-    schedule.timeline.forEach((row) => {
-      if (row.month <= 0) return;
-      const monthIndex = Math.max(1, Math.ceil(row.month / periodsPerMonth));
-      if (monthIndex === 1) {
-        total += row.payment;
-      }
-    });
-    return total;
-  };
 
   const avgInterest = liabilities.length > 0
     ? liabilities.reduce((sum, d) => sum + d.interestRate, 0) / liabilities.length

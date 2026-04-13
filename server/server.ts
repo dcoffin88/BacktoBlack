@@ -414,7 +414,7 @@ const getPeriodIndexFromDate = (liability: Liability, chequeDate?: string | null
     }
     const previousAnchor = addDays(anchor, -intervalDays);
     if (target >= previousAnchor && target < anchor) {
-      return target.getTime() === previousAnchor.getTime() ? 0 : 1;
+      return 1;
     }
     let period = 1;
     let cursor = new Date(anchor);
@@ -443,7 +443,7 @@ const getPeriodIndexFromDate = (liability: Liability, chequeDate?: string | null
   }
   const previousAnchor = new Date(anchor.getFullYear(), anchor.getMonth() - 1, anchor.getDate());
   if (target >= previousAnchor && target < anchor) {
-    return target.getTime() === previousAnchor.getTime() ? 0 : 1;
+    return 1;
   }
   let period = 1;
   let cursor = new Date(anchor);
@@ -1912,13 +1912,12 @@ app.get('/api/settings', authenticateToken, (req: AuthedRequest, res) => {
           emailReports: false,
           email: user.email,
           incomeSources: [],
-          useSimpleTerms: false,
           currencySymbol: '$',
           startDate: todayIso,
           monthlyIncomeMode: 'ANNUALIZED',
         };
 
-      if (settings.useSimpleTerms === undefined) settings.useSimpleTerms = false;
+      delete (settings as Partial<UserSettings> & { useSimpleTerms?: boolean }).useSimpleTerms;
       if (!settings.currencySymbol) settings.currencySymbol = '$';
       if (!settings.startDate) settings.startDate = todayIso;
       if (!settings.monthlyIncomeMode) settings.monthlyIncomeMode = 'ANNUALIZED';
@@ -1959,12 +1958,12 @@ app.post('/api/settings', authenticateToken, (req: AuthedRequest, res) => {
   const scopeId = user.householdId || user.id;
   const persist = (partnerId: number | null) => {
     const normalizedSettings: UserSettings = {
-      useSimpleTerms: false,
       currencySymbol: '$',
       startDate: settings.startDate || todayIso,
       monthlyIncomeMode: settings.monthlyIncomeMode || 'ANNUALIZED',
       ...settings,
     };
+    delete (normalizedSettings as Partial<UserSettings> & { useSimpleTerms?: boolean }).useSimpleTerms;
 
     const incomeSources = normalizeIncomeSources(settings.incomeSources || [], user.id, partnerId);
     const payload = { ...normalizedSettings, householdId: scopeId, incomeSources };

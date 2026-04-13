@@ -160,7 +160,6 @@ export interface UserSettings {
     enableTransferReport?: boolean;
     transferReportRecipients?: string;
 
-    useSimpleTerms?: boolean;
     currencySymbol?: string;
     monthlyIncomeMode?: MonthlyIncomeMode;
 

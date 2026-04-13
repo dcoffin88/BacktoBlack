@@ -1,4 +1,4 @@
-import { Asset, Expense, IncomeSource, Liability, UserSettings, PaychequeOccurrence, ExtraPayment } from '../../types';
+import { Asset, BudgetSchedule, Expense, IncomeSource, Liability, UserSettings, PaychequeOccurrence, ExtraPayment } from '../../types';
 import { calculateIndividualAmortization, getAnnualizedIncomeAmount, getMinPayment } from '../liabilityAlgorithms';
 import { generatePaycheques, getPerChequeExpenseAmount, getPerChequeLiabilityAmount } from '../../utils/paychequeLogic';
 
@@ -9,6 +9,7 @@ interface ReportData {
     assets: Asset[];
     settings: UserSettings;
     extraPayments: ExtraPayment[];
+    budgetSchedule?: BudgetSchedule | null;
 }
 
 const formatCurrency = (value: number, symbol: string = '$') => {
@@ -22,8 +23,33 @@ const getPeriodRange = (year: number, month: number) => {
     };
 };
 
+const getSchedulePaymentForDate = (
+    schedule: BudgetSchedule | null | undefined,
+    liabilityId: string,
+    date: Date
+) => {
+    if (!schedule?.savedAt || !schedule.timeline?.length) return null;
+    const savedDate = new Date(schedule.savedAt);
+    if (Number.isNaN(savedDate.getTime())) return null;
+    const savedMonthCount = savedDate.getFullYear() * 12 + savedDate.getMonth();
+    const targetMonthCount = date.getFullYear() * 12 + date.getMonth();
+    const monthIndex = Math.max(1, targetMonthCount - savedMonthCount + 1);
+    const row = schedule.timeline.find((item) => item.month === monthIndex);
+    const payment = row?.breakdown?.find((entry) => entry.liabilityId === liabilityId)?.payment;
+    return typeof payment === 'number' ? payment : null;
+};
+
+const getFallbackMonthlyPayment = (liability: Liability) => {
+    const currentBalance = liability.balance || 0;
+    const interestRate = liability.interestRate || 0;
+    const annualFee = liability.annualFee || 0;
+    const monthlyInterest = currentBalance * (interestRate / 100 / 12);
+    const estFee = liability.isFeeMonthly ? annualFee / 12 : 0;
+    return getMinPayment(liability, currentBalance, monthlyInterest, estFee);
+};
+
 const generateBudgetSummary = async (data: ReportData, date: Date) => {
-    const { liabilities, expenses, incomes, assets, settings, extraPayments } = data;
+    const { liabilities, expenses, incomes, assets, settings, extraPayments, budgetSchedule } = data;
     const year = date.getFullYear();
     const month = date.getMonth() + 1;
     const { start, end } = getPeriodRange(year, month);
@@ -33,8 +59,6 @@ const generateBudgetSummary = async (data: ReportData, date: Date) => {
     const paycheques = generatePaycheques(budgetedIncomes, start, end, { budgetStartDate });
     const paychequesInPeriod = paycheques.filter(p => p.date >= start && p.date <= end);
     const periodIncomeTotal = paychequesInPeriod.reduce((sum, p) => sum + p.source.amount, 0);
-    const scheduleBalanceById: Record<string, number> = {};
-
     const rangeEnd = new Date(end);
     rangeEnd.setHours(0, 0, 0, 0);
     const activeLiabilities = liabilities.filter((liability) => {
@@ -44,22 +68,6 @@ const generateBudgetSummary = async (data: ReportData, date: Date) => {
         start.setHours(0, 0, 0, 0);
         return start <= rangeEnd;
     });
-
-    const liabilityWithMins = activeLiabilities.map(l => {
-        const currentBalance = l.balance || 0;
-        const interestRate = l.interestRate || 0;
-        const annualFee = l.annualFee || 0;
-        const monthlyInterest = currentBalance * (interestRate / 100 / 12);
-        const estFee = l.isFeeMonthly ? annualFee / 12 : 0;
-        const plannedPayment = getMinPayment(l, currentBalance, monthlyInterest, estFee);
-
-        return {
-            ...l,
-            plannedPayment,
-            scheduledFrequency: l.paymentFrequency || 'MONTHLY'
-        };
-    });
-
 
     let userSplitRatio = 1;
     if (settings.enablePartner) {
@@ -88,15 +96,20 @@ const generateBudgetSummary = async (data: ReportData, date: Date) => {
         }, 0);
     };
 
-    const getLiabilityTotal = (liability: typeof liabilityWithMins[number]) => {
+    const getLiabilityTotal = (liability: Liability) => {
         return paychequesInPeriod.reduce((sum, p) => {
             const monthPaycheques = getMonthPaychequesFor(p.date);
-            return sum + getPerChequeLiabilityAmount(liability, p, monthPaycheques, budgetedIncomes, extraPayments, userSplitRatio, { includeUnchecked: false });
+            const liabilityWithPlan = {
+                ...liability,
+                plannedPayment: getSchedulePaymentForDate(budgetSchedule, liability.id, p.date) ?? getFallbackMonthlyPayment(liability),
+                scheduledFrequency: liability.paymentFrequency || 'MONTHLY'
+            };
+            return sum + getPerChequeLiabilityAmount(liabilityWithPlan, p, monthPaycheques, budgetedIncomes, extraPayments, userSplitRatio, { includeUnchecked: false });
         }, 0);
     };
 
     const periodExpenseTotal = expenses.reduce((sum, e) => sum + getExpenseTotal(e), 0);
-    const periodLiabilityTotal = liabilityWithMins.reduce((sum, l) => sum + getLiabilityTotal(l), 0);
+    const periodLiabilityTotal = activeLiabilities.reduce((sum, l) => sum + getLiabilityTotal(l), 0);
     const monthlyBudget = settings.monthlyBudget || 0;
 
     const periodCashOut = periodExpenseTotal + periodLiabilityTotal + monthlyBudget;
@@ -112,7 +125,7 @@ const generateBudgetSummary = async (data: ReportData, date: Date) => {
     });
 
     const liabilityGroups = new Map<string, number>();
-    liabilityWithMins.forEach(l => {
+    activeLiabilities.forEach(l => {
         const amt = getLiabilityTotal(l);
         if (amt > 0) {
             const cat = l.category || 'Uncategorized';
@@ -155,7 +168,7 @@ const generateBudgetSummary = async (data: ReportData, date: Date) => {
             </div>
 
             <div style="padding: 16px; border-bottom: 1px solid #e2e8f0;">
-                <p style="margin: 0 0 8px 0; font-size: 12px; font-weight: 600; text-transform: uppercase; color: #64748b;">Liability Minimums</p>
+                <p style="margin: 0 0 8px 0; font-size: 12px; font-weight: 600; text-transform: uppercase; color: #64748b;">${budgetSchedule?.timeline?.length ? 'Liability Payments' : 'Liability Minimums'}</p>
                  ${liabilityGroups.size === 0 ? '<p style="margin:0; font-style:italic; color:#94a3b8; font-size:14px;">No liabilities</p>' : ''}
                 ${Array.from(liabilityGroups.entries()).map(([cat, total]) => `
                     <div style="display: flex; align-items: baseline; margin-bottom: 4px;">
@@ -188,9 +201,8 @@ const generateBudgetSummary = async (data: ReportData, date: Date) => {
 };
 
 const generateTransferReport = async (data: ReportData, date: Date) => {
-    const { liabilities, expenses, incomes, settings, extraPayments } = data;
+    const { liabilities, expenses, incomes, settings, extraPayments, budgetSchedule } = data;
     const currencySymbol = settings.currencySymbol || '$';
-    const dateKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
     const { start, end } = getPeriodRange(date.getFullYear(), date.getMonth() + 1);
     const budgetStartDate = settings.startDate ? new Date(settings.startDate) : null;
     const budgetedIncomes = incomes.filter(i => i.includeInPlanner !== false);
@@ -258,15 +270,13 @@ const generateTransferReport = async (data: ReportData, date: Date) => {
         });
 
         activeLiabilities.forEach(l => {
-            const currentBalance = l.balance || 0;
-            const interestRate = l.interestRate || 0;
-            const annualFee = l.annualFee || 0;
-            const monthlyInterest = currentBalance * (interestRate / 100 / 12);
-            const estFee = l.isFeeMonthly ? annualFee / 12 : 0;
-            const plannedPayment = getMinPayment(l, currentBalance, monthlyInterest, estFee);
-            const liabilityWithMin = { ...l, plannedPayment, scheduledFrequency: l.paymentFrequency || 'MONTHLY' };
+            const liabilityWithPlan = {
+                ...l,
+                plannedPayment: getSchedulePaymentForDate(budgetSchedule, l.id, currentPaycheque.date) ?? getFallbackMonthlyPayment(l),
+                scheduledFrequency: l.paymentFrequency || 'MONTHLY'
+            };
 
-            const amt = getPerChequeLiabilityAmount(liabilityWithMin, currentPaycheque, monthPaycheques, budgetedIncomes, extraPayments, userSplitRatio, { includeUnchecked: false });
+            const amt = getPerChequeLiabilityAmount(liabilityWithPlan, currentPaycheque, monthPaycheques, budgetedIncomes, extraPayments, userSplitRatio, { includeUnchecked: false });
             if (amt > 0) {
                 if (l.manualPaymentRequired) {
                     manualPayments.push({

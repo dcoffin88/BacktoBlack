@@ -158,10 +158,9 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
   const isDeficit = freeCashFlow < 0;
   const isHouseholdMember = Boolean(tempSettings.householdId);
   const pendingOutboundInvite = invites.find(i => !i.isIncoming);
-  const simpleTerms = tempSettings.useSimpleTerms;
-  const expenseLabel = simpleTerms ? 'Bills' : 'Expenses';
+  const expenseLabel = 'Expenses';
   const expensePlural = expenseLabel;
-  const liabilityLabel = simpleTerms ? 'Loans' : 'Liabilities';
+  const liabilityLabel = 'Liabilities';
   const currencySymbol = tempSettings.currencySymbol || '$';
   const currencyOptions = ['$', '£', '€', '₹', '¥', '₱', '₩'];
 
@@ -411,15 +410,6 @@ const AppSettings: React.FC<SettingsProps> = ({ settings, onSave, liabilities, e
                 <h2 className="text-lg font-bold text-slate-900">Display & Terminology</h2>
               </div>
               <div className="space-y-3">
-                <label className="flex items-center space-x-3">
-                  <input
-                    type="checkbox"
-                    checked={!!tempSettings.useSimpleTerms}
-                    onChange={e => setTempSettings({ ...tempSettings, useSimpleTerms: e.target.checked })}
-                    className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                  />
-                  <span className="text-sm text-slate-700">Use simplified terms (Loans/Bills instead of Liabilities/Expenses)</span>
-                </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Currency Symbol</label>

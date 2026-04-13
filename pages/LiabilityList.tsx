@@ -157,6 +157,16 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
     const [viewingExtraPayments, setViewingExtraPayments] = useState<
         ExtraPayment[]
     >([]);
+    const [amortizationExtraDate, setAmortizationExtraDate] = useState("");
+    const [amortizationExtraAmount, setAmortizationExtraAmount] = useState("");
+    const [amortizationExtraError, setAmortizationExtraError] = useState<
+        string | null
+    >(null);
+    const [savingAmortizationExtra, setSavingAmortizationExtra] =
+        useState(false);
+    const [deletingExtraPaymentId, setDeletingExtraPaymentId] = useState<
+        string | null
+    >(null);
     const [extrasLoaded, setExtrasLoaded] = useState(false);
     const [overridesLoaded, setOverridesLoaded] = useState(false);
     const [scheduleLoaded, setScheduleLoaded] = useState(false);
@@ -284,6 +294,24 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             active = false;
         };
     }, [isAmortizationOpen, viewingLiability, extraPayments]);
+
+    useEffect(() => {
+        if (!isAmortizationOpen || !viewingLiability) {
+            setAmortizationExtraDate("");
+            setAmortizationExtraAmount("");
+            setAmortizationExtraError(null);
+            return;
+        }
+        const today = new Date();
+        const localDate = new Date(
+            today.getTime() - today.getTimezoneOffset() * 60000
+        )
+            .toISOString()
+            .split("T")[0];
+        setAmortizationExtraDate(localDate);
+        setAmortizationExtraAmount("");
+        setAmortizationExtraError(null);
+    }, [isAmortizationOpen, viewingLiability]);
 
     useEffect(() => {
         let active = true;
@@ -608,7 +636,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             }
             const previousAnchor = addDays(anchor, -intervalDays);
             if (target >= previousAnchor && target < anchor) {
-                return target.getTime() === previousAnchor.getTime() ? 0 : 1;
+                return 1;
             }
             let period = 1;
             let cursor = new Date(anchor);
@@ -640,9 +668,6 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
             }
         }
         const previousAnchor = addMonths(anchor, -1);
-        if (target.getTime() === previousAnchor.getTime()) {
-            return 0;
-        }
         if (
             target.getFullYear() === previousAnchor.getFullYear() &&
             target.getMonth() === previousAnchor.getMonth()
@@ -1113,6 +1138,76 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
         isAmortizationOpen,
         amortizationOverrides,
     ]);
+
+    const refreshViewingExtras = async (liabilityId: string) => {
+        try {
+            const remote = await dbAPI.getLiabilityExtraPayments(liabilityId);
+            const next = remote?.extras || [];
+            setViewingExtraPayments(next);
+            setExtraPayments((prev) => [
+                ...prev.filter((payment) => payment.liabilityId !== liabilityId),
+                ...next,
+            ]);
+        } catch {
+            /* ignore refresh errors */
+        }
+    };
+
+    const saveAmortizationExtraPayment = async () => {
+        if (!viewingLiability) return;
+        const amount = Number(amortizationExtraAmount);
+        if (!amortizationExtraDate) {
+            setAmortizationExtraError("Choose a payment date.");
+            return;
+        }
+        if (!Number.isFinite(amount) || amount <= 0) {
+            setAmortizationExtraError("Enter an extra payment amount greater than 0.");
+            return;
+        }
+
+        setSavingAmortizationExtra(true);
+        setAmortizationExtraError(null);
+        try {
+            const paymentId =
+                typeof crypto !== "undefined" && "randomUUID" in crypto
+                    ? crypto.randomUUID()
+                    : `extra-${Date.now()}`;
+            await dbAPI.saveLiabilityExtraPayment(viewingLiability.id, {
+                id: paymentId,
+                liabilityId: viewingLiability.id,
+                amount,
+                chequeDate: amortizationExtraDate,
+                isChecked: true,
+            });
+            await refreshViewingExtras(viewingLiability.id);
+            setAmortizationExtraAmount("");
+        } catch (error: any) {
+            setAmortizationExtraError(
+                error?.message || "Failed to save extra payment."
+            );
+        } finally {
+            setSavingAmortizationExtra(false);
+        }
+    };
+
+    const deleteAmortizationExtraPayment = async (payment: ExtraPayment) => {
+        if (!viewingLiability || isMinimumPaymentId(payment.id)) return;
+        setDeletingExtraPaymentId(payment.id);
+        setAmortizationExtraError(null);
+        try {
+            await dbAPI.deleteLiabilityExtraPayment(
+                viewingLiability.id,
+                payment.id
+            );
+            await refreshViewingExtras(viewingLiability.id);
+        } catch (error: any) {
+            setAmortizationExtraError(
+                error?.message || "Failed to delete extra payment."
+            );
+        } finally {
+            setDeletingExtraPaymentId(null);
+        }
+    };
 
 
     const savePriorityOrder = () => {
@@ -2612,7 +2707,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                         <p className="text-xs text-slate-500">
                                             Exclude this liability from specific
                                             income sources when splitting
-                                            per-cheque on the Budget page.
+                                            per-cheque in your saved schedule.
                                         </p>
                                         <label className="flex items-center space-x-2 text-sm text-slate-700">
                                             <input
@@ -2704,7 +2799,7 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                                 <p className="text-xs text-slate-400">
                                                     No eligible income sources
                                                     (others are excluded from
-                                                    Budget).
+                                                    the saved schedule).
                                                 </p>
                                             )}
                                         </div>
@@ -2924,6 +3019,124 @@ const LiabilityList: React.FC<LiabilityListProps> = ({
                                 </div>
                             </div>
                         )}
+
+                        <div className="px-6 py-4 border-b border-slate-200 bg-white">
+                            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                                <div>
+                                    <p className="text-sm font-semibold text-slate-900">
+                                        Add Extra Payment
+                                    </p>
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        Past periods continue to auto-mark as paid. Use this to add a dated extra payment for this liability.
+                                    </p>
+                                </div>
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                                    <label className="flex flex-col text-xs font-medium text-slate-600">
+                                        Date
+                                        <input
+                                            type="date"
+                                            value={amortizationExtraDate}
+                                            onChange={(e) =>
+                                                setAmortizationExtraDate(
+                                                    e.target.value
+                                                )
+                                            }
+                                            className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        />
+                                    </label>
+                                    <label className="flex flex-col text-xs font-medium text-slate-600">
+                                        Amount
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            value={amortizationExtraAmount}
+                                            onChange={(e) =>
+                                                setAmortizationExtraAmount(
+                                                    e.target.value
+                                                )
+                                            }
+                                            placeholder="0.00"
+                                            className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        />
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={saveAmortizationExtraPayment}
+                                        disabled={savingAmortizationExtra}
+                                        className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                        {savingAmortizationExtra
+                                            ? "Saving..."
+                                            : "Add Extra"}
+                                    </button>
+                                </div>
+                            </div>
+                            {amortizationExtraError && (
+                                <p className="mt-3 text-xs font-medium text-red-600">
+                                    {amortizationExtraError}
+                                </p>
+                            )}
+                            <div className="mt-4 border-t border-slate-100 pt-4">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                    Recent Extra Payments
+                                </p>
+                                {paymentsForViewing.filter(
+                                    (payment) => !isMinimumPaymentId(payment.id)
+                                ).length === 0 ? (
+                                    <p className="mt-2 text-xs text-slate-400">
+                                        No dated extra payments added for this liability yet.
+                                    </p>
+                                ) : (
+                                    <div className="mt-2 space-y-2">
+                                        {paymentsForViewing
+                                            .filter(
+                                                (payment) =>
+                                                    !isMinimumPaymentId(payment.id)
+                                            )
+                                            .slice()
+                                            .reverse()
+                                            .map((payment) => (
+                                                <div
+                                                    key={payment.id}
+                                                    className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                                                >
+                                                    <div className="text-sm text-slate-700">
+                                                        <div className="font-medium">
+                                                            $
+                                                            {(
+                                                                payment.amount || 0
+                                                            ).toFixed(2)}
+                                                        </div>
+                                                        <div className="text-xs text-slate-500">
+                                                            {payment.chequeDate ||
+                                                                "No date"}
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            deleteAmortizationExtraPayment(
+                                                                payment
+                                                            )
+                                                        }
+                                                        disabled={
+                                                            deletingExtraPaymentId ===
+                                                            payment.id
+                                                        }
+                                                        className="inline-flex items-center rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                                    >
+                                                        {deletingExtraPaymentId ===
+                                                        payment.id
+                                                            ? "Deleting..."
+                                                            : "Delete"}
+                                                    </button>
+                                                </div>
+                                            ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
 
                         {/* Table Content */}
                         <AmortizationTable

@@ -13,7 +13,6 @@ import {
   User,
   PanelLeftClose,
   PanelLeftOpen,
-  Calculator,
   Menu,
   X,
   FileText,
@@ -39,16 +38,11 @@ const Layout: React.FC<LayoutProps> = ({ children, userEmail, userName, onLogout
     }`;
   const displayName = userName || userEmail;
   const avatarLetter = displayName.charAt(0).toUpperCase();
-  const simple = settings?.useSimpleTerms;
-  const expenseLabel = simple ? 'Bills' : 'Expenses';
-  const liabilityLabel = simple ? 'Loans' : 'Liabilities';
-
   const navItems = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-    { to: '/budget', icon: Calculator, label: 'Budget' },
     { to: '/income', icon: Wallet, label: 'Income' },
-    { to: '/liabilities', icon: DollarSign, label: liabilityLabel },
-    { to: '/expenses', icon: Receipt, label: expenseLabel },
+    { to: '/liabilities', icon: DollarSign, label: 'Liabilities' },
+    { to: '/expenses', icon: Receipt, label: 'Expenses' },
     { to: '/assets', icon: Landmark, label: 'Assets' },
     { to: '/strategy', icon: PieChart, label: 'Strategy Lab' },
     { to: '/reports', icon: FileText, label: 'Reports' },

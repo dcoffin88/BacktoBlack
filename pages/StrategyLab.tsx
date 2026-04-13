@@ -910,7 +910,7 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
                     className="inline-flex items-center px-4 py-2 rounded-lg bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-700 transition-colors"
                   >
                     <ArrowRight size={16} className="mr-2" />
-                    Send schedule to Budget
+                    Save schedule
                   </button>
                   {scheduleSavedAt && (
                     <button
@@ -928,7 +928,7 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
           {scheduleSavedAt && hasJustSentSchedule && (
             <div className="mb-6 px-4 py-3 bg-emerald-50 border border-emerald-100 rounded-lg text-sm text-emerald-800 flex items-center justify-between">
               <span>
-                Schedule sent to Budget using <strong>{STRATEGY_LABELS[selectedStrategy as StrategyType]}</strong>. Month 1 is anchored to {new Date(scheduleSavedAt).toLocaleDateString()}.
+                Schedule saved using <strong>{STRATEGY_LABELS[selectedStrategy as StrategyType]}</strong>. Month 1 is anchored to {new Date(scheduleSavedAt).toLocaleDateString()}.
               </span>
             </div>
           )}
@@ -1022,7 +1022,7 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
               <div>
                 <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">Schedule</p>
                 <h3 className="text-lg font-bold text-slate-900 mt-1">Set Month 1 Anchor Date</h3>
-                <p className="text-sm text-slate-500 mt-1">Choose when your schedule starts before sending to Budget.</p>
+                <p className="text-sm text-slate-500 mt-1">Choose when your saved schedule starts.</p>
               </div>
               <button
                 className="text-slate-400 hover:text-slate-600"
@@ -1057,7 +1057,7 @@ const StrategyLab: React.FC<StrategyLabProps> = ({ liabilities, monthlyBudget })
                 className="inline-flex items-center px-4 py-2 rounded-lg bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-700 transition-colors"
               >
                 <ArrowRight size={16} className="mr-2" />
-                Send schedule to Budget
+                Save schedule
               </button>
             </div>
           </div>

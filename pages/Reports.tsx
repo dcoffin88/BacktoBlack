@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Asset, Expense, IncomeSource, Liability, PaychequeOccurrence, UserSettings } from '../types';
+import { Asset, BudgetSchedule, Expense, IncomeSource, Liability, PaychequeOccurrence, UserSettings } from '../types';
 import { calculateMonthlyIncome, getMinPayment, AmortizationRow, getAnnualizedIncomeAmount } from '../server/liabilityAlgorithms';
 import { generatePaycheques, getPerChequeExpenseAmount, getPerChequeLiabilityAmount } from '../utils/paychequeLogic';
 import { dbAPI } from '../server/db';
@@ -62,6 +62,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
   const [amortizationSchedules, setAmortizationSchedules] = useState<Record<string, AmortizationDataView>>({});
   const [amortizationLoaded, setAmortizationLoaded] = useState(false);
   const [allExtraPayments, setAllExtraPayments] = useState<ExtraPayment[]>([]);
+  const [savedSchedule, setSavedSchedule] = useState<BudgetSchedule | null>(null);
   const budgetStartDate = useMemo(() => {
     if (!settings.startDate) return null;
     const parsed = new Date(settings.startDate);
@@ -105,7 +106,19 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
       setAmortizationSchedules(next);
       setAmortizationLoaded(true);
     };
+    const loadSavedSchedule = async () => {
+      try {
+        const remote = await dbAPI.getBudgetSchedule();
+        if (!active) return;
+        setSavedSchedule(remote?.schedule || null);
+      } catch {
+        if (active) {
+          setSavedSchedule(null);
+        }
+      }
+    };
     loadAmortizations();
+    loadSavedSchedule();
     dbAPI.getExtraPayments().then((response) => {
       if (active && response?.extras) {
         setAllExtraPayments(response.extras);
@@ -156,23 +169,28 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     return next;
   }, [amortizationSchedules, liabilities]);
 
-  const getMonthlyPaymentFromSchedule = (liability: Liability) => {
-    const schedule = amortizationSchedules[liability.id];
-    if (!schedule?.timeline?.length) return null;
-    const isBiWeekly = liability.paymentFrequency === 'BI_WEEKLY';
-    const isWeekly = liability.paymentFrequency === 'WEEKLY';
-    const periodsPerYear = isBiWeekly ? 26 : isWeekly ? 52 : 12;
-    const periodsPerMonth = periodsPerYear / 12;
-    let total = 0;
-    schedule.timeline.forEach((row) => {
-      if (row.month <= 0) return;
-      const monthIndex = Math.max(1, Math.ceil(row.month / periodsPerMonth));
-      if (monthIndex === 1) {
-        total += row.payment;
-      }
-    });
-    return total;
-  };
+  const getFallbackMonthlyPayment = useCallback((liability: Liability) => {
+    const currentBalance = scheduleBalanceById[liability.id] ?? liability.balance;
+    const monthlyInterest = currentBalance * (liability.interestRate / 100 / 12);
+    const estFee = liability.isFeeMonthly ? liability.annualFee / 12 : 0;
+    return getMinPayment(liability, currentBalance, monthlyInterest, estFee);
+  }, [scheduleBalanceById]);
+
+  const getSavedSchedulePaymentForDate = useCallback((liability: Liability, date: Date) => {
+    if (!savedSchedule?.savedAt || !savedSchedule.timeline?.length) return null;
+    const savedDate = new Date(savedSchedule.savedAt);
+    if (Number.isNaN(savedDate.getTime())) return null;
+    const savedMonthCount = savedDate.getFullYear() * 12 + savedDate.getMonth();
+    const targetMonthCount = date.getFullYear() * 12 + date.getMonth();
+    const monthIndex = Math.max(1, targetMonthCount - savedMonthCount + 1);
+    const row = savedSchedule.timeline.find((item) => item.month === monthIndex);
+    const payment = row?.breakdown?.find((entry) => entry.liabilityId === liability.id)?.payment;
+    return typeof payment === 'number' ? payment : null;
+  }, [savedSchedule]);
+
+  const getPlannedMonthlyPayment = useCallback((liability: Liability, date: Date) => {
+    return getSavedSchedulePaymentForDate(liability, date) ?? getFallbackMonthlyPayment(liability);
+  }, [getFallbackMonthlyPayment, getSavedSchedulePaymentForDate]);
 
   const monthlyBudget = settings.monthlyBudget || 0;
 
@@ -342,18 +360,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
 
   const selectedTransfer = transferCheques.find((cheque) => cheque.key === selectedChequeKey) || null;
 
-  const liabilityWithMins = useMemo(() => {
-    return activeLiabilities.map((liability) => {
-      const currentBalance = scheduleBalanceById[liability.id] ?? liability.balance;
-      const monthlyInterest = currentBalance * (liability.interestRate / 100 / 12);
-      const estFee = liability.isFeeMonthly ? liability.annualFee / 12 : 0;
-      return {
-        ...liability,
-        plannedPayment: getMinPayment(liability, currentBalance, monthlyInterest, estFee),
-        scheduledFrequency: liability.paymentFrequency || 'MONTHLY',
-      };
-    });
-  }, [activeLiabilities, scheduleBalanceById]);
+  const hasSavedStrategySchedule = !!savedSchedule?.timeline?.length;
 
   const monthPaychequesByKey = useMemo(() => {
     const buckets = new Map<string, PaychequeOccurrence[]>();
@@ -393,9 +400,14 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     return getPerChequeExpenseFor(expense, currentPaycheque, monthPaychequesForCheque);
   };
 
-  const getPerChequeLiabilityFor = useCallback((liability: typeof liabilityWithMins[number], currentPaycheque: PaychequeOccurrence | null, monthPaychequesForCheque: PaychequeOccurrence[]) => {
+  const getPerChequeLiabilityFor = useCallback((liability: Liability, currentPaycheque: PaychequeOccurrence | null, monthPaychequesForCheque: PaychequeOccurrence[]) => {
+    const liabilityWithPlan = {
+      ...liability,
+      plannedPayment: currentPaycheque ? getPlannedMonthlyPayment(liability, currentPaycheque.date) : getFallbackMonthlyPayment(liability),
+      scheduledFrequency: liability.paymentFrequency || 'MONTHLY',
+    };
     return getPerChequeLiabilityAmount(
-      liability,
+      liabilityWithPlan,
       currentPaycheque,
       monthPaychequesForCheque,
       budgetedIncomes,
@@ -403,9 +415,9 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
       userSplitRatio,
       { includeUnchecked: false }
     );
-  }, [userSplitRatio, budgetedIncomes, allExtraPayments]);
+  }, [allExtraPayments, budgetedIncomes, getFallbackMonthlyPayment, getPlannedMonthlyPayment, userSplitRatio]);
 
-  const getPerChequeLiability = (liability: typeof liabilityWithMins[number]) => {
+  const getPerChequeLiability = (liability: Liability) => {
     const currentPaycheque = selectedTransfer?.paycheque || null;
     if (!currentPaycheque) return 0;
     const monthPaychequesForCheque = getMonthPaychequesFor(currentPaycheque.date);
@@ -423,7 +435,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
   );
 
   const getLiabilityPeriodTotal = useCallback(
-    (liability: typeof liabilityWithMins[number]) => {
+    (liability: Liability) => {
       return paychequesInPeriod.reduce((sum, paycheque) => {
         const monthPaychequesForCheque = getMonthPaychequesFor(paycheque.date);
         return sum + getPerChequeLiabilityFor(liability, paycheque, monthPaychequesForCheque);
@@ -438,8 +450,8 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
   );
 
   const periodLiabilityTotal = useMemo(
-    () => liabilityWithMins.reduce((sum, liability) => sum + getLiabilityPeriodTotal(liability), 0),
-    [getLiabilityPeriodTotal, liabilityWithMins]
+    () => activeLiabilities.reduce((sum, liability) => sum + getLiabilityPeriodTotal(liability), 0),
+    [activeLiabilities, getLiabilityPeriodTotal]
   );
 
   const expenseCategoryRows = useMemo(() => {
@@ -463,8 +475,8 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
   }, [expenses, getExpensePeriodTotal]);
 
   const liabilityCategoryRows = useMemo(() => {
-    const buckets = new Map<string, { items: typeof liabilityWithMins[number][]; total: number }>();
-    liabilityWithMins.forEach((liability) => {
+    const buckets = new Map<string, { items: Liability[]; total: number }>();
+    activeLiabilities.forEach((liability) => {
       const amount = getLiabilityPeriodTotal(liability);
       if (amount === 0) return;
       const key = liability.category?.trim() || 'Uncategorized';
@@ -480,7 +492,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
         total: data.total,
       }))
       .sort((a, b) => a.category.localeCompare(b.category));
-  }, [getLiabilityPeriodTotal, liabilityWithMins]);
+  }, [activeLiabilities, getLiabilityPeriodTotal]);
 
   const periodCashOut = useMemo(
     () => periodExpenseTotal + periodLiabilityTotal + monthlyBudget * monthCount,
@@ -507,7 +519,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
       });
       buckets.set(account, existing);
     });
-    liabilityWithMins.forEach((liability) => {
+    activeLiabilities.forEach((liability) => {
       const account = liability.transferAccount?.trim();
       if (!account) return;
       const amount = getPerChequeLiability(liability);
@@ -526,7 +538,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
     return Array.from(buckets.values()).sort((a, b) =>
       a.account.localeCompare(b.account)
     );
-  }, [expenses, getPerChequeExpense, getPerChequeLiability, liabilityWithMins, selectedTransfer]);
+  }, [activeLiabilities, expenses, getPerChequeExpense, getPerChequeLiability, selectedTransfer]);
 
   const monthOptions = useMemo(
     () =>
@@ -709,7 +721,7 @@ const Reports: React.FC<ReportsProps> = ({ liabilities, expenses, assets, income
               )}
             </div>
             <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Liability Minimums</p>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{hasSavedStrategySchedule ? 'Liability Payments' : 'Liability Minimums'}</p>
               {liabilities.length === 0 ? (
                 <p className="text-xs text-slate-400">No liabilities recorded.</p>
               ) : !balancesReady ? (

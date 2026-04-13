@@ -3,6 +3,7 @@ import nodemailer from 'nodemailer';
 import { Database } from 'sqlite3';
 import { Asset, Expense, IncomeSource, Liability, UserSettings, ExtraPayment } from '../types';
 import { ReportGenerator } from './reports/reportGenerator';
+import { BudgetSchedule } from '../types';
 import { generatePaycheques } from '../utils/paychequeLogic';
 
 interface UserRow {
@@ -284,6 +285,15 @@ const fetchUserData = async (db: Database, user: UserRow) => {
     const assetsRows = await dbAllAsync(db, 'SELECT content FROM assets WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)', [scopeId, user.id]);
     const incomesRows = await dbAllAsync(db, 'SELECT content FROM incomes WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)', [scopeId, user.id]);
     const extraPaymentsRows = await dbAllAsync(db, 'SELECT * FROM budget_extra_payments WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)', [scopeId, user.id]);
+    const budgetScheduleRow = await dbGetAsync(
+        db,
+        `SELECT strategy, strategy_label, saved_at, monthly_budget, timeline
+         FROM budget_schedule
+         WHERE household_id = ? OR (household_id IS NULL AND user_id = ?)
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+        [scopeId, user.id]
+    );
 
     const liabilitiesRaw = liabilitiesRows.map(r => {
         try { return JSON.parse(r.content) as Liability; } catch { return null; }
@@ -332,6 +342,21 @@ const fetchUserData = async (db: Database, user: UserRow) => {
         isChecked: row.is_checked !== 0
     }));
 
+    let budgetSchedule: BudgetSchedule | null = null;
+    if (budgetScheduleRow) {
+        try {
+            budgetSchedule = {
+                strategy: budgetScheduleRow.strategy,
+                strategyLabel: budgetScheduleRow.strategy_label,
+                savedAt: budgetScheduleRow.saved_at,
+                monthlyBudget: budgetScheduleRow.monthly_budget,
+                timeline: JSON.parse(budgetScheduleRow.timeline || '[]')
+            };
+        } catch {
+            budgetSchedule = null;
+        }
+    }
+
     return {
         user,
         settings,
@@ -341,7 +366,8 @@ const fetchUserData = async (db: Database, user: UserRow) => {
             incomes,
             assets,
             settings,
-            extraPayments
+            extraPayments,
+            budgetSchedule
         }
     };
 };

@@ -11,7 +11,6 @@ import Reports from './pages/Reports';
 import AppSettings from './pages/Settings';
 import Income from './pages/Income';
 import Profile from './pages/Profile';
-import Budget from './pages/Budget';
 import { dbAPI } from './server/db';
 import { Liability, Expense, Asset, UserSettings, IncomeSource, UserProfile } from './types';
 import { calculateMonthlyIncome, getMinPayment } from './server/liabilityAlgorithms';
@@ -29,7 +28,6 @@ const App: React.FC = () => {
     emailReports: false,
     email: '',
     incomeSources: [],
-    useSimpleTerms: false,
     currencySymbol: '$',
     monthlyIncomeMode: 'ANNUALIZED'
   });
@@ -240,7 +238,7 @@ const App: React.FC = () => {
           <Route path="/assets" element={<AssetList assets={assets} onSave={saveAsset} onDelete={deleteAsset} settings={settings} />} />
           <Route path="/strategy" element={<StrategyLab liabilities={liabilities} monthlyBudget={calculatedSurplus} />} />
           <Route path="/reports" element={<Reports liabilities={liabilities} expenses={expenses} assets={assets} incomes={incomes} settings={settings} />} />
-          <Route path="/budget" element={<Budget expenses={expenses} liabilities={liabilities} incomes={incomes} userSettings={settings} onUpdateLiability={saveLiability} />} />
+          <Route path="/budget" element={<Navigate to="/reports" replace />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/settings" element={
             <AppSettings 
